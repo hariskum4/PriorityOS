@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build -w packages/types && npm run build -w packages/scoring-engine && npm run build -w packages/ai-prompts && npm run build:web -w apps/mobile",
+  "installCommand": "npm install",
+  "outputDirectory": "apps/mobile/dist",
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

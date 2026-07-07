@@ -1,0 +1,37 @@
+# Render Blueprint — one-click API host for Priority.
+# Render runs a persistent process, so the @nestjs/schedule cron jobs work.
+# In the Render dashboard: New → Blueprint → point at this repo.
+# Set the secret env vars (marked sync:false) in the dashboard after creation.
+services:
+  - type: web
+    name: priority-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false        # Supabase pooled connection (port 6543)
+      - key: DIRECT_URL
+        sync: false        # Supabase direct connection (port 5432)
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_TTL
+        value: 900s
+      - key: JWT_REFRESH_TTL
+        value: 30d
+      - key: CORS_ORIGINS
+        sync: false        # your Vercel domain, e.g. https://priority.vercel.app
+      - key: AI_ENABLED
+        value: "false"     # flip to "true" once you add AI_API_KEY
+      - key: AI_PROVIDER
+        value: openai-compatible
+      - key: AI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: AI_MODEL
+        value: gpt-4o-mini
+      - key: AI_API_KEY
+        sync: false

@@ -1,0 +1,457 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Supabase/pooled setups: migrations run against the direct (5432) URL.
+  // Falls back to DATABASE_URL locally where DIRECT_URL is unset.
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Users & preferences
+// ---------------------------------------------------------------------------
+
+model User {
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  passwordHash        String?
+  fullName            String
+  dob                 DateTime?
+  timezone            String    @default("Asia/Kolkata")
+  city                String?
+  country             String?
+  profession          String?
+  workType            String?
+  workHoursPerWeek    Int?
+  maritalStatus       String?
+  childrenCount       Int       @default(0)
+  livesAwayFromParents Boolean  @default(false)
+  onboardingCompleted Boolean   @default(false)
+  preferredLanguage   String    @default("en")
+  motivationStyle     String    @default("balanced") // gentle | balanced | challenging
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  preferences         UserPreferences?
+  onboardingAnswers   OnboardingAnswer[]
+  relationships       Relationship[]
+  lifeDomains         LifeDomain[]
+  goals               Goal[]
+  missions            Mission[]
+  habits              Habit[]
+  journalEntries      JournalEntry[]
+  memories            Memory[]
+  opportunityInsights OpportunityInsight[]
+  aiRecommendations   AiRecommendation[]
+  weeklyReviews       WeeklyReview[]
+  gamification        GamificationProfile?
+  xpLedger            DomainXpEntry[]
+  notifications       Notification[]
+  refreshTokens       RefreshToken[]
+  analyticsEvents     AnalyticsEvent[]
+  partnerLinks        PartnerLink[]  @relation("owner")
+  partneredWith       PartnerLink[]  @relation("partner")
+  lastSeenAt          DateTime?      // for "notice when you go quiet"
+  reengagedAt         DateTime?      // last time we sent a warm return nudge
+}
+
+/// Product analytics — the funnel and retention truth. Self-contained so a
+/// solo founder can read D1/D7/D30 without an external SDK. Named events with
+/// arbitrary props; no PII beyond the userId FK.
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String   // onboarding_started | onboarding_completed | mission_completed | ...
+  props     Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([name, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Accountability / family link — the two-sided moat. A partner sees broad
+/// signal (completion rate, streaks, domain balance) and NEVER content:
+/// no priority titles, relationships, journal, or memories cross the line.
+model PartnerLink {
+  id          String   @id @default(uuid())
+  ownerId     String
+  owner       User     @relation("owner", fields: [ownerId], references: [id], onDelete: Cascade)
+  partnerId   String?
+  partner     User?    @relation("partner", fields: [partnerId], references: [id], onDelete: SetNull)
+  inviteEmail String   // who was invited
+  status      String   @default("pending") // pending | active | declined
+  createdAt   DateTime @default(now())
+
+  @@index([ownerId])
+  @@index([partnerId])
+}
+
+model UserPreferences {
+  id                    String  @id @default(uuid())
+  userId                String  @unique
+  user                  User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminderTone          String  @default("warm")     // warm | direct | minimal
+  insightIntensity      String  @default("gentle")   // off | gentle | direct  (PRD: mortality framing must be controllable)
+  quietHoursStart       Int     @default(22)         // hour of day, user tz
+  quietHoursEnd         Int     @default(7)
+  preferredReminderHour Int     @default(8)
+  gamificationEnabled   Boolean @default(true)
+  weeklyReviewDay       Int     @default(0)          // 0 = Sunday
+  updatedAt             DateTime @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding
+// ---------------------------------------------------------------------------
+
+model OnboardingAnswer {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  section   String   // profile | values | relationships | lifestyle | goals | motivation
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+
+  @@unique([userId, section, key])
+}
+
+// ---------------------------------------------------------------------------
+// Relationships
+// ---------------------------------------------------------------------------
+
+model Relationship {
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                  String
+  relationType          String   // mother | father | spouse | child | friend | sibling | mentor ...
+  age                   Int?
+  city                  String?
+  closenessScore        Int?     // 1..10
+  inPersonFrequency     String?  // Cadence
+  healthStatus          String?  // good | declining | serious — user-described, never inferred
+  locationType          String?  // same_city | different_city | abroad
+  callFrequency         String?  // Cadence
+  desiredCallFrequency  String?  // Cadence — what the user WANTS
+  wantsMoreTime         Boolean  @default(true)
+  meaningfulMomentTypes Json     @default("[]")
+  lastContactAt         DateTime?
+  lastVisitAt           DateTime?
+  priorityScore         Decimal  @default(0) @db.Decimal(5, 2)
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  missions              Mission[]
+  contactLogs           ContactLog[]
+  insights              OpportunityInsight[]
+
+  @@index([userId])
+}
+
+/// One-tap contact logging ("I called Mom") — near-zero friction is what
+/// killed manual personal CRMs; this table is fed by mission completion too.
+model ContactLog {
+  id             String       @id @default(uuid())
+  relationshipId String
+  relationship   Relationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+  kind           String       // call | visit | message | activity
+  note           String?
+  occurredAt     DateTime     @default(now())
+
+  @@index([relationshipId, occurredAt])
+}
+
+/// The Memory Archive — the retention moat: users do not delete the app
+/// where their memories live. Text-first MVP; media columns come with
+/// object storage. `countKey` links a memory to a user-defined Time
+/// Reality count ("Diwalis at home"), turning countdowns into a record
+/// of moments spent well.
+model Memory {
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  relationshipId String?
+  missionId      String?
+  title          String
+  memoryType     String    @default("moment") // relationship | experience | achievement | reflection | gratitude | moment
+  domainType     String?
+  countKey       String?   // links to a custom Time Reality count
+  peoplePresent  Json      @default("[]")
+  location       String?
+  reflection     String?   // "What will you remember about this?"
+  occurredAt     DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, occurredAt])
+  @@index([userId, countKey])
+}
+
+// ---------------------------------------------------------------------------
+// Life domains & goals
+// ---------------------------------------------------------------------------
+
+model LifeDomain {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domainType        String   // DomainType from @priority/types
+  priorityRank      Int?
+  flaggedAsNeglected Boolean @default(false)
+  regretRiskFlagged Boolean  @default(false)
+  importanceScore   Decimal  @default(0) @db.Decimal(5, 2)
+  attentionScore    Decimal  @default(0) @db.Decimal(5, 2)
+  prevAttentionScore Decimal @default(0) @db.Decimal(5, 2)
+  neglectRiskScore  Decimal  @default(0) @db.Decimal(5, 2)
+  healthScore       Decimal  @default(0) @db.Decimal(5, 2)
+  trend             String   @default("flat")
+  lastMeaningfulActionAt DateTime?
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+
+  goals             Goal[]
+
+  @@unique([userId, domainType])
+}
+
+model Goal {
+  id           String      @id @default(uuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domainId     String?
+  domain       LifeDomain? @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  domainType   String
+  title        String
+  description  String?
+  horizon      String      @default("1y") // 1y | 5y
+  targetDate   DateTime?
+  status       String      @default("active") // active | achieved | abandoned
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  missions     Mission[]
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Missions & habits
+// ---------------------------------------------------------------------------
+
+model Mission {
+  id               String        @id @default(uuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  relationshipId   String?
+  relationship     Relationship? @relation(fields: [relationshipId], references: [id], onDelete: SetNull)
+  goalId           String?
+  goal             Goal?         @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  title            String
+  description      String?
+  domainType       String
+  missionType      String        // one_time | ritual | milestone | relationship | recovery
+  priorityScore    Decimal       @default(0) @db.Decimal(5, 2)
+  dueDate          DateTime?
+  recurrenceRule   String?
+  estimatedMinutes Int?
+  energyLevel      String?       // low | medium | high
+  xpReward         Int           @default(25)
+  status           String        @default("pending") // pending | completed | skipped | expired
+  sourceType       String        @default("AI")      // AI | user | system
+  aiRationale      String?       // LLM-generated "why this, why today"
+  completedAt      DateTime?
+  snoozeCount      Int           @default(0)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, domainType])
+}
+
+model Habit {
+  id                 String     @id @default(uuid())
+  userId             String
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title              String
+  domainType         String
+  relationshipId     String?
+  targetPerWeek      Int        @default(3)   // frequency target, not daily-perfect
+  streakCurrent      Int        @default(0)
+  streakBest         Int        @default(0)
+  graceRemaining     Int        @default(1)   // forgiving streaks
+  xpReward           Int        @default(10)
+  isActive           Boolean    @default(true)
+  sourceType         String     @default("AI")
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  logs               HabitLog[]
+
+  @@index([userId])
+}
+
+model HabitLog {
+  id          String   @id @default(uuid())
+  habitId     String
+  habit       Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  completedAt DateTime @default(now())
+  note        String?
+
+  @@index([habitId, completedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Journal
+// ---------------------------------------------------------------------------
+
+model JournalEntry {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mood          Int?     // 1..5
+  gratitude     String?
+  whatMattered  String?
+  whatIAvoided  String?
+  gladNotPostponed String?
+  freeText      String?
+  domainTags    Json     @default("[]") // DomainType[] — feeds attention scoring
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Intelligence outputs
+// ---------------------------------------------------------------------------
+
+model OpportunityInsight {
+  id             String        @id @default(uuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  relationshipId String?
+  relationship   Relationship? @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+  domainType     String
+  kind           String        // visits_remaining | calls_per_year | habit_delta
+  headline       String
+  detail         String
+  assumptions    Json          @default("[]")
+  estimate       Decimal       @db.Decimal(10, 2)
+  unit           String
+  shownAt        DateTime?
+  dismissed      Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+
+  @@index([userId])
+}
+
+model AiRecommendation {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String   // life_reveal | daily_focus | coaching | journal_summary | nudge
+  content    Json
+  model      String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, kind, createdAt])
+}
+
+model WeeklyReview {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weekStart          DateTime
+  weekEnd            DateTime
+  completedMissions  Int      @default(0)
+  completedHabits    Int      @default(0)
+  journalEntries     Int      @default(0)
+  domainDeltas       Json     @default("{}") // { domainType: { attention, neglectRisk, delta } }
+  topWins            Json     @default("[]")
+  neglectedDomains   Json     @default("[]")
+  regretRiskFocus    String?
+  nextWeekFocus      Json     @default("[]")
+  aiNarrative        String?
+  domainSelfScores   Json     @default("{}") // Sunday Session step 2: { domainType: 1..10 }
+  weekWord           String?  // step 1: the week in one word
+  oneThing           String?  // step 5: what matters most next week
+  intentionWord      String?  // step 6: intention for the week
+  sessionCompletedAt DateTime? // full 6-step Sunday Session finished
+  userCompletedAt    DateTime? // when the user actually read/acknowledged it
+  createdAt          DateTime @default(now())
+
+  @@unique([userId, weekStart])
+}
+
+// ---------------------------------------------------------------------------
+// Gamification
+// ---------------------------------------------------------------------------
+
+model GamificationProfile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  totalXp       Int      @default(0)
+  level         Int      @default(1)
+  dailyStreak   Int      @default(0)
+  bestStreak    Int      @default(0)
+  graceRemaining Int     @default(1)
+  lastActiveDate DateTime?
+  badges        Json     @default("[]")
+  updatedAt     DateTime @updatedAt
+}
+
+model DomainXpEntry {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domainType String
+  amount     Int
+  reason     String   // mission_completed | habit_completed | weekly_review_completed ...
+  refId      String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, domainType])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications & config
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        String    // daily_mission | streak | relationship_drift | weekly_review | drift_alert
+  title       String
+  body        String
+  dedupeKey   String?   // prevents duplicate spam (kind+date+ref)
+  scheduledFor DateTime
+  sentAt      DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([scheduledFor, sentAt])
+}
+
+model AppConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

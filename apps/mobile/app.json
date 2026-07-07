@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "Priority",
+    "slug": "priority",
+    "version": "0.1.0",
+    "scheme": "priority",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#12100E",
+    "plugins": ["expo-router", "expo-secure-store"],
+    "web": { "bundler": "metro", "output": "single" },
+    "ios": { "supportsTablet": false },
+    "android": { "package": "app.priority.mobile" }
+  }
+}
