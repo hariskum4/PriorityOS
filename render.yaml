@@ -11,10 +11,13 @@ services:
     plan: free
     healthCheckPath: /health
     envVars:
+      # Supabase PriorityOS (project ref: zmtvybuikfjmjpvaqduq, region ap-south-1).
+      # Copy the exact strings from Supabase → Settings → Database → Connection string,
+      # filling your DB password. Pooled (Transaction, 6543) → DATABASE_URL. Direct (5432) → DIRECT_URL.
       - key: DATABASE_URL
-        sync: false        # Supabase pooled connection (port 6543)
+        sync: false        # postgresql://postgres.zmtvybuikfjmjpvaqduq:[PW]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true
       - key: DIRECT_URL
-        sync: false        # Supabase direct connection (port 5432)
+        sync: false        # postgresql://postgres:[PW]@db.zmtvybuikfjmjpvaqduq.supabase.co:5432/postgres
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
@@ -24,7 +27,7 @@ services:
       - key: JWT_REFRESH_TTL
         value: 30d
       - key: CORS_ORIGINS
-        sync: false        # your Vercel domain, e.g. https://priority.vercel.app
+        value: https://priority-brown.vercel.app
       - key: AI_ENABLED
         value: "false"     # flip to "true" once you add AI_API_KEY
       - key: AI_PROVIDER

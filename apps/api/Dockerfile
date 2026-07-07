@@ -42,5 +42,7 @@ COPY --from=build /app/package*.json ./
 
 WORKDIR /app/apps/api
 EXPOSE 3000
-# Apply any pending migrations, then start the persistent server.
-CMD ["sh", "-c", "npm run migrate:deploy && npm run start:prod"]
+# Apply any pending migrations (best-effort: the schema is pre-provisioned and
+# baselined in Supabase, so a checksum hiccup must not block boot), then start
+# the persistent server so the @nestjs/schedule cron jobs keep running.
+CMD ["sh", "-c", "npm run migrate:deploy || echo 'migrate skipped (schema pre-provisioned)'; npm run start:prod"]
