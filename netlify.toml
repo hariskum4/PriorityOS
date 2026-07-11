@@ -1,0 +1,21 @@
+# Netlify config for the Priority web app (Expo web export).
+# Mirrors the Vercel setup: build the shared packages, then export the Expo
+# web bundle. SPA redirect so expo-router client routes resolve to index.html.
+#
+# In Netlify: Add new site -> Import from Git -> pick hariskum4/PriorityOS.
+# It reads this file automatically. Set EXPO_PUBLIC_API_URL in Site settings ->
+# Environment variables to your Render API URL, then trigger a deploy.
+
+[build]
+  command = "cd packages/types && npm run build && cd ../scoring-engine && npm run build && cd ../ai-prompts && npm run build && cd ../../apps/mobile && npm run build:web"
+  publish = "apps/mobile/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--include=dev"
+
+# expo-router single-page output: every route serves the built index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
