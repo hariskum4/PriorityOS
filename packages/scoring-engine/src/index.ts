@@ -318,3 +318,4 @@ export function rankMissions(missions: RankableMission[]): RankableMission[] {
   };
   return [...missions].sort((a, b) => score(b) - score(a));
 }
+export * from './nextMission';

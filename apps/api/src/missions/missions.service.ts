@@ -3,7 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AnalyticsService } from '../analytics/analytics.service';
-import { rankMissions } from '@priority/scoring-engine';
+import {
+  rankMissions,
+  suggestNextMission,
+  CADENCE_DAYS,
+  Cadence,
+} from '@priority/scoring-engine';
 
 @Injectable()
 export class MissionsService {
@@ -76,7 +81,10 @@ export class MissionsService {
       domainType: mission.domainType,
       relationship: !!mission.relationshipId,
     });
-    return { mission: updated, xp };
+    // The adaptive loop: one meaningful action done → the engine reads the
+    // refreshed life-graph and lines up the next one. Today never runs dry.
+    const next = await this.ensureNextMission(userId, mission.domainType);
+    return { mission: updated, xp, next };
   }
 
   async snooze(userId: string, id: string) {
@@ -120,6 +128,87 @@ export class MissionsService {
     );
     const order = new Map(ranked.map((r, i) => [r.id, i]));
     return missions.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+  }
+
+  /**
+   * The adaptive loop's server half. If the pending list is running low,
+   * read the refreshed life-graph (post-completion scores), ask the engine
+   * for the next-best small action, and create it as a real AI mission.
+   */
+  async ensureNextMission(userId: string, lastCompletedDomain?: string | null) {
+    const pending = await this.prisma.mission.findMany({
+      where: { userId, status: 'pending' },
+      select: { domainType: true, relationshipId: true },
+    });
+    if (pending.length >= 2) return null; // enough on the plate already
+
+    const [domains, relationships, goals] = await Promise.all([
+      this.prisma.lifeDomain.findMany({ where: { userId } }),
+      this.prisma.relationship.findMany({ where: { userId, wantsMoreTime: true } }),
+      this.prisma.goal.findMany({
+        where: { userId, status: 'active' },
+        // A goal is "stepless" only if nothing is pending AND nothing was
+        // completed recently — one small step a week, not the same step
+        // re-suggested the moment you finish it.
+        include: {
+          missions: {
+            where: {
+              OR: [
+                { status: 'pending' },
+                {
+                  status: 'completed',
+                  completedAt: { gte: new Date(Date.now() - 5 * 86_400_000) },
+                },
+              ],
+            },
+            select: { id: true },
+          },
+        },
+      }),
+    ]);
+
+    const suggestion = suggestNextMission({
+      domains: domains.map((d) => ({
+        domainType: d.domainType,
+        importance: Number(d.importanceScore),
+        attention: Number(d.attentionScore),
+        neglectRisk: Number(d.neglectRiskScore),
+      })),
+      relationships: relationships.map((r) => ({
+        id: r.id,
+        name: r.name,
+        relationType: r.relationType,
+        daysSinceContact: r.lastContactAt
+          ? Math.floor((Date.now() - r.lastContactAt.getTime()) / 86_400_000)
+          : null,
+        desiredCadenceDays:
+          CADENCE_DAYS[(r.desiredCallFrequency ?? 'weekly') as Cadence] ?? 7,
+      })),
+      goalsWithoutSteps: goals
+        .filter((g) => g.missions.length === 0)
+        .map((g) => ({ id: g.id, title: g.title, domainType: g.domainType })),
+      lastCompletedDomain,
+      pendingDomains: pending.map((p) => p.domainType),
+      pendingRelationshipIds: pending
+        .map((p) => p.relationshipId)
+        .filter((id): id is string => !!id),
+    });
+    if (!suggestion) return null;
+
+    return this.prisma.mission.create({
+      data: {
+        userId,
+        title: suggestion.title,
+        domainType: suggestion.domainType,
+        missionType: suggestion.missionType,
+        relationshipId: suggestion.relationshipId ?? null,
+        goalId: suggestion.goalId ?? null,
+        estimatedMinutes: suggestion.estimatedMinutes,
+        xpReward: suggestion.xpReward,
+        sourceType: 'AI',
+        aiRationale: suggestion.rationale,
+      },
+    });
   }
 
   private async assertOwned(userId: string, id: string) {

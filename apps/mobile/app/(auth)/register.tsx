@@ -11,10 +11,13 @@ export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const setTokens = useAuth((s) => s.setTokens);
   const router = useRouter();
 
   const submit = async () => {
+    setError('');
+    setBusy(true);
     try {
       const tokens = await api<{ accessToken: string; refreshToken: string }>(
         '/auth/register',
@@ -30,6 +33,7 @@ export default function Register() {
       router.replace('/onboarding');
     } catch (e: any) {
       setError(e.message);
+      setBusy(false);
     }
   };
 
@@ -41,7 +45,16 @@ export default function Register() {
         <Input placeholder="Email" autoCapitalize="none" value={email} onChangeText={setEmail} />
         <Input placeholder="Password (8+ characters)" secureTextEntry value={password} onChangeText={setPassword} />
         {!!error && <Text style={{ color: colors.rose }}>{error}</Text>}
-        <Button title="Create account" onPress={submit} />
+        <Button
+          title={busy ? 'Creating your account…' : 'Create account'}
+          onPress={submit}
+          disabled={busy || !fullName.trim() || !email.trim() || password.length < 8}
+        />
+        {password.length > 0 && password.length < 8 && (
+          <Text style={{ color: colors.textDim, fontSize: 12, textAlign: 'center' }}>
+            Password needs at least 8 characters.
+          </Text>
+        )}
       </View>
     </View>
   );

@@ -268,10 +268,13 @@ export default function Review() {
               );
             })}
           </View>
+          <Text style={type.faint}>
+            Score at least three — skip any that don't need a number this week.
+          </Text>
           <Button
             title="Next"
             onPress={() => setStep(3)}
-            disabled={domains.some((d: any) => !pulse[d.domainType])}
+            disabled={Object.keys(pulse).length < Math.min(3, domains.length)}
           />
         </>
       )}

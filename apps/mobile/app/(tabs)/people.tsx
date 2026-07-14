@@ -9,7 +9,7 @@ import { colors, type, space, domainColor } from '@/theme';
 const relationDomain: Record<string, string> = {
   mother: 'family', father: 'family', parent: 'family', sibling: 'family',
   spouse: 'partner', partner: 'partner',
-  friend: 'friends', child: 'health', mentor: 'career',
+  friend: 'friends', child: 'children', son: 'children', daughter: 'children', mentor: 'career',
 };
 const relationColor = (t: string) => domainColor(relationDomain[t] ?? 'career');
 

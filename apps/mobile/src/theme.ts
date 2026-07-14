@@ -94,24 +94,28 @@ export const colors = isLight ? lightColors : darkColors;
 const darkDomains: Record<string, string> = {
   family: '#E8846B',
   partner: '#D4737E',
+  children: '#E89B4B',  // marigold — warm, joyful
   friends: '#B08BC9',
   health: '#7FB069',
   career: '#7A9CC6',
   finance: '#5FB0A5',
   growth: '#C9A227',
-  leisure: '#C98BA6',
+  experiences: '#6FB8E8', // adventure sky
+  reflection: '#A9A2D8',  // moonstone — inner life
   purpose: '#9F86E0',   // Creative & Purpose — the blueprint's creative violet
   impact: '#63B58F',    // Contribution & Impact — earth green
 };
 const lightDomains: Record<string, string> = {
   family: '#C05138',
   partner: '#B23A4D',
+  children: '#A8661A',
   friends: '#7E56A0',
   health: '#4E8A3C',
   career: '#3E6390',
   finance: '#2E7D71',
   growth: '#96760F',
-  leisure: '#A2587A',
+  experiences: '#2D6FA8',
+  reflection: '#5C549E',
   purpose: '#6647B8',
   impact: '#2F7D4F',
 };

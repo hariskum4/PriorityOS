@@ -41,19 +41,37 @@ export class DashboardService {
     let whyToday: { whyToday: string; encouragement: string } | null = null;
     if (topMission) {
       const domain = domains.find((d) => d.domainType === topMission.domainType);
+      const personName = (topMission as any).relationship?.name as string | undefined;
+      const gap = Math.max(
+        0,
+        Number(domain?.importanceScore ?? 0) - Number(domain?.attentionScore ?? 0),
+      );
+      // Fallback copy must not read like a template: name the person, name
+      // the gap, vary the encouragement — deterministic but personal.
+      const fallbackWhy = personName
+        ? `Because ${personName} is the person this week keeps postponing — and ${topMission.domainType} is where your say-do gap is widest right now (${Math.round(gap)} points).`
+        : gap > 20
+          ? `You rated ${topMission.domainType} as important, but this week it's ${Math.round(gap)} points behind where you said it should be. This one action closes the most of that.`
+          : `Of everything pending, this moves the needle most on what you said matters.`;
+      const encouragements = [
+        'Fifteen focused minutes beats a perfect plan.',
+        'Small and today beats big and someday.',
+        'Do the tiny version if the whole thing feels heavy.',
+        'One honest step. That’s the whole assignment.',
+      ];
+      const dayIndex = Math.floor(Date.now() / 86_400_000) % encouragements.length;
       whyToday = await this.ai.generate(
         userId,
         'daily_focus',
         DAILY_FOCUS,
         {
-          mission: { title: topMission.title, domain: topMission.domainType },
+          mission: { title: topMission.title, domain: topMission.domainType, person: personName },
           neglectRisk: Number(domain?.neglectRiskScore ?? 0),
           importance: Number(domain?.importanceScore ?? 0),
         },
-        {
-          whyToday: `${topMission.domainType} is your highest-gap area right now — this is the single action that closes it most.`,
-          encouragement: 'Fifteen focused minutes beats a perfect plan.',
-        },
+        { whyToday: fallbackWhy, encouragement: encouragements[dayIndex] },
+        // One generation per mission per day — not one per page load.
+        { cacheKey: `${topMission.id}:${new Date().toISOString().slice(0, 10)}` },
       );
     }
 

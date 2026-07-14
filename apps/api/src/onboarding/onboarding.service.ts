@@ -78,6 +78,12 @@ export class OnboardingService {
     const eulogy = get('reflection', 'eulogy');
     let extractedValues: { values: string[]; reflection: string } | null = null;
     if (futureSelf || eulogy) {
+      // Fallback mirrors a fragment of THEIR words back — the difference
+      // between "an app" and "it heard me", even with the LLM off.
+      const fragment = String(eulogy || futureSelf || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 90);
       extractedValues = await this.ai.generate(
         userId,
         'values_extraction',
@@ -85,7 +91,9 @@ export class OnboardingService {
         { futureSelf, eulogy },
         {
           values: ranked.slice(0, 5),
-          reflection: 'You described a life measured in people and presence, not achievements. That is what Priority will help you protect.',
+          reflection: fragment
+            ? `"${fragment}${fragment.length >= 90 ? '…' : ''}" — hold onto that. Everything Priority asks of you is in service of that person.`
+            : 'You described a life measured in people and presence, not achievements. That is what Priority will help you protect.',
         },
       );
     }
@@ -97,18 +105,45 @@ export class OnboardingService {
       select: { name: true, relationType: true, wantsMoreTime: true, priorityScore: true },
     });
     const top3 = ranked.slice(0, 3);
+
+    // Personalized deterministic fallback: their #1 domain, their self-rated
+    // reality, the thing they keep postponing, the person they named, and
+    // how they said they want to feel — their own onboarding, played back.
+    const currentReality = (get('values', 'currentReality') ?? {}) as Record<string, number>;
+    const postponing = String(get('reflection', 'postponing') ?? '').trim();
+    const feeling = String(get('values', 'firstWeekFeeling') ?? '').trim();
+    const person = relationships[0]?.name;
+    const topDomain = top3[0] ?? 'family';
+    const topReality = currentReality[topDomain];
+
+    const narrativeParts: string[] = [];
+    narrativeParts.push(
+      typeof topReality === 'number'
+        ? `You put ${topDomain} first — and rated yourself ${topReality}/5 on actually living it. That distance is the whole story, and it's closable.`
+        : `You put ${topDomain} first. Priority's job is to make your weeks agree with that.`,
+    );
+    if (postponing) {
+      narrativeParts.push(`You told us what keeps sliding: "${postponing.slice(0, 70)}". Not someday — this week, one small step.`);
+    }
+    if (person) {
+      narrativeParts.push(`And ${person} is in this plan by name.`);
+    }
+    if (feeling) {
+      narrativeParts.push(`Seven days from now, you said you want to feel ${feeling}. That's the finish line we're building toward.`);
+    }
+
     const reveal = await this.ai.generate(
       userId,
       'life_reveal',
       LIFE_REVEAL,
-      { domains, relationships, ranked, neglected, regrets },
+      { domains, relationships, ranked, neglected, regrets, postponing, feeling },
       {
-        headline: 'Your priorities, made visible',
-        narrative: `You ranked ${top3.join(', ')} as what matters most. Your neglected areas right now: ${neglected.join(', ') || 'none flagged'}. Priority will turn these into one meaningful mission a day.`,
+        headline: person ? `A plan with ${person} in it` : 'What you said, next to what you do',
+        narrative: narrativeParts.join(' '),
         topPriorities: top3,
         driftWarning: neglected.length
-          ? `You flagged ${neglected[0]} as neglected — that gap is where regret compounds.`
-          : 'No major drift flagged yet.',
+          ? `You flagged ${neglected[0]} as drifting — that's the gap that compounds quietly. It gets first attention.`
+          : 'Nothing is drifting into the danger zone yet — rare, and worth protecting.',
         firstWeekFocus: top3.map((d) => `One meaningful action in ${d}`),
       },
     );

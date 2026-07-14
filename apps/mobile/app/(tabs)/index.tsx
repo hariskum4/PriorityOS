@@ -43,9 +43,11 @@ export default function Today() {
     qc.invalidateQueries({ queryKey: ['missions'] });
   };
   const complete = useMutation({
-    mutationFn: (m: any) => api(`/missions/${m.id}/complete`, { method: 'POST' }),
-    onSuccess: (_res, m) => {
-      setJustCompleted(m);
+    mutationFn: (m: any) => api<any>(`/missions/${m.id}/complete`, { method: 'POST' }),
+    onSuccess: (res, m) => {
+      // The adaptive loop's client half: the server may have already lined
+      // up the next-best action — show it in the celebration.
+      setJustCompleted({ ...m, next: res?.next ?? null });
       invalidate();
     },
   });
@@ -66,9 +68,9 @@ export default function Today() {
 
   if (!data) return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
   const m = data.todayMission;
-  const domains = (data.domains ?? [])
-    .filter((d: any) => d.importance > 0)
+  const allDomains = (data.domains ?? []).slice()
     .sort((a: any, b: any) => b.importance - a.importance);
+  const domains = allDomains.filter((d: any) => d.importance > 0);
   const score = alignmentScore(domains);
   const gam = data.gamification;
   const lvl = gam ? levelProgress(gam.totalXp ?? 0) : null;
@@ -135,6 +137,36 @@ export default function Today() {
           )}
         </View>
       </Card>
+
+      {/* Completion banner — the loop made the next mission appear below;
+          this keeps the win (and the memory hand-off) visible. */}
+      {justCompleted && m && (
+        <View style={s.doneBanner}>
+          <Ionicons name="checkmark-circle" size={18} color={colors.green} />
+          <Text style={[type.dim, { flex: 1 }]}>
+            <Text style={{ color: colors.green, fontWeight: '700' }}>Done, +{justCompleted.xpReward} XP. </Text>
+            The engine picked your next one below.
+          </Text>
+          <Pressable
+            onPress={() => {
+              setMemoryDraft({
+                title: justCompleted.title,
+                missionId: justCompleted.id,
+                relationshipId: justCompleted.relationshipId ?? undefined,
+                domainType: justCompleted.domainType,
+                personName: justCompleted.relationship?.name,
+              });
+              router.push('/(tabs)/journal');
+            }}
+            hitSlop={8}
+          >
+            <Text style={[type.dim, { color: colors.amber, fontWeight: '700' }]}>Save the moment</Text>
+          </Pressable>
+          <Pressable onPress={() => setJustCompleted(null)} hitSlop={8}>
+            <Ionicons name="close" size={16} color={colors.textFaint} />
+          </Pressable>
+        </View>
+      )}
 
       {/* THE one mission — anti-overload by design */}
       {m ? (
@@ -266,6 +298,56 @@ export default function Today() {
         </Card>
       )}
 
+      {/* Domain pulse — every part of life, one glance, all tappable */}
+      <View style={{ gap: space(2), marginTop: space(2) }}>
+        <Label>Every part of life</Label>
+        <View style={s.pulseRow}>
+          {allDomains.map((d: any) => {
+            const c = domainColor(d.domainType);
+            const status =
+              d.importance <= 0
+                ? { border: colors.line, text: colors.textFaint }
+                : d.neglectRisk >= 50
+                  ? { border: colors.rose, text: colors.rose }
+                  : d.importance - d.attention > 25
+                    ? { border: colors.amberSoft, text: colors.amber }
+                    : { border: colors.greenSoft, text: colors.green };
+            return (
+              <Pressable
+                key={d.domainType}
+                onPress={() => router.push(`/domain/${d.domainType}`)}
+                style={({ pressed }) => [
+                  s.pulseChip,
+                  { borderColor: status.border },
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <DomainDot domain={d.domainType} size={8} />
+                <Text style={{ color: c, fontSize: 12, fontWeight: '600', textTransform: 'capitalize' }}>
+                  {d.domainType}
+                </Text>
+                <Ionicons
+                  name={
+                    d.importance <= 0
+                      ? 'ellipse-outline'
+                      : d.neglectRisk >= 50
+                        ? 'trending-down'
+                        : d.importance - d.attention > 25
+                          ? 'remove'
+                          : 'trending-up'
+                  }
+                  size={11}
+                  color={status.text}
+                />
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={type.faint}>
+          Green is thriving, amber has a gap, rose is drifting. Grey ones aren't in your plan yet — tap any to open it.
+        </Text>
+      </View>
+
       {/* Domain gap bars — the thesis, visible */}
       <View style={{ gap: space(1), marginTop: space(2) }}>
         <Label>Say vs do</Label>
@@ -333,6 +415,17 @@ const s = StyleSheet.create({
   recalRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     borderTopWidth: 1, borderTopColor: colors.lineSoft, paddingTop: space(2),
+  },
+  doneBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: colors.greenSoft, borderRadius: 12,
+    paddingVertical: 8, paddingHorizontal: 12,
+  },
+  pulseRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pulseChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1, borderRadius: 999,
+    paddingVertical: 5, paddingHorizontal: 10,
   },
   supportRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
   habitRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7 },

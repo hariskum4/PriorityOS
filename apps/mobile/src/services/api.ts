@@ -39,7 +39,11 @@ export async function api<T = unknown>(
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as any).message ?? `Request failed (${res.status})`);
+    // class-validator returns message as an array — surface it readably.
+    const msg = (err as any).message;
+    throw new Error(
+      Array.isArray(msg) ? msg.join('. ') : msg ?? `Request failed (${res.status})`,
+    );
   }
   return res.json() as Promise<T>;
 }
