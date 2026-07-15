@@ -140,6 +140,8 @@ model Relationship {
   userId                String
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name                  String
+  reachOutLine          String?  // "reach out with this" — memory-grounded, refreshed by the drift cron
+  reachOutLineAt        DateTime?
   relationType          String   // mother | father | spouse | child | friend | sibling | mentor ...
   age                   Int?
   city                  String?
@@ -387,6 +389,8 @@ model WeeklyReview {
   regretRiskFocus    String?
   nextWeekFocus      Json     @default("[]")
   aiNarrative        String?
+  journalThemes      Json     @default("[]") // themes noticed in the week's journal entries
+  avoidancePattern   String?  // gently-named recurring avoidance, from their own words
   domainSelfScores   Json     @default("{}") // Sunday Session step 2: { domainType: 1..10 }
   weekWord           String?  // step 1: the week in one word
   oneThing           String?  // step 5: what matters most next week

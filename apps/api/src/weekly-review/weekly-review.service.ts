@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AiService } from '../ai/ai.service';
 import { InsightsService } from '../insights/insights.service';
-import { WEEKLY_REVIEW_NARRATIVE } from '@priority/ai-prompts';
+import { JOURNAL_SUMMARY, WEEKLY_REVIEW_NARRATIVE } from '@priority/ai-prompts';
 
 @Injectable()
 export class WeeklyReviewService {
@@ -29,7 +29,7 @@ export class WeeklyReviewService {
     // onboarding and the weekly review cycle. This is the second one.
     await this.insights.regenerateForUser(userId);
 
-    const [missions, habitLogs, journal, domains] = await Promise.all([
+    const [missions, habitLogs, journalEntries, domains] = await Promise.all([
       this.prisma.mission.findMany({
         where: {
           userId,
@@ -44,11 +44,59 @@ export class WeeklyReviewService {
           completedAt: { gte: weekStart, lte: weekEnd },
         },
       }),
-      this.prisma.journalEntry.count({
+      this.prisma.journalEntry.findMany({
         where: { userId, createdAt: { gte: weekStart, lte: weekEnd } },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          mood: true,
+          gratitude: true,
+          whatMattered: true,
+          whatIAvoided: true,
+          freeText: true,
+          domainTags: true,
+          createdAt: true,
+        },
       }),
       this.prisma.lifeDomain.findMany({ where: { userId } }),
     ]);
+    const journal = journalEntries.length;
+
+    // The journal stops being write-only here: the week's entries become
+    // themes and (gently) a named avoidance pattern — their own words,
+    // mirrored back. Skip entirely when there's nothing written.
+    const writtenEntries = journalEntries.filter(
+      (e) => e.whatMattered?.trim() || e.whatIAvoided?.trim() || e.gratitude?.trim() || e.freeText?.trim(),
+    );
+    let journalSummary: { themes: string[]; avoidancePattern: string | null; domainTags: string[] } | null = null;
+    if (writtenEntries.length > 0) {
+      const lastAvoided = [...writtenEntries].reverse().find((e) => e.whatIAvoided?.trim())?.whatIAvoided?.trim();
+      const tagUnion = [
+        ...new Set(writtenEntries.flatMap((e) => (Array.isArray(e.domainTags) ? (e.domainTags as string[]) : []))),
+      ];
+      journalSummary = await this.ai.generate(
+        userId,
+        'journal_summary',
+        JOURNAL_SUMMARY,
+        {
+          entries: writtenEntries.map((e) => ({
+            day: e.createdAt.toISOString().slice(0, 10),
+            mood: e.mood,
+            whatMattered: e.whatMattered?.slice(0, 400),
+            whatIAvoided: e.whatIAvoided?.slice(0, 400),
+            gratitude: e.gratitude?.slice(0, 200),
+            freeText: e.freeText?.slice(0, 400),
+          })),
+        },
+        // Fallback mirrors their own words — no interpretation, just honesty.
+        {
+          themes: tagUnion.slice(0, 4),
+          avoidancePattern: lastAvoided
+            ? `You named it yourself this week: "${lastAvoided.slice(0, 90)}"`
+            : null,
+          domainTags: tagUnion,
+        },
+      );
+    }
 
     const domainDeltas = Object.fromEntries(
       domains.map((d) => [
@@ -80,6 +128,8 @@ export class WeeklyReviewService {
       domainDeltas,
       neglectedDomains,
       topWins,
+      journalThemes: journalSummary?.themes ?? [],
+      avoidancePattern: journalSummary?.avoidancePattern ?? null,
     };
 
     const narrative = await this.ai.generate(
@@ -123,6 +173,8 @@ export class WeeklyReviewService {
         regretRiskFocus: narrative.regretRiskFocus,
         nextWeekFocus: narrative.nextWeekFocus,
         aiNarrative: narrative.narrative,
+        journalThemes: journalSummary?.themes ?? [],
+        avoidancePattern: journalSummary?.avoidancePattern ?? null,
       },
       update: {
         completedMissions: missions.length,
@@ -134,6 +186,8 @@ export class WeeklyReviewService {
         regretRiskFocus: narrative.regretRiskFocus,
         nextWeekFocus: narrative.nextWeekFocus,
         aiNarrative: narrative.narrative,
+        journalThemes: journalSummary?.themes ?? [],
+        avoidancePattern: journalSummary?.avoidancePattern ?? null,
       },
     });
     return review;

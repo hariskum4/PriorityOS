@@ -156,6 +156,22 @@ export default function Review() {
                 <Text style={type.serif}>{review.aiNarrative}</Text>
               </Card>
             )}
+            {((review?.journalThemes ?? []).length > 0 || review?.avoidancePattern) && (
+              <Card style={{ gap: space(3) }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="ear-outline" size={14} color={colors.amber} />
+                  <Label color={colors.amber}>What your journal noticed</Label>
+                </View>
+                {(review?.journalThemes ?? []).length > 0 && (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space(2) }}>
+                    {(review.journalThemes as string[]).slice(0, 4).map((t: string) => (
+                      <Chip key={t} label={t} color={colors.amber} />
+                    ))}
+                  </View>
+                )}
+                {review?.avoidancePattern && <Text style={type.serif}>{review.avoidancePattern}</Text>}
+              </Card>
+            )}
           </>
         ) : (
           <Card style={{ gap: space(3) }}>
@@ -293,6 +309,25 @@ export default function Review() {
               </View>
             )}
           </Card>
+          {/* The journal, listening back: themes + the avoidance they named. */}
+          {((review?.journalThemes ?? []).length > 0 || review?.avoidancePattern) && (
+            <Card style={{ gap: space(3) }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="ear-outline" size={14} color={colors.amber} />
+                <Label color={colors.amber}>What your journal noticed</Label>
+              </View>
+              {(review?.journalThemes ?? []).length > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space(2) }}>
+                  {(review.journalThemes as string[]).slice(0, 4).map((t) => (
+                    <Chip key={t} label={t} color={colors.amber} />
+                  ))}
+                </View>
+              )}
+              {review?.avoidancePattern && (
+                <Text style={type.serif}>{review.avoidancePattern}</Text>
+              )}
+            </Card>
+          )}
           <Button title={insightReady ? 'Next' : 'Sit with it a moment…'} onPress={() => setStep(4)} disabled={!insightReady} />
         </>
       )}

@@ -93,6 +93,13 @@ export default function People() {
               </View>
               {overdue && <Chip label="overdue" color={colors.rose} />}
             </View>
+            {/* Something to reach out WITH — memory-grounded, not a guilt ping */}
+            {overdueRatio(r) >= 1 && r.reachOutLine && !just && (
+              <View style={s.reachOutRow}>
+                <Ionicons name="gift-outline" size={14} color={colors.amber} style={{ marginTop: 2 }} />
+                <Text style={[type.dim, { flex: 1 }]}>{r.reachOutLine}</Text>
+              </View>
+            )}
             {just ? (
               <View style={s.loggedRow}>
                 <Ionicons name="checkmark-circle" size={18} color={colors.green} />
@@ -131,4 +138,8 @@ const s = StyleSheet.create({
     paddingVertical: 9,
   },
   loggedRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  reachOutRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: colors.amberFaint, borderRadius: 10, padding: 10,
+  },
 });

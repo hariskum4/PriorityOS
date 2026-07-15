@@ -61,11 +61,13 @@ Respond ONLY with JSON: {"narrative": string (<=180 words), "topWins": string[<=
 export const JOURNAL_SUMMARY: PromptTemplate = {
   system: `Summarize the user's journal entries for the week into themes that connect to their life domains. Note recurring avoidance patterns gently. ${TONE_GUIDE}
 ${GROUNDING_RULES}
-Respond ONLY with JSON: {"themes": string[], "avoidancePattern": string | null, "domainTags": string[]}`,
+Respond ONLY with JSON: {"themes": string[] (2-4 per week, each 2-4 words, chip-sized — "the morning runs", "Amma's garden"), "avoidancePattern": string | null (one gentle sentence naming the recurring avoidance in their words), "domainTags": string[]}`,
   buildUser: (ctx) => JSON.stringify(ctx),
 };
 
 export const RELATIONSHIP_NUDGE: PromptTemplate = {
-  system: `Write one short, warm nudge (max 140 chars, notification-safe) encouraging the user to reconnect with a specific person. Reference how they usually connect. Never guilt, never mortality. Respond ONLY with JSON: {"title": string, "body": string}`,
+  system: `Write one short, warm nudge encouraging the user to reconnect with a specific person — and give them something to reach out WITH, not just a reminder. If a saved memory with this person is provided, reference it concretely (ask about it, build on it). Otherwise reference how they usually connect. Never guilt, never mortality, no exclamation marks. Never quote raw dates like 2026-07-15 — say it naturally ("recently", "last month") or not at all.
+${GROUNDING_RULES}
+Respond ONLY with JSON: {"title": string (<=40 chars), "body": string (<=140 chars, notification-safe)}`,
   buildUser: (ctx) => JSON.stringify(ctx),
 };

@@ -13,6 +13,15 @@ import {
 import { colors, type, space, domainColor, domainTint, greeting, levelProgress, skyGradient } from '@/theme';
 
 /** Overall alignment: 100 minus the importance-weighted say/do gap. */
+function relativeDays(iso: string | Date): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  return months === 1 ? 'a month ago' : `${months} months ago`;
+}
+
 function alignmentScore(domains: any[]): number {
   const active = domains.filter((d) => d.importance > 0);
   if (!active.length) return 0;
@@ -207,6 +216,19 @@ export default function Today() {
             <View style={s.whyBox}>
               <Ionicons name="sparkles-outline" size={14} color={colors.textDim} style={{ marginTop: 3 }} />
               <Text style={[type.dim, { flex: 1 }]}>{data.whyToday.whyToday}</Text>
+            </View>
+          )}
+          {/* Resurfaced memory — the last saved moment with this person */}
+          {data.resurfacedMemory && (
+            <View style={s.memoryBox}>
+              <Ionicons name="images-outline" size={14} color={colors.amber} style={{ marginTop: 3 }} />
+              <Text style={[type.dim, { flex: 1 }]}>
+                <Text style={{ color: colors.amber, fontWeight: '700' }}>
+                  Last time with {data.resurfacedMemory.personName}:{' '}
+                </Text>
+                “{data.resurfacedMemory.title}” — {relativeDays(data.resurfacedMemory.occurredAt)}.
+                {data.resurfacedMemory.reflection ? ` Worth bringing up.` : ''}
+              </Text>
             </View>
           )}
           <View style={s.tinyRow}>
@@ -448,6 +470,10 @@ const s = StyleSheet.create({
   whyBox: {
     flexDirection: 'row', gap: 8,
     backgroundColor: colors.surfaceSunken, borderRadius: 12, padding: space(3),
+  },
+  memoryBox: {
+    flexDirection: 'row', gap: 8,
+    backgroundColor: colors.amberFaint, borderRadius: 12, padding: space(3),
   },
   tinyRow: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start',

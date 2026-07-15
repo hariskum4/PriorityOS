@@ -75,9 +75,32 @@ export class DashboardService {
       );
     }
 
+    // Memory resurfacing: when today's mission is about a person, bring back
+    // the last moment saved with them. Deterministic — the memory IS the copy.
+    let resurfacedMemory: {
+      title: string;
+      reflection: string | null;
+      occurredAt: Date;
+      personName: string;
+    } | null = null;
+    if (topMission?.relationshipId) {
+      const mem = await this.prisma.memory.findFirst({
+        where: { userId, relationshipId: topMission.relationshipId },
+        orderBy: { occurredAt: 'desc' },
+        select: { title: true, reflection: true, occurredAt: true },
+      });
+      if (mem) {
+        resurfacedMemory = {
+          ...mem,
+          personName: ((topMission as any).relationship?.name as string) ?? '',
+        };
+      }
+    }
+
     return {
       todayMission: topMission,
       whyToday,
+      resurfacedMemory,
       supportingMissions: ranked.slice(1, 3),
       domains: domains.map((d) => ({
         domainType: d.domainType,

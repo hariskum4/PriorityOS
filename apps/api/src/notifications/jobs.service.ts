@@ -64,11 +64,14 @@ export class JobsService {
     for (const rel of rels) {
       if (!rel.user.onboardingCompleted) continue;
       await this.relationships.recalcPriority(rel.id);
+      // Memory-grounded "reach out with this" line (6-day refresh window,
+      // deterministic fallback) \u2014 a gift to open with, not a guilt ping.
+      const nudge = await this.relationships.ensureReachOutLine(rel.id);
       await this.notifications.schedule(
         rel.userId,
         'relationship_drift',
-        `Time with ${rel.name}?`,
-        `It\u2019s been a while since you connected with ${rel.name}. A short call counts.`,
+        nudge?.title ?? `Time with ${rel.name}?`,
+        nudge?.body ?? `It\u2019s been a while since you connected with ${rel.name}. A short call counts.`,
         new Date(),
         `drift:${rel.id}:${week}`,
       );
