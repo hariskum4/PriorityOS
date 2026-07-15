@@ -145,7 +145,9 @@ export default function Today() {
           <Ionicons name="checkmark-circle" size={18} color={colors.green} />
           <Text style={[type.dim, { flex: 1 }]}>
             <Text style={{ color: colors.green, fontWeight: '700' }}>Done, +{justCompleted.xpReward} XP. </Text>
-            The engine picked your next one below.
+            {justCompleted.next
+              ? 'The engine picked your next one below.'
+              : 'Your plate already has what matters — nothing new needed.'}
           </Text>
           <Pressable
             onPress={() => {
@@ -189,12 +191,13 @@ export default function Today() {
             <Ionicons name="footsteps-outline" size={14} color={colors.green} style={{ marginTop: 2 }} />
             <Text style={[type.dim, { flex: 1 }]}>
               <Text style={{ color: colors.green, fontWeight: '700' }}>Too big right now? </Text>
-              {tinyStep({
-                title: m.title,
-                domainType: m.domainType,
-                missionType: m.missionType,
-                personName: m.relationship?.name,
-              })}
+              {m.description ||
+                tinyStep({
+                  title: m.title,
+                  domainType: m.domainType,
+                  missionType: m.missionType,
+                  personName: m.relationship?.name,
+                })}
             </Text>
           </View>
           <View style={{ flexDirection: 'row', gap: space(2) }}>

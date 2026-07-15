@@ -47,6 +47,8 @@ export interface NextMissionContext {
   pendingDomains: string[];
   /** Relationships already covered by a pending mission — don't nag twice. */
   pendingRelationshipIds?: string[];
+  /** Exact titles already pending — never suggest a literal duplicate. */
+  pendingTitles?: string[];
 }
 
 export interface MissionSuggestion {
@@ -84,6 +86,8 @@ export function suggestNextMission(
   ctx: NextMissionContext,
 ): MissionSuggestion | null {
   const covered = new Set(ctx.pendingDomains);
+  const takenTitles = new Set((ctx.pendingTitles ?? []).map((t) => t.trim().toLowerCase()));
+  const isTaken = (title: string) => takenTitles.has(title.trim().toLowerCase());
   const last = ctx.lastCompletedDomain ?? null;
 
   // 1. Most-overdue person first (skip anyone already on the plate).
@@ -123,6 +127,7 @@ export function suggestNextMission(
     .filter((d) => d.importance > 0 && d.neglectRisk >= RISK_FLOOR)
     .filter((d) => !covered.has(d.domainType))
     .filter((d) => d.domainType !== last || d.neglectRisk >= SERIOUS_RISK)
+    .filter((d) => !isTaken((DOMAIN_ACTIONS[d.domainType] ?? DOMAIN_ACTIONS.reflection).title))
     .sort((a, b) => b.neglectRisk - a.neglectRisk)[0];
   if (drifting) {
     const action = DOMAIN_ACTIONS[drifting.domainType] ?? DOMAIN_ACTIONS.reflection;
@@ -137,7 +142,7 @@ export function suggestNextMission(
   }
 
   // 3. A goal with no scheduled step.
-  const goal = ctx.goalsWithoutSteps[0];
+  const goal = ctx.goalsWithoutSteps.filter((g) => !isTaken(`First step: ${g.title}`))[0];
   if (goal) {
     return {
       title: `First step: ${goal.title}`,
@@ -155,6 +160,7 @@ export function suggestNextMission(
     .filter((d) => d.importance > 0)
     .filter((d) => !covered.has(d.domainType))
     .filter((d) => d.domainType !== last)
+    .filter((d) => !isTaken((DOMAIN_ACTIONS[d.domainType] ?? DOMAIN_ACTIONS.reflection).title))
     .map((d) => ({ ...d, gap: d.importance - d.attention }))
     .filter((d) => d.gap > 15)
     .sort((a, b) => b.gap - a.gap)[0];

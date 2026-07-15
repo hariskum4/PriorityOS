@@ -30,11 +30,9 @@ services:
         value: https://priority-brown.vercel.app
       - key: AI_ENABLED
         value: "false"     # flip to "true" once you add AI_API_KEY
-      - key: AI_PROVIDER
-        value: openai-compatible
       - key: AI_BASE_URL
-        value: https://api.openai.com/v1
+        value: https://openrouter.ai/api/v1
       - key: AI_MODEL
-        value: gpt-4o-mini
+        value: nvidia/nemotron-3-super-120b-a12b:free
       - key: AI_API_KEY
         sync: false

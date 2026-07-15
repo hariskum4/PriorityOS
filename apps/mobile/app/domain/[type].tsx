@@ -95,7 +95,14 @@ export default function DomainDetail() {
           </Card>
         )}
 
-        <SignatureFeature domainType={domainType} age={age} color={c} onAdd={(t) => addStarter.mutate(t)} />
+        <SignatureFeature
+          domainType={domainType}
+          age={age}
+          color={c}
+          onAdd={(t) => addStarter.mutate(t)}
+          pendingTitles={new Set((missions ?? []).map((m: any) => String(m.title).trim().toLowerCase()))}
+          busy={addStarter.isPending}
+        />
 
         {/* Cost of delay — this domain compounds; starting now beats starting later */}
         <Card style={{ gap: space(2), backgroundColor: colors.surfaceSunken }}>
@@ -160,11 +167,25 @@ export default function DomainDetail() {
  * finally with a home. Everything is estimate-framed and offers one
  * concrete action.
  */
-function SignatureFeature({ domainType, age, color, onAdd }: {
+function SignatureFeature({ domainType, age, color, onAdd, pendingTitles, busy }: {
   domainType: string; age: number | null; color: string; onAdd: (title: string) => void;
+  pendingTitles: Set<string>; busy: boolean;
 }) {
   const [monthly, setMonthly] = React.useState('10000');
   const [minutes, setMinutes] = React.useState(30);
+  // One tap adds it, then the button says so — no silent duplicate stacking.
+  const starter = (label: string, missionTitle: string) => {
+    const added = pendingTitles.has(missionTitle.trim().toLowerCase());
+    return (
+      <Button
+        title={added ? 'Added — in your list' : label}
+        small
+        kind="ghost"
+        disabled={added || busy}
+        onPress={() => onAdd(missionTitle)}
+      />
+    );
+  };
 
   if (domainType === 'health' && age !== null) {
     const windows = bodyWindows(age);
@@ -183,7 +204,7 @@ function SignatureFeature({ domainType, age, color, onAdd }: {
             <Text style={type.faint}>{w.framingText}</Text>
           </View>
         ))}
-        <Button title="Book the annual checkup" small kind="ghost" onPress={() => onAdd('Book the annual health checkup')} />
+        {starter('Book the annual checkup', 'Book the annual health checkup')}
       </Card>
     );
   }
@@ -208,7 +229,7 @@ function SignatureFeature({ domainType, age, color, onAdd }: {
         </Text>
         <Text style={[type.dim, { color: colors.green }]}>{money.framingText}</Text>
         <Text style={type.faint}>{money.assumptions[0]}.</Text>
-        <Button title="Start a monthly review habit" small kind="ghost" onPress={() => onAdd('Weekly money review')} />
+        {starter('Start a monthly review habit', 'Weekly money review')}
       </Card>
     );
   }
@@ -229,11 +250,9 @@ function SignatureFeature({ domainType, age, color, onAdd }: {
           ))}
         </View>
         <Text style={type.serif}>{creative.framingText}</Text>
-        <Button
-          title={domainType === 'purpose' ? 'Open the project today' : 'Start a learning habit'}
-          small kind="ghost"
-          onPress={() => onAdd(domainType === 'purpose' ? 'Work on the project for 30 minutes' : 'Learn for 30 minutes')}
-        />
+        {domainType === 'purpose'
+          ? starter('Open the project today', 'Work on the project for 30 minutes')
+          : starter('Start a learning habit', 'Learn for 30 minutes')}
       </Card>
     );
   }
@@ -248,7 +267,7 @@ function SignatureFeature({ domainType, age, color, onAdd }: {
         </View>
         <Text style={type.serif}>{trips.framingText}</Text>
         <Text style={type.faint}>Name your rituals on the Time tab — ocean swims, treks, festivals — and watch them count down as you live them.</Text>
-        <Button title="Plan one local adventure" small kind="ghost" onPress={() => onAdd('Plan one local adventure this month')} />
+        {starter('Plan one local adventure', 'Plan one local adventure this month')}
       </Card>
     );
   }
@@ -271,7 +290,7 @@ function SignatureFeature({ domainType, age, color, onAdd }: {
         <Label>{p.label}</Label>
       </View>
       <Text style={type.serif}>{p.text}</Text>
-      <Button title={p.starter} small kind="ghost" onPress={() => onAdd(p.starter)} />
+      {starter(p.starter, p.starter)}
     </Card>
   );
 }

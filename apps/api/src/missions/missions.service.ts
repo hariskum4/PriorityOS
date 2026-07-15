@@ -1,22 +1,28 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AnalyticsService } from '../analytics/analytics.service';
+import { AiService } from '../ai/ai.service';
+import { MISSION_CRAFT } from '@priority/ai-prompts';
 import {
   rankMissions,
   suggestNextMission,
+  MissionSuggestion,
   CADENCE_DAYS,
   Cadence,
 } from '@priority/scoring-engine';
 
 @Injectable()
 export class MissionsService {
+  private readonly logger = new Logger(MissionsService.name);
+
   constructor(
     private prisma: PrismaService,
     private scoring: ScoringService,
     private game: GamificationService,
     private analytics: AnalyticsService,
+    private ai: AiService,
   ) {}
 
   list(userId: string, status?: string) {
@@ -27,7 +33,17 @@ export class MissionsService {
     });
   }
 
-  create(userId: string, data: any) {
+  async create(userId: string, data: any) {
+    // Idempotent by title: tapping a starter button twice (or a retry) must
+    // not stack identical missions — duplicates also jam the adaptive loop.
+    const existing = await this.prisma.mission.findFirst({
+      where: {
+        userId,
+        status: 'pending',
+        title: { equals: String(data.title).trim(), mode: 'insensitive' },
+      },
+    });
+    if (existing) return existing;
     return this.prisma.mission.create({
       data: {
         userId,
@@ -138,9 +154,12 @@ export class MissionsService {
   async ensureNextMission(userId: string, lastCompletedDomain?: string | null) {
     const pending = await this.prisma.mission.findMany({
       where: { userId, status: 'pending' },
-      select: { domainType: true, relationshipId: true },
+      select: { domainType: true, relationshipId: true, title: true },
     });
-    if (pending.length >= 2) return null; // enough on the plate already
+    // Count DISTINCT titles: duplicate rows (historical bug, double-taps)
+    // must never convince the engine the plate is full and silence the loop.
+    const distinctPending = new Set(pending.map((p) => p.title.trim().toLowerCase()));
+    if (distinctPending.size >= 2) return null; // enough on the plate already
 
     const [domains, relationships, goals] = await Promise.all([
       this.prisma.lifeDomain.findMany({ where: { userId } }),
@@ -192,10 +211,11 @@ export class MissionsService {
       pendingRelationshipIds: pending
         .map((p) => p.relationshipId)
         .filter((id): id is string => !!id),
+      pendingTitles: pending.map((p) => p.title),
     });
     if (!suggestion) return null;
 
-    return this.prisma.mission.create({
+    const mission = await this.prisma.mission.create({
       data: {
         userId,
         title: suggestion.title,
@@ -207,6 +227,100 @@ export class MissionsService {
         xpReward: suggestion.xpReward,
         sourceType: 'AI',
         aiRationale: suggestion.rationale,
+      },
+    });
+
+    // Personalize in the background — the LLM never sits on the critical
+    // path of a user interaction. The deterministic copy above is already
+    // good; the AI pass rewrites it in the user's own words when it lands.
+    void this.personalizeMission(userId, mission.id, suggestion).catch((err) =>
+      this.logger.warn(`mission personalization failed: ${String(err)}`),
+    );
+
+    return mission;
+  }
+
+  /**
+   * Rewrite an engine-selected mission in the user's own language: their
+   * onboarding words, the person's name, the real numbers. Engine decides
+   * WHAT; the model only decides how it's phrased. Fire-and-forget.
+   */
+  private async personalizeMission(
+    userId: string,
+    missionId: string,
+    suggestion: MissionSuggestion,
+  ) {
+    if (!this.ai.enabled) return;
+
+    const [answers, relationship, goal, domain] = await Promise.all([
+      this.prisma.onboardingAnswer.findMany({
+        where: { userId, key: { in: ['postponing', 'firstWeekFeeling', 'futureSelf'] } },
+      }),
+      suggestion.relationshipId
+        ? this.prisma.relationship.findUnique({ where: { id: suggestion.relationshipId } })
+        : null,
+      suggestion.goalId
+        ? this.prisma.goal.findUnique({ where: { id: suggestion.goalId } })
+        : null,
+      this.prisma.lifeDomain.findFirst({
+        where: { userId, domainType: suggestion.domainType },
+      }),
+    ]);
+    const answer = (key: string) =>
+      String(answers.find((a) => a.key === key)?.value ?? '').slice(0, 200) || undefined;
+
+    const crafted = await this.ai.generate(
+      userId,
+      'mission_craft',
+      MISSION_CRAFT,
+      {
+        engineDecision: {
+          domainType: suggestion.domainType,
+          missionType: suggestion.missionType,
+          baseTitle: suggestion.title,
+          rationale: suggestion.rationale,
+          estimatedMinutes: suggestion.estimatedMinutes,
+        },
+        person: relationship
+          ? {
+              name: relationship.name,
+              relationType: relationship.relationType,
+              daysSinceContact: relationship.lastContactAt
+                ? Math.floor((Date.now() - relationship.lastContactAt.getTime()) / 86_400_000)
+                : null,
+            }
+          : null,
+        goal: goal ? { title: goal.title } : null,
+        domainScores: domain
+          ? {
+              importance: Number(domain.importanceScore),
+              attention: Number(domain.attentionScore),
+              neglectRisk: Number(domain.neglectRiskScore),
+            }
+          : null,
+        userWords: {
+          postponing: answer('postponing'),
+          firstWeekFeeling: answer('firstWeekFeeling'),
+          futureSelf: answer('futureSelf'),
+        },
+      },
+      // Fallback = keep the deterministic copy; personalization is a bonus.
+      { title: suggestion.title, microStep: '', rationale: suggestion.rationale },
+    );
+
+    const title = String(crafted.title ?? '').trim().slice(0, 80);
+    const rationale = String(crafted.rationale ?? '').trim().slice(0, 200);
+    const microStep = String(crafted.microStep ?? '').trim().slice(0, 120);
+    if (!title || title.toLowerCase() === suggestion.title.toLowerCase()) return;
+
+    // Only touch it if it's still pending and unchanged — never rewrite
+    // something the user already completed or edited.
+    await this.prisma.mission.updateMany({
+      where: { id: missionId, userId, status: 'pending', title: suggestion.title },
+      data: {
+        title,
+        aiRationale: rationale || suggestion.rationale,
+        ...(microStep ? { description: microStep } : {}),
       },
     });
   }

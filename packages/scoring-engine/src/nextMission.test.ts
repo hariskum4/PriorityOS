@@ -97,6 +97,25 @@ describe('the adaptive next-mission loop', () => {
     expect(s.rationale).toMatch(/90 importance/);
   });
 
+  it('never suggests a title that is already pending (duplicate guard)', () => {
+    const s = suggestNextMission({
+      ...base,
+      relationships: [],
+      pendingTitles: ['Call someone in your family — ten minutes counts'],
+    })!;
+    // family action title is taken → engine moves on (purpose drifts at 45)
+    expect(s.domainType).toBe('purpose');
+  });
+
+  it('title dedup is case-insensitive', () => {
+    const s = suggestNextMission({
+      ...base,
+      relationships: [],
+      pendingTitles: ['call someone in your family — TEN minutes counts'],
+    })!;
+    expect(s.domainType).not.toBe('family');
+  });
+
   it('a genuinely aligned life gets silence, not filler', () => {
     const s = suggestNextMission({
       domains: [{ domainType: 'family', importance: 80, attention: 78, neglectRisk: 5 }],

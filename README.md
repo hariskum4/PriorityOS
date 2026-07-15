@@ -54,7 +54,7 @@ The seed account is fully lived-in: relationships (Amma, Appa, Priya, Arjun), pe
 
 ### AI layer
 
-Set `AI_API_KEY` + `AI_BASE_URL` (any OpenAI-compatible endpoint) to enable LLM narratives. With `AI_ENABLED=false` the app is fully functional — every AI touchpoint has a deterministic fallback, and all generations (including fallbacks) are logged to `ai_recommendations` for observability.
+Set `AI_API_KEY` + `AI_BASE_URL` (any OpenAI-compatible endpoint — OpenRouter, OpenAI, Groq, Ollama…) and `AI_MODEL` to enable LLM narratives. Defaults to OpenRouter's free `nvidia/nemotron-3-super-120b-a12b:free`. With `AI_ENABLED=false` the app is fully functional — every AI touchpoint has a deterministic fallback, and all generations (including fallbacks) are logged to `ai_recommendations` for observability.
 
 **Hard rule:** the LLM writes words; it never computes scores. All prioritization, neglect risk, streaks, XP and opportunity estimates come from the tested deterministic engine.
 

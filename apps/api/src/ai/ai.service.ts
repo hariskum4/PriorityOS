@@ -2,13 +2,20 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PromptTemplate } from '@priority/ai-prompts';
 
+const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
+
 /**
- * Provider-agnostic LLM client (OpenAI-compatible chat completions).
+ * LLM client for any OpenAI-compatible chat-completions endpoint.
+ * Configured for OpenRouter by default (AI_BASE_URL=https://openrouter.ai/api/v1),
+ * but works unchanged with OpenAI, Together, Groq, a local Ollama, etc.
+ *
  * Hard rules:
- *  - Deterministic fallbacks: if AI_ENABLED=false or the call fails,
- *    every caller receives usable structured copy. The app never breaks
- *    because a model is down.
- *  - Strict JSON contracts, validated by the caller.
+ *  - Deterministic fallbacks: if AI_ENABLED=false, no API key, or the call
+ *    fails, every caller receives usable structured copy. The app never
+ *    breaks because a model is down (important on free tiers, which are flaky).
+ *  - Strict JSON contracts, described in each PromptTemplate's system prompt,
+ *    enforced here by defensive parsing (free models don't reliably support
+ *    response_format, so we lean on the prompt + a tolerant parser instead).
  *  - Every generation is persisted to ai_recommendations for observability.
  */
 @Injectable()
@@ -45,28 +52,41 @@ export class AiService {
       }
     }
     if (!this.enabled) return this.persist(userId, kind, fallback, 'fallback', opts?.cacheKey);
+
+    const model = process.env.AI_MODEL ?? DEFAULT_MODEL;
+    const baseUrl = process.env.AI_BASE_URL ?? 'https://openrouter.ai/api/v1';
     try {
-      const res = await fetch(`${process.env.AI_BASE_URL}/chat/completions`, {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${process.env.AI_API_KEY}`,
+          // Optional OpenRouter attribution (shows up on their dashboard).
+          'HTTP-Referer': process.env.AI_APP_URL ?? 'https://priority.app',
+          'X-Title': 'Priority',
         },
         body: JSON.stringify({
-          model: process.env.AI_MODEL ?? 'gpt-4o-mini',
-          temperature: 0.7,
-          response_format: { type: 'json_object' },
+          model,
+          // Low temperature on purpose: this is grounded coaching copy over
+          // real user data, not creative writing. Free-tier models hallucinate
+          // (invented people, misread numbers) at higher temperatures.
+          temperature: 0.4,
           messages: [
             { role: 'system', content: template.system },
             { role: 'user', content: template.buildUser(context) },
           ],
         }),
+        // Free pools sometimes hang instead of failing — never stall a request.
+        signal: AbortSignal.timeout(25_000),
       });
-      if (!res.ok) throw new Error(`LLM ${res.status}`);
+      if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text()}`);
       const data = (await res.json()) as any;
+      if (data.error) throw new Error(`LLM error: ${data.error.message ?? JSON.stringify(data.error)}`);
       const text: string = data.choices?.[0]?.message?.content ?? '';
-      const parsed = JSON.parse(text.replace(/```json|```/g, '').trim()) as T;
-      return this.persist(userId, kind, parsed, process.env.AI_MODEL ?? 'unknown', opts?.cacheKey);
+      if (!text) throw new Error('Empty completion');
+
+      const parsed = parseStrictJson<T>(text);
+      return this.persist(userId, kind, parsed, model, opts?.cacheKey);
     } catch (err) {
       this.logger.warn(`AI generation failed for ${kind}: ${String(err)}`);
       return this.persist(userId, kind, fallback, 'fallback', opts?.cacheKey);
@@ -90,4 +110,18 @@ export class AiService {
     });
     return content;
   }
+}
+
+/**
+ * The prompt templates instruct the model to respond with bare JSON, which the
+ * chosen models follow reliably — but strip code fences and any stray
+ * preamble/sign-off text defensively before parsing (free models vary).
+ */
+function parseStrictJson<T>(text: string): T {
+  const cleaned = text.replace(/```json|```/g, '').trim();
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  const jsonSlice =
+    start !== -1 && end !== -1 && end > start ? cleaned.slice(start, end + 1) : cleaned;
+  return JSON.parse(jsonSlice) as T;
 }
