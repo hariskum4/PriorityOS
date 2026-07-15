@@ -34,6 +34,28 @@ export default function Today() {
     queryKey: ['weekly-review'],
     queryFn: () => api<any>('/weekly-review/current'),
   });
+  // Fast-lane starters skipped the depth questions — invite them back once
+  // they're in. Deeper answers = a sharper reveal + better personalization.
+  const { data: obAnswers } = useQuery({
+    queryKey: ['onboarding-answers'],
+    queryFn: () => api<any[]>('/onboarding/answers'),
+    staleTime: 5 * 60_000,
+  });
+  const hasAnswer = (key: string) =>
+    (obAnswers ?? []).some((a) => {
+      if (a.key !== key) return false;
+      const v = a.value;
+      return typeof v === 'string'
+        ? v.trim().length > 0
+        : v && typeof v === 'object' && Object.keys(v).length > 0;
+    });
+  // A deepen pass forces reality scores; futureSelf can be deliberately
+  // skipped — either one counts as "they went deeper", and the card rests.
+  const needsDepth =
+    Array.isArray(obAnswers) &&
+    obAnswers.length > 0 && // onboarded at all
+    !hasAnswer('futureSelf') &&
+    !hasAnswer('currentReality');
   const [justCompleted, setJustCompleted] = React.useState<any | null>(null);
   const router = useRouter();
   const setMemoryDraft = useMemoryDraft((st) => st.setDraft);
@@ -299,6 +321,22 @@ export default function Today() {
             </Pressable>
           ))}
         </Card>
+      )}
+
+      {/* The invitation back into depth — only for fast-lane starters */}
+      {needsDepth && !justCompleted && (
+        <Pressable onPress={() => router.push('/onboarding?mode=deepen')}>
+          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: space(3), backgroundColor: colors.surfaceSunken }}>
+            <Ionicons name="telescope-outline" size={18} color={colors.amber} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={type.heading}>Deepen your reveal</Text>
+              <Text style={type.faint}>
+                Five quiet questions about who you're becoming. Your plan gets sharper.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+          </Card>
+        </Pressable>
       )}
 
       {/* Domain pulse — every part of life, one glance, all tappable */}

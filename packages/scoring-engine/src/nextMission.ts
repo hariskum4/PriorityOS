@@ -49,6 +49,14 @@ export interface NextMissionContext {
   pendingRelationshipIds?: string[];
   /** Exact titles already pending — never suggest a literal duplicate. */
   pendingTitles?: string[];
+  /** Titles suggested/created recently (~7 days) — rotate, don't repeat. */
+  recentTitles?: string[];
+  /**
+   * Titles the user has pushed away (snoozed 2+ times). Dismissal is data:
+   * "not this action" — the engine offers a different one, or yields the
+   * domain entirely when every variant has been declined.
+   */
+  dismissedTitles?: string[];
 }
 
 export interface MissionSuggestion {
@@ -62,20 +70,86 @@ export interface MissionSuggestion {
   rationale: string;
 }
 
-/** Small, concrete, finishable-today actions per domain. */
-const DOMAIN_ACTIONS: Record<string, { title: string; minutes: number }> = {
-  family: { title: 'Call someone in your family — ten minutes counts', minutes: 10 },
-  partner: { title: 'Plan a phone-free evening together', minutes: 15 },
-  children: { title: 'One undivided hour with your child', minutes: 60 },
-  friends: { title: 'Message the friend you keep meaning to reach', minutes: 5 },
-  health: { title: 'A 20-minute walk, today', minutes: 20 },
-  career: { title: 'Block two hours of focused work for tomorrow', minutes: 10 },
-  finance: { title: 'A 15-minute money review', minutes: 15 },
-  growth: { title: 'Read ten pages, properly', minutes: 20 },
-  experiences: { title: 'Plan one small adventure for this month', minutes: 15 },
-  reflection: { title: 'Sit quietly for five minutes', minutes: 5 },
-  purpose: { title: 'Thirty minutes on the project that matters', minutes: 30 },
-  impact: { title: 'Do one concrete thing for someone else today', minutes: 15 },
+/**
+ * Small, concrete, finishable-today actions per domain — several per domain,
+ * because the same reward repeated is how habit apps die ("reward fatigue").
+ * The engine rotates through variants and retires the ones a user dismisses.
+ * Variant [0] is the classic default; keep it stable.
+ */
+type DomainAction = { title: string; minutes: number };
+const DOMAIN_ACTIONS: Record<string, DomainAction[]> = {
+  family: [
+    { title: 'Call someone in your family — ten minutes counts', minutes: 10 },
+    { title: 'Send a photo that will make your family smile', minutes: 3 },
+    { title: 'Ask a parent one question about their younger years', minutes: 15 },
+    { title: 'Plan the next visit — put a date on it', minutes: 10 },
+  ],
+  partner: [
+    { title: 'Plan a phone-free evening together', minutes: 15 },
+    { title: 'Say one specific thank-you tonight', minutes: 2 },
+    { title: 'Book the next date — this week, on the calendar', minutes: 10 },
+    { title: 'Ask about their day and only listen', minutes: 15 },
+  ],
+  children: [
+    { title: 'One undivided hour with your child', minutes: 60 },
+    { title: 'Let them pick the game tonight — you just play', minutes: 30 },
+    { title: 'Ask what made them laugh today', minutes: 10 },
+    { title: 'Read one more chapter than usual at bedtime', minutes: 20 },
+  ],
+  friends: [
+    { title: 'Message the friend you keep meaning to reach', minutes: 5 },
+    { title: 'Send that friend the thing that reminded you of them', minutes: 3 },
+    { title: 'Put a date in the calendar to meet a friend', minutes: 10 },
+    { title: 'Voice note instead of text — thirty seconds of you', minutes: 5 },
+  ],
+  health: [
+    { title: 'A 20-minute walk, today', minutes: 20 },
+    { title: 'Lights out thirty minutes earlier tonight', minutes: 5 },
+    { title: 'Ten minutes of stretching before you sit down', minutes: 10 },
+    { title: 'Drink water first, coffee second, all morning', minutes: 2 },
+  ],
+  career: [
+    { title: 'Block two hours of focused work for tomorrow', minutes: 10 },
+    { title: 'Finish the one task you keep reopening', minutes: 45 },
+    { title: 'Write down what "done" looks like this week', minutes: 10 },
+    { title: 'Ask for the feedback you have been avoiding', minutes: 15 },
+  ],
+  finance: [
+    { title: 'A 15-minute money review', minutes: 15 },
+    { title: 'Cancel one subscription you forgot about', minutes: 10 },
+    { title: 'Automate one saving — small is fine', minutes: 15 },
+    { title: 'Check one bill you have been ignoring', minutes: 10 },
+  ],
+  growth: [
+    { title: 'Read ten pages, properly', minutes: 20 },
+    { title: 'Twenty minutes learning the thing you said you would', minutes: 20 },
+    { title: 'Write three sentences about what you learned today', minutes: 5 },
+    { title: 'Watch one lesson, take one note', minutes: 20 },
+  ],
+  experiences: [
+    { title: 'Plan one small adventure for this month', minutes: 15 },
+    { title: 'Walk a street you have never walked', minutes: 30 },
+    { title: 'Book the thing you keep browsing', minutes: 15 },
+    { title: 'Take the long way home and notice things', minutes: 20 },
+  ],
+  reflection: [
+    { title: 'Sit quietly for five minutes', minutes: 5 },
+    { title: 'Write one honest paragraph about today', minutes: 10 },
+    { title: 'Three things that went right this week — write them', minutes: 5 },
+    { title: 'Ten slow breaths before you open anything', minutes: 3 },
+  ],
+  purpose: [
+    { title: 'Thirty minutes on the project that matters', minutes: 30 },
+    { title: 'The smallest next step on the big thing — do it now', minutes: 15 },
+    { title: 'Tell one person about what you are building', minutes: 10 },
+    { title: 'Sketch the next milestone in five bullet points', minutes: 10 },
+  ],
+  impact: [
+    { title: 'Do one concrete thing for someone else today', minutes: 15 },
+    { title: 'Share what you know with someone one step behind you', minutes: 20 },
+    { title: 'A small donation to the cause you believe in', minutes: 5 },
+    { title: 'Thank someone who never gets thanked', minutes: 5 },
+  ],
 };
 
 const SERIOUS_RISK = 60;   // variety guard yields to genuine danger
@@ -86,9 +160,28 @@ export function suggestNextMission(
   ctx: NextMissionContext,
 ): MissionSuggestion | null {
   const covered = new Set(ctx.pendingDomains);
-  const takenTitles = new Set((ctx.pendingTitles ?? []).map((t) => t.trim().toLowerCase()));
-  const isTaken = (title: string) => takenTitles.has(title.trim().toLowerCase());
+  const norm = (t: string) => t.trim().toLowerCase();
+  const takenTitles = new Set((ctx.pendingTitles ?? []).map(norm));
+  const recentTitles = new Set((ctx.recentTitles ?? []).map(norm));
+  const dismissedTitles = new Set((ctx.dismissedTitles ?? []).map(norm));
+  const isTaken = (title: string) => takenTitles.has(norm(title));
   const last = ctx.lastCompletedDomain ?? null;
+
+  /**
+   * Pick the best action variant for a domain:
+   *  - never a title that's pending or that the user has dismissed,
+   *  - prefer one they haven't seen lately (rotation beats repetition),
+   *  - null when every variant is rejected — the user said "not this
+   *    domain's actions", and the engine respects that instead of nagging.
+   */
+  const pickAction = (domainType: string): DomainAction | null => {
+    const variants = DOMAIN_ACTIONS[domainType] ?? DOMAIN_ACTIONS.reflection;
+    const usable = variants.filter(
+      (v) => !isTaken(v.title) && !dismissedTitles.has(norm(v.title)),
+    );
+    if (usable.length === 0) return null;
+    return usable.find((v) => !recentTitles.has(norm(v.title))) ?? usable[0];
+  };
 
   // 1. Most-overdue person first (skip anyone already on the plate).
   const coveredRels = new Set(ctx.pendingRelationshipIds ?? []);
@@ -122,15 +215,16 @@ export function suggestNextMission(
     };
   }
 
-  // 2. Domain drifting hardest (variety-guarded).
-  const drifting = ctx.domains
+  // 2. Domain drifting hardest (variety-guarded). Walk candidates in risk
+  // order and take the first whose action pool isn't exhausted/dismissed.
+  const driftCandidates = ctx.domains
     .filter((d) => d.importance > 0 && d.neglectRisk >= RISK_FLOOR)
     .filter((d) => !covered.has(d.domainType))
     .filter((d) => d.domainType !== last || d.neglectRisk >= SERIOUS_RISK)
-    .filter((d) => !isTaken((DOMAIN_ACTIONS[d.domainType] ?? DOMAIN_ACTIONS.reflection).title))
-    .sort((a, b) => b.neglectRisk - a.neglectRisk)[0];
-  if (drifting) {
-    const action = DOMAIN_ACTIONS[drifting.domainType] ?? DOMAIN_ACTIONS.reflection;
+    .sort((a, b) => b.neglectRisk - a.neglectRisk);
+  for (const drifting of driftCandidates) {
+    const action = pickAction(drifting.domainType);
+    if (!action) continue;
     return {
       title: action.title,
       domainType: drifting.domainType,
@@ -141,8 +235,10 @@ export function suggestNextMission(
     };
   }
 
-  // 3. A goal with no scheduled step.
-  const goal = ctx.goalsWithoutSteps.filter((g) => !isTaken(`First step: ${g.title}`))[0];
+  // 3. A goal with no scheduled step (skip steps the user has pushed away).
+  const goal = ctx.goalsWithoutSteps.filter(
+    (g) => !isTaken(`First step: ${g.title}`) && !dismissedTitles.has(norm(`First step: ${g.title}`)),
+  )[0];
   if (goal) {
     return {
       title: `First step: ${goal.title}`,
@@ -155,17 +251,18 @@ export function suggestNextMission(
     };
   }
 
-  // 4. Widest say-do gap as the gentle default.
-  const gap = ctx.domains
+  // 4. Widest say-do gap as the gentle default — same walk-the-candidates
+  // pattern, so a dismissed action pool yields the domain, not the loop.
+  const gapCandidates = ctx.domains
     .filter((d) => d.importance > 0)
     .filter((d) => !covered.has(d.domainType))
     .filter((d) => d.domainType !== last)
-    .filter((d) => !isTaken((DOMAIN_ACTIONS[d.domainType] ?? DOMAIN_ACTIONS.reflection).title))
     .map((d) => ({ ...d, gap: d.importance - d.attention }))
     .filter((d) => d.gap > 15)
-    .sort((a, b) => b.gap - a.gap)[0];
-  if (gap) {
-    const action = DOMAIN_ACTIONS[gap.domainType] ?? DOMAIN_ACTIONS.reflection;
+    .sort((a, b) => b.gap - a.gap);
+  for (const gap of gapCandidates) {
+    const action = pickAction(gap.domainType);
+    if (!action) continue;
     return {
       title: action.title,
       domainType: gap.domainType,

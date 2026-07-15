@@ -161,9 +161,16 @@ export class MissionsService {
     const distinctPending = new Set(pending.map((p) => p.title.trim().toLowerCase()));
     if (distinctPending.size >= 2) return null; // enough on the plate already
 
-    const [domains, relationships, goals] = await Promise.all([
+    const [domains, relationships, history, goals] = await Promise.all([
       this.prisma.lifeDomain.findMany({ where: { userId } }),
       this.prisma.relationship.findMany({ where: { userId, wantsMoreTime: true } }),
+      // Last 30 days of missions: recency drives variant rotation, and
+      // repeated snoozing ("not this") retires an action — dismissal is
+      // the other half of the learning loop, not just completion.
+      this.prisma.mission.findMany({
+        where: { userId, createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } },
+        select: { title: true, snoozeCount: true, createdAt: true },
+      }),
       this.prisma.goal.findMany({
         where: { userId, status: 'active' },
         // A goal is "stepless" only if nothing is pending AND nothing was
@@ -212,6 +219,10 @@ export class MissionsService {
         .map((p) => p.relationshipId)
         .filter((id): id is string => !!id),
       pendingTitles: pending.map((p) => p.title),
+      recentTitles: history
+        .filter((m) => m.createdAt.getTime() >= Date.now() - 7 * 86_400_000)
+        .map((m) => m.title),
+      dismissedTitles: history.filter((m) => m.snoozeCount >= 2).map((m) => m.title),
     });
     if (!suggestion) return null;
 

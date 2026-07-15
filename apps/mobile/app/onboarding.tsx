@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, Animated, Platform, StyleSheet,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@/services/api';
 import { track } from '@/services/analytics';
@@ -34,6 +34,19 @@ const FEELINGS = ['closer to people', 'calmer', 'present', 'proud of myself', 'l
 
 const QUESTION_STEPS = 7; // life context, rank, reality, drift, postponing, person, feeling
 
+/**
+ * Lanes (activation research: first value in <3 min ≈ 2x retention).
+ *  - fast:   rank → one person → the someday check → Reveal. ~90 seconds.
+ *  - full:   the original seven questions, for people who want depth now.
+ *  - deepen: entered from Today after a fast start — only the skipped
+ *            depth questions, then a regenerated (richer) Life Reveal.
+ */
+const LANES: Record<'fast' | 'full' | 'deepen', number[]> = {
+  fast: [2, 6, 5],
+  full: [0.5, 1, 2, 3, 4, 5, 6, 7],
+  deepen: [0.5, 1, 3, 4, 7],
+};
+
 const WORK_TYPES: Record<string, string> = {
   office_9_5: '9–5 office', remote: 'remote', shift: 'shift work',
   business: 'business owner', freelance: 'freelancer', student: 'student', homemaker: 'homemaker',
@@ -53,7 +66,9 @@ const MARITAL: Record<string, string> = {
  */
 export default function Onboarding() {
   const router = useRouter();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [step, setStep] = useState<number>(0);
+  const [lane, setLane] = useState<'fast' | 'full' | 'deepen'>('full');
 
   const [futureSelf, setFutureSelf] = useState('');
   const [eulogy, setEulogy] = useState('');
@@ -88,6 +103,37 @@ export default function Onboarding() {
     else if (list.length < max) set([...list, item]);
   };
 
+  // Deepen mode: skip the intro, load what they already told us (the reality
+  // step scores the domains they ranked during the fast start).
+  useEffect(() => {
+    if (mode !== 'deepen') return;
+    setLane('deepen');
+    api<any[]>('/onboarding/answers')
+      .then((answers) => {
+        const get = (key: string) => answers?.find((a) => a.key === key)?.value;
+        const ranked = get('priorityRanking');
+        if (Array.isArray(ranked) && ranked.length) setRanking(ranked);
+        if (typeof get('futureSelf') === 'string') setFutureSelf(get('futureSelf'));
+        if (typeof get('eulogy') === 'string') setEulogy(get('eulogy'));
+        if (typeof get('firstWeekFeeling') === 'string') setFeeling(get('firstWeekFeeling'));
+      })
+      .catch(() => {})
+      .finally(() => setStep(LANES.deepen[0]));
+  }, [mode]);
+
+  // Sequence-driven navigation: each lane walks its own list of steps.
+  const seq = LANES[lane];
+  const pos = seq.indexOf(step);
+  const isLastStep = pos === seq.length - 1;
+  const next = () => (isLastStep ? finish() : setStep(seq[pos + 1]));
+  const back = () => {
+    if (pos > 0) setStep(seq[pos - 1]);
+    else if (lane === 'deepen') router.back();
+    else setStep(0);
+  };
+  // Terminal steps build the reveal; mid-lane steps just advance.
+  const nextTitle = isLastStep ? (busy ? 'Building your Life Reveal…' : 'See my Life Reveal') : 'Next';
+
   const finish = async () => {
     setBusy(true);
     setError('');
@@ -121,6 +167,13 @@ export default function Onboarding() {
           },
         });
       }
+      // Only send answers that carry a value — a deepen pass must never
+      // blank out what the fast lane already saved (upsert semantics).
+      const hasValue = (v: unknown) =>
+        Array.isArray(v) ? v.length > 0
+        : typeof v === 'string' ? v.trim().length > 0
+        : v && typeof v === 'object' ? Object.keys(v).length > 0
+        : v != null;
       await api('/onboarding/answers', {
         method: 'POST',
         body: {
@@ -133,7 +186,7 @@ export default function Onboarding() {
             { section: 'reflection', key: 'postponing', value: postponing },
             { section: 'reflection', key: 'futureSelf', value: futureSelf },
             { section: 'reflection', key: 'eulogy', value: eulogy },
-          ],
+          ].filter((a) => hasValue(a.value)),
         },
       });
       if (person.name) {
@@ -165,21 +218,19 @@ export default function Onboarding() {
     }
   };
 
-  const questionIndex = step - 1;
-
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={s.wrap}>
-      {step > 0 && step <= QUESTION_STEPS && (
+      {pos >= 0 && step !== 0 && step !== QUESTION_STEPS + 1 && (
         <View style={s.progressHeader}>
-          <Pressable onPress={() => setStep(step - 1)} hitSlop={12} style={({ pressed }) => pressed && { opacity: 0.6 }}>
+          <Pressable onPress={back} hitSlop={12} style={({ pressed }) => pressed && { opacity: 0.6 }}>
             <Ionicons name="chevron-back" size={22} color={colors.textDim} />
           </Pressable>
           <View style={s.progressTrack}>
-            {Array.from({ length: QUESTION_STEPS }).map((_, i) => (
-              <View key={i} style={[s.progressSeg, i <= questionIndex && { backgroundColor: colors.amber }]} />
+            {seq.map((_, i) => (
+              <View key={i} style={[s.progressSeg, i <= pos && { backgroundColor: colors.amber }]} />
             ))}
           </View>
-          <Text style={type.faint}>{questionIndex + 1}/{QUESTION_STEPS}</Text>
+          <Text style={type.faint}>{pos + 1}/{seq.length}</Text>
         </View>
       )}
 
@@ -191,8 +242,8 @@ export default function Onboarding() {
           </View>
           <Text style={[type.display, { textAlign: 'center' }]}>First, the honest part</Text>
           <Text style={[type.serif, { textAlign: 'center', color: colors.textDim }]}>
-            Seven questions. Four minutes.{'\n'}
-            Then we show you the gap between the life you describe and the life your time describes.
+            Three questions if you're in a hurry. Seven if you're not.{'\n'}
+            Either way, we show you the gap between the life you describe and the life your time describes.
           </Text>
           <View style={{ gap: space(3), marginTop: space(4) }}>
             {[
@@ -210,9 +261,17 @@ export default function Onboarding() {
               </View>
             ))}
           </View>
-          <Button title="Begin" onPress={() => { track('onboarding_started'); setStep(0.5); }} />
+          <Button
+            title="Quick start — 90 seconds"
+            onPress={() => { track('onboarding_started', { lane: 'fast' }); setLane('fast'); setStep(LANES.fast[0]); }}
+          />
+          <Pressable onPress={() => { track('onboarding_started', { lane: 'full' }); setLane('full'); setStep(LANES.full[0]); }}>
+            <Text style={[type.dim, { textAlign: 'center', padding: 6, color: colors.amber }]}>
+              I have four minutes — ask me everything
+            </Text>
+          </Pressable>
           <Text style={[type.faint, { textAlign: 'center' }]}>
-            No forms after this. Priority learns from behavior, not data entry.
+            Either way: no forms after this. Priority learns from behavior, not data entry.
           </Text>
         </View>
       )}
@@ -231,8 +290,8 @@ export default function Onboarding() {
             <Label>At your funeral, what do they say about the person — not the achievements?</Label>
             <Input multiline value={eulogy} onChangeText={setEulogy} placeholder="They were someone who always…" />
           </View>
-          <Button title="Continue" onPress={() => setStep(1)} />
-          <Pressable onPress={() => setStep(1)}>
+          <Button title="Continue" onPress={next} />
+          <Pressable onPress={next}>
             <Text style={[type.faint, { textAlign: 'center', padding: 6 }]}>Skip — I'll just begin</Text>
           </Pressable>
         </View>
@@ -288,9 +347,9 @@ export default function Onboarding() {
               onPick={setAwayFromParents}
             />
             <Button
-              title="Next"
-              onPress={() => setStep(2)}
-              disabled={!userAge || !workType || !workHours || !awayFromParents}
+              title={nextTitle}
+              onPress={next}
+              disabled={busy || !userAge || !workType || !workHours || !awayFromParents}
             />
           </View>
         </>
@@ -327,7 +386,7 @@ export default function Onboarding() {
               );
             })}
           </View>
-          <Button title="Next" onPress={() => setStep(3)} disabled={ranking.length < 3} />
+          <Button title={nextTitle} onPress={next} disabled={busy || ranking.length < 3} />
         </>
       )}
 
@@ -369,9 +428,9 @@ export default function Onboarding() {
             })}
           </View>
           <Button
-            title="Next"
-            onPress={() => setStep(4)}
-            disabled={ranking.some((d) => !reality[d])}
+            title={nextTitle}
+            onPress={next}
+            disabled={busy || ranking.some((d) => !reality[d])}
           />
         </>
       )}
@@ -401,7 +460,7 @@ export default function Onboarding() {
               );
             })}
           </View>
-          <Button title={neglected.length ? 'Next' : 'Nothing is drifting'} onPress={() => setStep(5)} />
+          <Button title={neglected.length ? nextTitle : 'Nothing is drifting'} onPress={next} disabled={busy} />
         </>
       )}
 
@@ -423,8 +482,9 @@ export default function Onboarding() {
               value={postponingDomain}
               onPick={setPostponingDomain}
             />
-            <Button title="Next" onPress={() => setStep(6)} disabled={!postponing.trim()} />
-            <Pressable onPress={() => setStep(6)}>
+            {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
+            <Button title={nextTitle} onPress={next} disabled={busy || !postponing.trim()} />
+            <Pressable onPress={() => { if (!busy) next(); }}>
               <Text style={[type.faint, { textAlign: 'center', padding: 6 }]}>Nothing comes to mind — skip</Text>
             </Pressable>
           </View>
@@ -454,28 +514,33 @@ export default function Onboarding() {
               </View>
             </View>
             <PickRow label="They are your" options={RELATIONS} value={person.relationType} onPick={(rel) => setPerson({ ...person, relationType: rel })} />
-            <PickRow
-              label="Where do they live?"
-              options={['same_city', 'different_city', 'abroad'] as const}
-              display={{ same_city: 'same city', different_city: 'another city', abroad: 'abroad' }}
-              value={locationType}
-              onPick={setLocationType}
-            />
-            <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={setCallFrequency} />
             <PickRow label="How often do you wish you talked?" options={CADENCES} value={desired} onPick={setDesired} />
-            <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={setVisitFrequency} />
-            <View style={{ gap: space(2) }}>
-              <Label>How is their health these days? (optional)</Label>
-              <Text style={type.faint}>This only tunes the arithmetic. It never changes how Priority speaks to you.</Text>
-              <PickRow
-                label=""
-                options={['good', 'declining', 'serious'] as const}
-                display={{ good: 'doing well', declining: 'some concerns', serious: 'serious' }}
-                value={healthStatus}
-                onPick={(v) => setHealthStatus(healthStatus === v ? '' : v)}
-              />
-            </View>
-            <Button title="Next" onPress={() => setStep(7)} disabled={!person.name} />
+            {lane !== 'fast' && (
+              <>
+                <PickRow
+                  label="Where do they live?"
+                  options={['same_city', 'different_city', 'abroad'] as const}
+                  display={{ same_city: 'same city', different_city: 'another city', abroad: 'abroad' }}
+                  value={locationType}
+                  onPick={setLocationType}
+                />
+                <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={setCallFrequency} />
+                <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={setVisitFrequency} />
+                <View style={{ gap: space(2) }}>
+                  <Label>How is their health these days? (optional)</Label>
+                  <Text style={type.faint}>This only tunes the arithmetic. It never changes how Priority speaks to you.</Text>
+                  <PickRow
+                    label=""
+                    options={['good', 'declining', 'serious'] as const}
+                    display={{ good: 'doing well', declining: 'some concerns', serious: 'serious' }}
+                    value={healthStatus}
+                    onPick={(v) => setHealthStatus(healthStatus === v ? '' : v)}
+                  />
+                </View>
+              </>
+            )}
+            {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
+            <Button title={nextTitle} onPress={next} disabled={busy || !person.name} />
           </View>
         </>
       )}
@@ -735,7 +800,7 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, onDone }:
           <Text style={type.dim}>Pick one. It becomes your first mission — small, this week, yours.</Text>
           {reveal.firstWeekFocus?.map((f: string) => {
             const isChosen = chosen === f;
-            const dimmed = chosen && !isChosen;
+            const dimmed = !!chosen && !isChosen;
             return (
               <Pressable
                 key={f}
@@ -759,7 +824,9 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, onDone }:
           })}
           {chosen && (
             <Text style={[type.dim, { color: colors.green, textAlign: 'center' }]}>
-              Added to Today. That's where next week's "{feeling}" starts.
+              {feeling
+                ? `Added to Today. That's where next week's "${feeling}" starts.`
+                : 'Added to Today. That is where it starts.'}
             </Text>
           )}
         </Card>

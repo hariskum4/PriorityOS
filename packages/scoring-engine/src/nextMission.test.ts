@@ -103,8 +103,8 @@ describe('the adaptive next-mission loop', () => {
       relationships: [],
       pendingTitles: ['Call someone in your family — ten minutes counts'],
     })!;
-    // family action title is taken → engine moves on (purpose drifts at 45)
-    expect(s.domainType).toBe('purpose');
+    // the domain still deserves attention — but never the identical mission
+    expect(s.title).not.toBe('Call someone in your family — ten minutes counts');
   });
 
   it('title dedup is case-insensitive', () => {
@@ -113,7 +113,51 @@ describe('the adaptive next-mission loop', () => {
       relationships: [],
       pendingTitles: ['call someone in your family — TEN minutes counts'],
     })!;
-    expect(s.domainType).not.toBe('family');
+    expect(s.title.toLowerCase()).not.toBe('call someone in your family — ten minutes counts');
+  });
+
+  it('rotates action variants instead of repeating last week\'s', () => {
+    const s = suggestNextMission({
+      ...base,
+      relationships: [],
+      recentTitles: ['Call someone in your family — ten minutes counts'],
+    })!;
+    expect(s.domainType).toBe('family'); // still the right domain…
+    expect(s.title).not.toBe('Call someone in your family — ten minutes counts'); // …different action
+  });
+
+  it('a dismissed action is retired; the domain offers another', () => {
+    const s = suggestNextMission({
+      ...base,
+      relationships: [],
+      dismissedTitles: ['Call someone in your family — ten minutes counts'],
+    })!;
+    expect(s.domainType).toBe('family');
+    expect(s.title).not.toBe('Call someone in your family — ten minutes counts');
+  });
+
+  it('dismissing every variant yields the whole domain — no nagging', () => {
+    const s = suggestNextMission({
+      ...base,
+      relationships: [],
+      dismissedTitles: [
+        'Call someone in your family — ten minutes counts',
+        'Send a photo that will make your family smile',
+        'Ask a parent one question about their younger years',
+        'Plan the next visit — put a date on it',
+      ],
+    })!;
+    expect(s.domainType).toBe('purpose'); // family fully declined → next drifting domain
+  });
+
+  it('a dismissed goal step stops being re-suggested', () => {
+    const s = suggestNextMission({
+      ...base,
+      relationships: [],
+      domains: base.domains.map((d) => ({ ...d, neglectRisk: 10 })),
+      dismissedTitles: ['First step: Write the book'],
+    })!;
+    expect(s.title).not.toBe('First step: Write the book'); // falls through to gap branch
   });
 
   it('a genuinely aligned life gets silence, not filler', () => {
