@@ -13,6 +13,9 @@
 [build.environment]
   NODE_VERSION = "20"
   NPM_FLAGS = "--include=dev"
+  # Baked into the web bundle at build time (Expo inlines EXPO_PUBLIC_*).
+  # Override in Site settings → Environment variables if the API moves.
+  EXPO_PUBLIC_API_URL = "https://priority-api-0mus.onrender.com"
 
 # expo-router single-page output: every route serves the built index.html.
 [[redirects]]
