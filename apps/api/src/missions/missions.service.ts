@@ -26,6 +26,16 @@ export class MissionsService {
   ) {}
 
   list(userId: string, status?: string) {
+    // Completed missions are a momentum feed, not a priority queue — most
+    // recent first, capped, so "I completed it" is never a dead end.
+    if (status === 'completed') {
+      return this.prisma.mission.findMany({
+        where: { userId, status },
+        orderBy: { completedAt: 'desc' },
+        take: 30,
+        include: { relationship: { select: { id: true, name: true } } },
+      });
+    }
     return this.prisma.mission.findMany({
       where: { userId, ...(status ? { status } : {}) },
       orderBy: [{ priorityScore: 'desc' }, { dueDate: 'asc' }],

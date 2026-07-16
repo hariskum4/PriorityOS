@@ -66,8 +66,8 @@ describe('weekly allocation', () => {
 
 describe('healthspan', () => {
   it('shows healthy years (horizon minus the frail tail) and the widen-able window', () => {
-    const h = healthspan(35); // horizon 45 → healthy ~35
-    expect(h.healthyYearsLeft).toBe(35);
+    const h = healthspan(35); // horizon 65 → healthy ~55
+    expect(h.healthyYearsLeft).toBe(55);
     expect(h.potentialYearsGained).toBe(10);
     expect(h.levers.length).toBe(4);
   });

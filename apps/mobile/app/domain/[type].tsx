@@ -50,6 +50,7 @@ export default function DomainDetail() {
     mutationFn: (id: string) => api(`/missions/${id}/complete`, { method: 'POST' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['missions'] });
+      qc.invalidateQueries({ queryKey: ['missions-completed'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });

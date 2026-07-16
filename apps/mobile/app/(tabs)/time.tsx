@@ -19,6 +19,7 @@ import {
   healthspan,
   energyBudget,
   suggestSeason,
+  PLANNING_HORIZON_AGE,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { Button, Card, Chip, DomainDot, Input, Label } from '@/components/ui';
@@ -200,6 +201,34 @@ export default function TimeReality() {
         </Card>
       ) : (
         <>
+          {/* THE LIFE TILE — the headline number, first thing seen. The
+              horizon is generous (100 years, not a countdown to 80) and
+              moves as you age: past 90 it simply extends past 100. */}
+          <Card style={{ gap: space(3) }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="grid-outline" size={14} color={colors.textDim} />
+              <Label>Your life in years</Label>
+            </View>
+            <View style={s.lifeGrid}>
+              {Array.from({ length: weeks.yearsLived + weeks.yearsAhead }).map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    s.lifeCell,
+                    i < weeks.yearsLived && s.lifeCellLived,
+                    i === weeks.yearsLived && s.lifeCellNow,
+                  ]}
+                />
+              ))}
+            </View>
+            <Text style={type.faint}>
+              Each square is a year on a {PLANNING_HORIZON_AGE}-year horizon — generous on purpose, and it
+              extends further the closer you get. Filled ones are lived; the bright one is now —
+              {' '}{weeks.weeksLived.toLocaleString()} weeks in, ~{weeks.weeksAhead.toLocaleString()} ahead.
+            </Text>
+            <Text style={type.serif}>{weeks.framingText}</Text>
+          </Card>
+
           <Card accent={colors.amberSoft} style={{ gap: space(4), paddingVertical: space(5) }}>
             <View style={{ flexDirection: 'row' }}>
               <Big
@@ -210,7 +239,7 @@ export default function TimeReality() {
               <Big
                 value={`~${windows.weekendsRemaining.toLocaleString()}`}
                 unit="weekends ahead"
-                caption={`to an ${80}-year planning horizon`}
+                caption={`on a ${PLANNING_HORIZON_AGE}-year horizon`}
               />
             </View>
             <Text style={[type.faint, { textAlign: 'center' }]}>{windows.freeTime.detail}</Text>
@@ -328,30 +357,6 @@ export default function TimeReality() {
             </View>
             <Text style={type.serif}>{energy.framingText}</Text>
             <Text style={type.faint}>{energy.assumptions[1]}.</Text>
-          </Card>
-
-          <Card style={{ gap: space(3) }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="grid-outline" size={14} color={colors.textDim} />
-              <Label>Your life in years</Label>
-            </View>
-            <View style={s.lifeGrid}>
-              {Array.from({ length: 80 }).map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    s.lifeCell,
-                    i < weeks.yearsLived && s.lifeCellLived,
-                    i === weeks.yearsLived && s.lifeCellNow,
-                  ]}
-                />
-              ))}
-            </View>
-            <Text style={type.faint}>
-              Each square is a year to the 80-year horizon. Filled ones are lived; the bright one is now —
-              {' '}{weeks.weeksLived.toLocaleString()} weeks in, ~{weeks.weeksAhead.toLocaleString()} ahead.
-            </Text>
-            <Text style={type.serif}>{weeks.framingText}</Text>
           </Card>
 
           <Card style={{ gap: space(3) }}>

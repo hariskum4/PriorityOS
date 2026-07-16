@@ -7,6 +7,15 @@ import { tinyStep } from '@priority/scoring-engine';
 import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
 import { colors, type, space, domainColor } from '@/theme';
 
+function completedRelative(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  const weeks = Math.round(days / 7);
+  return weeks === 1 ? 'a week ago' : `${weeks} weeks ago`;
+}
+
 export default function Missions() {
   const qc = useQueryClient();
   const { data } = useQuery({
@@ -17,8 +26,15 @@ export default function Missions() {
     queryKey: ['goals'],
     queryFn: () => api<any[]>('/goals'),
   });
+  // "When I completed a mission it isn't shown anywhere" — this closes that
+  // gap: a visible momentum trail, not a void the second you tap Complete.
+  const { data: done } = useQuery({
+    queryKey: ['missions-completed'],
+    queryFn: () => api<any[]>('/missions?status=completed'),
+  });
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['missions'] });
+    qc.invalidateQueries({ queryKey: ['missions-completed'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
   // IKEA effect: a step the user names themselves is one they value —
@@ -144,10 +160,31 @@ export default function Missions() {
           />
         </Card>
       }
+      ListFooterComponent={
+        done && done.length > 0 ? (
+          <View style={{ gap: space(2), marginTop: space(4) }}>
+            <Label>Recently completed</Label>
+            {done.slice(0, 8).map((m) => (
+              <View key={m.id} style={s.doneRow}>
+                <Ionicons name="checkmark-circle" size={16} color={colors.green} />
+                <DomainDot domain={m.domainType} />
+                <Text style={[type.dim, { flex: 1 }]} numberOfLines={1}>
+                  {m.title}{m.relationship ? ` · ${m.relationship.name}` : ''}
+                </Text>
+                <Text style={type.faint}>{completedRelative(m.completedAt)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null
+      }
     />
   );
 }
 
 const s = StyleSheet.create({
   wrap: { padding: space(5), paddingTop: space(14), gap: space(3), paddingBottom: space(10), maxWidth: 560, width: '100%', alignSelf: 'center' },
+  doneRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: colors.surfaceSunken, borderRadius: 10, padding: 10,
+  },
 });

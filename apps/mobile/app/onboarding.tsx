@@ -50,6 +50,7 @@ const LANES: Record<'fast' | 'full' | 'deepen', number[]> = {
 const WORK_TYPES: Record<string, string> = {
   office_9_5: '9–5 office', remote: 'remote', shift: 'shift work',
   business: 'business owner', freelance: 'freelancer', student: 'student', homemaker: 'homemaker',
+  not_working: 'not working',
 };
 const WORK_HOURS: Record<string, string> = {
   '35': 'under 40 h', '45': '40–50 h', '55': '50–60 h', '65': '60+ h',
@@ -148,7 +149,11 @@ export default function Onboarding() {
             ? new Date(new Date().getFullYear() - parseInt(userAge, 10), 6, 1).toISOString()
             : undefined,
           workType: workType || undefined,
-          workHoursPerWeek: workHours ? parseInt(workHours, 10) : undefined,
+          // Not working means 0, not "unspecified" — leaving this undefined
+          // let the Time tab's ?? 45 fallback quietly assume a 45h work
+          // week for retired/non-working users, wrecking their free-time math.
+          workHoursPerWeek:
+            workType === 'not_working' ? 0 : workHours ? parseInt(workHours, 10) : undefined,
           maritalStatus: marital || undefined,
           childrenCount: parseInt(children, 10) || 0,
           livesAwayFromParents: awayFromParents === 'yes',
@@ -319,13 +324,15 @@ export default function Onboarding() {
               value={workType}
               onPick={setWorkType}
             />
-            <PickRow
-              label="Hours in a typical week"
-              options={Object.keys(WORK_HOURS)}
-              display={WORK_HOURS}
-              value={workHours}
-              onPick={setWorkHours}
-            />
+            {workType !== 'not_working' && (
+              <PickRow
+                label="Hours in a typical week"
+                options={Object.keys(WORK_HOURS)}
+                display={WORK_HOURS}
+                value={workHours}
+                onPick={setWorkHours}
+              />
+            )}
             <PickRow
               label="At home you are"
               options={Object.keys(MARITAL)}
@@ -349,7 +356,10 @@ export default function Onboarding() {
             <Button
               title={nextTitle}
               onPress={next}
-              disabled={busy || !userAge || !workType || !workHours || !awayFromParents}
+              disabled={
+                busy || !userAge || !workType || !awayFromParents ||
+                (workType !== 'not_working' && !workHours)
+              }
             />
           </View>
         </>

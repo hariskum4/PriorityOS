@@ -72,6 +72,7 @@ export default function Today() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
     qc.invalidateQueries({ queryKey: ['missions'] });
+    qc.invalidateQueries({ queryKey: ['missions-completed'] });
   };
   const complete = useMutation({
     mutationFn: (m: any) => api<any>(`/missions/${m.id}/complete`, { method: 'POST' }),

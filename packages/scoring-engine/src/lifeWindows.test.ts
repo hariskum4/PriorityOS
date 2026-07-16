@@ -23,12 +23,12 @@ describe('free time budget', () => {
 });
 
 describe('weekends remaining', () => {
-  it('a 35-year-old has ~2340 weekends to the horizon', () => {
-    expect(weekendsRemaining(35)).toBe(2340); // 45*52
+  it('a 35-year-old has ~3380 weekends to the 100-year horizon', () => {
+    expect(weekendsRemaining(35)).toBe(3380); // 65*52
   });
 
-  it('floors the horizon so late ages never see zero', () => {
-    expect(weekendsRemaining(85)).toBeGreaterThanOrEqual(250); // 5y floor
+  it('the horizon moves — an 85-year-old still sees 15 years ahead', () => {
+    expect(weekendsRemaining(85)).toBeGreaterThanOrEqual(15 * 52);
   });
 });
 
@@ -36,7 +36,7 @@ describe('career window', () => {
   it('turns "10 more years" into working weeks and the after', () => {
     const c = careerWindow(35, 10, 50);
     expect(c.workingWeeksLeft).toBe(480); // 10*48
-    expect(c.postCareerYears).toBe(35);   // 45 horizon years - 10
+    expect(c.postCareerYears).toBe(55);   // 65 horizon years - 10
     expect(c.postCareerFreeHours).toBeGreaterThan(100_000);
     expect(c.framingText).toMatch(/both halves/);
   });
@@ -71,8 +71,8 @@ describe('body windows', () => {
 describe('aggregate life windows', () => {
   it('assembles the user scenario: 32yo IT, 10 more working years', () => {
     const r = lifeWindows({ age: 32, workHoursPerWeek: 50, plannedWorkYearsMore: 10 });
-    expect(r.yearsToHorizon).toBe(48);
-    expect(r.weekendsRemaining).toBe(2500); // 2496 → nearest 10
+    expect(r.yearsToHorizon).toBe(68);
+    expect(r.weekendsRemaining).toBe(3540); // 3536 → nearest 10
     expect(r.career.workingWeeksLeft).toBe(480);
     expect(r.assumptions.length).toBeGreaterThanOrEqual(4);
   });

@@ -23,7 +23,7 @@ import { yearsToHorizon, PLANNING_HORIZON_AGE } from './lifeWindows';
 export interface LifeInWeeks {
   weeksLived: number;
   weeksAhead: number;
-  totalWeeks: number;      // ~4,160 for the 80-year horizon — "the 4,000"
+  totalWeeks: number;      // ~5,200 on the generous 100-year horizon
   yearsLived: number;
   yearsAhead: number;
   framingText: string;
@@ -40,8 +40,8 @@ export function lifeInWeeks(age: number): LifeInWeeks {
     yearsLived: Math.floor(age),
     yearsAhead,
     framingText:
-      `A whole life is about four thousand weeks. You have ~${softRound(weeksAhead).toLocaleString()} ` +
-      `of them ahead — enough to build almost anything, if they're spent on purpose.`,
+      `The famous count is four thousand weeks — Priority plans on a longer, kinder horizon. ` +
+      `You have ~${softRound(weeksAhead).toLocaleString()} ahead — enough to build almost anything, if they're spent on purpose.`,
   };
 }
 

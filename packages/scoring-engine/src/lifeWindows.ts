@@ -15,8 +15,12 @@
 
 import { softRound } from './timeReality';
 
-export const PLANNING_HORIZON_AGE = 80; // a horizon, not a prediction
-const MIN_HORIZON_YEARS = 5;
+// Generous by design: a 100-year horizon (people are living longer, and a
+// tool that tells an 80-year-old their life is spent is both wrong and
+// cruel). The horizon MOVES — nobody ever sees fewer than 15 years ahead,
+// so at 90 the lens simply extends past 100. A planning lens, never a countdown.
+export const PLANNING_HORIZON_AGE = 100;
+const MIN_HORIZON_YEARS = 15;
 const SLEEP_HOURS_PER_NIGHT = 7.5;
 /** Commute, chores, errands, admin — the invisible tax on a week. */
 const LIFE_OVERHEAD_HOURS_PER_WEEK = 24;
@@ -173,7 +177,7 @@ export function lifeWindows(input: LifeWindowsInput): LifeWindowsResult {
     career: careerWindow(input.age, moreYears, work),
     body: bodyWindows(input.age),
     assumptions: [
-      `An ${PLANNING_HORIZON_AGE}-year planning horizon — a lens for deciding, not a prediction about you`,
+      `A ${PLANNING_HORIZON_AGE}-year planning horizon that extends as you approach it — a lens for deciding, not a countdown`,
       'Free time assumes ~7.5h sleep and ~24h/week of commute, chores and admin',
       'Body windows are broad population patterns; individuals routinely beat them',
       'Every number moves the moment your patterns move',
