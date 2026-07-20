@@ -1,6 +1,7 @@
-import React from 'react';
-import { View, Text, ScrollView, RefreshControl, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, ScrollView, RefreshControl, Pressable, StyleSheet, Animated, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { tinyStep } from '@priority/scoring-engine';
 import { useRouter } from 'expo-router';
@@ -8,7 +9,7 @@ import { useMemoryDraft } from '@/store/memoryDraft';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import {
-  Button, Card, Chip, DomainDot, EmptyState, GapBar, Label, AlignmentRing, XpBar,
+  Button, Card, Chip, DomainDot, GapBar, Label, XpBar,
 } from '@/components/ui';
 import { colors, type, space, domainColor, domainTint, greeting, levelProgress, skyGradient } from '@/theme';
 
@@ -33,6 +34,50 @@ function alignmentScore(domains: any[]): number {
   return 100 - (weightedGap / totalWeight);
 }
 
+/** Days each desired cadence represents — for the "people waiting" glance. */
+const CADENCE_DAYS: Record<string, number> = {
+  daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
+};
+
+/**
+ * The Life Home focus dial: today's one thing held inside a slow-breathing
+ * ring in its domain's color. Motion explains, it doesn't decorate — the
+ * breath says "alive, unhurried", nothing more.
+ */
+function FocusDial({ color, breathe, children }: {
+  color: string; breathe: boolean; children: React.ReactNode;
+}) {
+  const size = 250;
+  const r = (size - 18) / 2;
+  const scale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!breathe) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 1.015, duration: 2600, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(scale, { toValue: 1, duration: 2600, useNativeDriver: Platform.OS !== 'web' }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [breathe, scale]);
+  return (
+    <Animated.View
+      style={{
+        width: size, height: size, alignSelf: 'center',
+        alignItems: 'center', justifyContent: 'center',
+        transform: [{ scale }],
+      }}
+    >
+      <Svg width={size} height={size} style={{ position: 'absolute' }}>
+        <Circle cx={size / 2} cy={size / 2} r={size / 2 - 1} stroke={`${color}26`} strokeWidth={1.5} fill={`${color}0D`} />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={2.5} fill="none" opacity={0.85} />
+      </Svg>
+      <View style={{ maxWidth: size - 60, alignItems: 'center', gap: 7 }}>{children}</View>
+    </Animated.View>
+  );
+}
+
 export default function Today() {
   const qc = useQueryClient();
   const { data, refetch, isRefetching } = useQuery({
@@ -42,6 +87,11 @@ export default function Today() {
   const { data: review } = useQuery({
     queryKey: ['weekly-review'],
     queryFn: () => api<any>('/weekly-review/current'),
+  });
+  // Shared with the People tab (same cache key) — feeds the glance row.
+  const { data: relationships } = useQuery({
+    queryKey: ['relationships'],
+    queryFn: () => api<any[]>('/relationships'),
   });
   // Fast-lane starters skipped the depth questions — invite them back once
   // they're in. Deeper answers = a sharper reveal + better personalization.
@@ -110,6 +160,19 @@ export default function Today() {
     weekday: 'long', month: 'long', day: 'numeric',
   });
 
+  // Glance row — real numbers only, no mocked "Energy 72%".
+  const peopleWaiting = (relationships ?? []).filter((r: any) => {
+    if (!r.wantsMoreTime) return false;
+    const target = CADENCE_DAYS[r.desiredCallFrequency] ?? 30;
+    const d = r.lastContactAt
+      ? (Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000
+      : Infinity;
+    return d / target >= 1.5;
+  }).length;
+  const habitsTotal = (data.todayHabits ?? []).length;
+  const habitsDone = (data.todayHabits ?? []).filter((h: any) => h.doneToday).length;
+  const dialColor = m ? domainColor(m.domainType) : colors.green;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <LinearGradient colors={skyGradient()} style={s.skyWash} pointerEvents="none" />
@@ -151,25 +214,6 @@ export default function Today() {
         </View>
       )}
 
-      {/* Hero: the thesis in one glance */}
-      <Card style={s.heroCard}>
-        <AlignmentRing score={score} />
-        <View style={{ flex: 1, gap: space(2) }}>
-          <Label>Life alignment</Label>
-          <Text style={type.body}>
-            How closely this week's attention matches what you say matters.
-          </Text>
-          {domains[0] && Math.max(0, domains[0].importance - domains[0].attention) > 20 && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <DomainDot domain={domains[0].domainType} />
-              <Text style={[type.dim, { color: domainColor(domains[0].domainType) }]}>
-                {domains[0].domainType} is the widest gap
-              </Text>
-            </View>
-          )}
-        </View>
-      </Card>
-
       {/* Completion banner — the loop made the next mission appear below;
           this keeps the win (and the memory hand-off) visible. */}
       {justCompleted && m && (
@@ -202,17 +246,102 @@ export default function Today() {
         </View>
       )}
 
-      {/* THE one mission — anti-overload by design */}
+      {/* THE LIFE HOME — one mission, held in a breathing ring. Anti-overload
+          stays the law: the dial holds one thing; everything else waits. */}
       {m ? (
-        <Card accent={colors.amber} style={{ gap: space(3) }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Label color={colors.amber}>Today's one thing</Label>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              {m.estimatedMinutes ? <Chip label={`${m.estimatedMinutes} min`} /> : null}
-              <Chip label={`+${m.xpReward} XP`} color={colors.amber} />
+        <View style={{ gap: space(4), marginTop: space(2) }}>
+          <FocusDial color={dialColor} breathe>
+            <Label color={dialColor}>Today's one thing</Label>
+            <Text style={[type.title, { fontSize: 19, textAlign: 'center' }]} numberOfLines={4}>
+              {m.title}
+            </Text>
+            <Text style={[type.faint, { textAlign: 'center' }]}>
+              {m.relationship?.name ? `with ${m.relationship.name} · ` : ''}
+              {m.estimatedMinutes ? `${m.estimatedMinutes} min · ` : ''}+{m.xpReward} XP
+            </Text>
+          </FocusDial>
+          <View style={{ flexDirection: 'row', gap: space(2) }}>
+            <View style={{ flex: 1 }}>
+              <Button title="Done" onPress={() => complete.mutate(m)} />
             </View>
+            <Button title="Tomorrow" kind="ghost" onPress={() => snooze.mutate(m.id)} />
           </View>
-          <Text style={[type.title, { fontSize: 21 }]}>{m.title}</Text>
+        </View>
+      ) : (
+        <View style={{ gap: space(4), marginTop: space(2) }}>
+          <FocusDial color={colors.green} breathe={false}>
+            <Ionicons
+              name={justCompleted ? 'checkmark-circle' : 'leaf-outline'}
+              size={30}
+              color={colors.green}
+            />
+            <Text style={[type.title, { fontSize: 19, textAlign: 'center' }]}>
+              {justCompleted ? `Done — +${justCompleted.xpReward} XP` : 'Nothing pending'}
+            </Text>
+            <Text style={[type.faint, { textAlign: 'center' }]}>
+              {justCompleted
+                ? 'That was the one thing that mattered most today.'
+                : 'That is alignment. Enjoy the calm.'}
+            </Text>
+          </FocusDial>
+          {justCompleted && (
+            <Button
+              title="Save the moment"
+              kind="ghost"
+              onPress={() => {
+                setMemoryDraft({
+                  title: justCompleted.title,
+                  missionId: justCompleted.id,
+                  relationshipId: justCompleted.relationshipId ?? undefined,
+                  domainType: justCompleted.domainType,
+                  personName: justCompleted.relationship?.name,
+                });
+                router.push('/(tabs)/journal');
+              }}
+            />
+          )}
+        </View>
+      )}
+
+      {/* The glance row — real numbers only, each one an existing engine
+          output. No mocked Energy/Focus/Mood. */}
+      <View style={s.glanceRow}>
+        <View style={s.glanceTile}>
+          <Text style={[type.stat, { fontSize: 22, color: score >= 70 ? colors.green : score >= 45 ? colors.amber : colors.rose }]}>
+            {Math.round(score)}
+          </Text>
+          <Text style={type.faint}>life alignment</Text>
+        </View>
+        <Pressable style={s.glanceTile} onPress={() => router.push('/(tabs)/people')}>
+          {peopleWaiting > 0 ? (
+            <Text style={[type.stat, { fontSize: 22, color: colors.rose }]}>{peopleWaiting}</Text>
+          ) : (
+            <Ionicons name="heart" size={22} color={colors.green} style={{ marginVertical: 3 }} />
+          )}
+          <Text style={type.faint}>
+            {peopleWaiting === 1 ? 'person waiting' : peopleWaiting > 1 ? 'people waiting' : 'people, close'}
+          </Text>
+        </Pressable>
+        <View style={s.glanceTile}>
+          {habitsTotal > 0 ? (
+            <>
+              <Text style={[type.stat, { fontSize: 22, color: habitsDone === habitsTotal ? colors.green : colors.amber }]}>
+                {habitsDone}/{habitsTotal}
+              </Text>
+              <Text style={type.faint}>habits today</Text>
+            </>
+          ) : (
+            <>
+              <Text style={[type.stat, { fontSize: 22, color: colors.amber }]}>{gam?.dailyStreak ?? 0}</Text>
+              <Text style={type.faint}>day streak</Text>
+            </>
+          )}
+        </View>
+      </View>
+
+      {/* The mission's supporting context — why, the memory, the tiny step */}
+      {m && (
+        <Card style={{ gap: space(3) }}>
           {data.whyToday && (
             <View style={s.whyBox}>
               <Ionicons name="sparkles-outline" size={14} color={colors.textDim} style={{ marginTop: 3 }} />
@@ -245,12 +374,6 @@ export default function Today() {
                 })}
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: space(2) }}>
-            <View style={{ flex: 1 }}>
-              <Button title="Done" onPress={() => complete.mutate(m)} />
-            </View>
-            <Button title="Tomorrow" kind="ghost" onPress={() => snooze.mutate(m.id)} />
-          </View>
           {data.whyToday?.encouragement && (
             <Text style={[type.faint, { textAlign: 'center' }]}>{data.whyToday.encouragement}</Text>
           )}
@@ -263,32 +386,6 @@ export default function Today() {
                 <Text style={[type.faint, { color: colors.rose, fontWeight: '600' }]}>Not a priority now</Text>
               </Pressable>
             </View>
-          )}
-        </Card>
-      ) : (
-        <Card accent={justCompleted ? colors.green : undefined}>
-          <EmptyState
-            icon={<Ionicons name={justCompleted ? 'checkmark-circle' : 'leaf-outline'} size={34} color={colors.green} />}
-            headline={justCompleted ? `Done — +${justCompleted.xpReward} XP` : 'Nothing pending'}
-            body={justCompleted
-              ? "That was the one thing that mattered most today. The rest is a bonus."
-              : 'Add a mission from the Missions tab, or enjoy the calm.'}
-          />
-          {justCompleted && (
-            <Button
-              title="Save the moment"
-              kind="ghost"
-              onPress={() => {
-                setMemoryDraft({
-                  title: justCompleted.title,
-                  missionId: justCompleted.id,
-                  relationshipId: justCompleted.relationshipId ?? undefined,
-                  domainType: justCompleted.domainType,
-                  personName: justCompleted.relationship?.name,
-                });
-                router.push('/(tabs)/journal');
-              }}
-            />
           )}
         </Card>
       )}
@@ -467,7 +564,12 @@ const s = StyleSheet.create({
     backgroundColor: colors.amberFaint, borderWidth: 1, borderColor: colors.amberSoft,
     borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12,
   },
-  heroCard: { flexDirection: 'row', alignItems: 'center', gap: space(4) },
+  glanceRow: { flexDirection: 'row', gap: space(2) },
+  glanceTile: {
+    flex: 1, alignItems: 'center', gap: 2,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.lineSoft,
+    borderRadius: 14, paddingVertical: space(3),
+  },
   whyBox: {
     flexDirection: 'row', gap: 8,
     backgroundColor: colors.surfaceSunken, borderRadius: 12, padding: space(3),
