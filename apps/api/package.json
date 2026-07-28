@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:db": "docker exec priority-postgres-1 psql -U priority -d priority -c 'CREATE DATABASE priority_test;' || true && DATABASE_URL=postgresql://priority:priority@localhost:5432/priority_test?schema=public DIRECT_URL=postgresql://priority:priority@localhost:5432/priority_test?schema=public npx prisma migrate deploy"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

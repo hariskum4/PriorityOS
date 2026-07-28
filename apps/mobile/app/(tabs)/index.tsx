@@ -173,7 +173,9 @@ export default function Today() {
   const router = useRouter();
   const setMemoryDraft = useMemoryDraft((st) => st.setDraft);
 
-  const { data, refetch, isRefetching } = useQuery({
+  const {
+    data, refetch, isRefetching, isLoading, isError,
+  } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api<any>('/dashboard'),
   });
@@ -316,7 +318,47 @@ export default function Today() {
   const activeKey = picked ?? adrift?.domainType ?? allDomains[0]?.domainType ?? null;
   const active = allDomains.find((d: any) => d.domainType === activeKey) ?? null;
 
-  if (!data) return <View style={{ flex: 1, backgroundColor: obs.ground }} />;
+  /**
+   * Three ways to have nothing, and they are not the same thing.
+   *
+   * This used to return an empty View for all of them, so a first launch, a
+   * dead network and a broken request were indistinguishable: a dark
+   * rectangle with no explanation and nothing to press. Whatever is wrong,
+   * saying so is better than a screen that looks like the app failed to load.
+   */
+  if (!data) {
+    return (
+      <View style={{ flex: 1, backgroundColor: obs.ground }}>
+        <LinearGradient colors={obsSky()} style={s.skyWash} pointerEvents="none" />
+        <View style={s.blankWrap}>
+          {isLoading ? (
+            <Text style={obsType.dim}>Reading your record…</Text>
+          ) : (
+            <>
+              <Text style={[obsType.said, { textAlign: 'center' }]}>
+                {isError ? 'Can’t reach your record.' : 'Nothing here yet.'}
+              </Text>
+              <Text style={[obsType.dim, { textAlign: 'center', marginTop: 8 }]}>
+                {isError
+                  ? 'Everything you have written is safe on the server — this is only '
+                    + 'the connection. It will come back on its own.'
+                  : 'Once you have answered a few things about your life, today '
+                    + 'will have something to ask for.'}
+              </Text>
+              <Pressable
+                onPress={() => refetch()}
+                style={({ pressed }) => [s.blankButton, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={[obsType.tick, { color: obs.brass }]}>
+                  {isError ? 'Try again' : 'Refresh'}
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      </View>
+    );
+  }
 
   const m = data.todayMission;
   const liveDomains = allDomains.filter((d: any) => d.importance > 0);
@@ -792,6 +834,17 @@ const s = StyleSheet.create({
     maxWidth: 560, width: '100%', alignSelf: 'center',
   },
   skyWash: { position: 'absolute', top: 0, left: 0, right: 0, height: 360 },
+  blankWrap: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', padding: 34, gap: 2,
+  },
+  blankButton: {
+    marginTop: 22,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: alpha(obs.brass, 0.45),
+  },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   streak: {
     flexDirection: 'row', alignItems: 'center', gap: 5,

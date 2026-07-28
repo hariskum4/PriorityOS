@@ -166,6 +166,7 @@ model Relationship {
 
   missions              Mission[]
   contactLogs           ContactLog[]
+  memories              Memory[]
 
   insights              OpportunityInsight[]
 
@@ -200,9 +201,14 @@ model Memory {
   userId         String
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   relationshipId String?
+  /// Declared as a real relation as of migration 20260728234500. Before that
+  /// this was a bare string with no foreign key, so deleting a person left the
+  /// memory pointing at a row that no longer existed — a dangling id nothing
+  /// would ever catch.
+  relationship   Relationship? @relation(fields: [relationshipId], references: [id], onDelete: SetNull)
   /// Snapshot of who this moment was about, so it survives their deletion.
-  /// relationshipId is SET NULL on delete; without this the memory would keep
-  /// its words and quietly lose its subject.
+  /// The id goes to NULL when they are removed; without the name the memory
+  /// would keep its words and quietly lose its subject.
   personName     String?
   missionId      String?
   title          String
