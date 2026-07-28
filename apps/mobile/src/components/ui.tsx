@@ -81,12 +81,22 @@ export function Chip({ label, color, onPress, active }: {
 }
 
 /** A domain's star, shrunk to a bullet — same colour language as the sky. */
+/**
+ * The dot carries the domain in colour alone, which is no information at all
+ * for the roughly one in twelve men who cannot separate these hues. It cannot
+ * carry a label visually without becoming a chip, so it carries one for screen
+ * readers instead — and the name is almost always in the text beside it.
+ */
 export function DomainDot({ domain, size = 8 }: { domain: string; size?: number }) {
   return (
-    <View style={{
-      width: size, height: size, borderRadius: size / 2,
-      backgroundColor: domainColor(domain),
-    }} />
+    <View
+      accessibilityRole="image"
+      accessibilityLabel={domain}
+      style={{
+        width: size, height: size, borderRadius: size / 2,
+        backgroundColor: domainColor(domain),
+      }}
+    />
   );
 }
 

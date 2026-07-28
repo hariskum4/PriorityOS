@@ -468,19 +468,27 @@ export function renderOrganism(
   const ground = opts.ground ?? '#070B12';
   const inkWeight = opts.inkWeight ?? 1;
 
+  /**
+   * The starfield is drawn on midnight and omitted on parchment — but the
+   * draws happen either way.
+   *
+   * One life must grow one body regardless of theme, which means both paths
+   * have to consume the random stream identically. Counting the draws by hand
+   * got it wrong (four per particle, three skipped) and the two skies quietly
+   * diverged; running the same loop and discarding the output makes that
+   * impossible to get wrong again.
+   */
   const dust: string[] = [];
-  if (opts.dust !== null) {
-    for (let i = 0; i < 380; i++) {
-      const a = rand() * 2 * Math.PI;
-      const r = R_MAX * Math.sqrt(rand()) * 1.06;
-      dust.push(`<circle cx="${(CX + r * Math.cos(a)).toFixed(0)}" `
-        + `cy="${(CY - r * Math.sin(a)).toFixed(0)}" r="${(0.5 + rand() * 0.3).toFixed(1)}" `
-        + `fill="${opts.dust ?? '#E9DCC4'}" opacity="${(0.05 + rand() * 0.11).toFixed(2)}"/>`);
-    }
-  } else {
-    // Keep the RNG stream identical across themes so the same life grows the
-    // same organism whichever sky it is drawn on.
-    for (let i = 0; i < 380 * 3; i++) rand();
+  const showDust = opts.dust !== null;
+  for (let i = 0; i < 380; i++) {
+    const a = rand() * 2 * Math.PI;
+    const r = R_MAX * Math.sqrt(rand()) * 1.06;
+    const size = (0.5 + rand() * 0.3).toFixed(1);
+    const fade = (0.05 + rand() * 0.11).toFixed(2);
+    if (!showDust) continue;
+    dust.push(`<circle cx="${(CX + r * Math.cos(a)).toFixed(0)}" `
+      + `cy="${(CY - r * Math.sin(a)).toFixed(0)}" r="${size}" `
+      + `fill="${opts.dust ?? '#E9DCC4'}" opacity="${fade}"/>`);
   }
 
   const rings = [0.3, 0.52, 0.78, 1].map((f, i) => {
@@ -545,12 +553,28 @@ export function renderOrganism(
   const membrane = `<path d="${catmullClosed(ordered)}" fill="none" stroke="${BRASS}" `
     + `stroke-width="1.4" opacity="0.30" stroke-dasharray="6 7"/>`;
 
+  /**
+   * A text alternative, because the whole image is encoded in colour.
+   *
+   * Twelve hues carrying twelve domains is unreadable for anyone with a common
+   * colour deficiency, and unreadable full stop for a screen reader. The SVG
+   * therefore says out loud what it is drawing: which domains reach furthest,
+   * which are barely there. The Record's own words sit directly beneath it, so
+   * nothing here is the only copy of anything.
+   */
+  const described = [...live]
+    .sort((a, b) => b.attention - a.attention)
+    .map((d) => `${d.domainType}: ${d.acts} ${d.acts === 1 ? 'act' : 'acts'}, `
+      + `attention ${Math.round(d.attention)} against importance ${Math.round(d.importance)}`);
+
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${(CX - box).toFixed(0)} `
+    `<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="${(CX - box).toFixed(0)} `
       + `${(CY - box).toFixed(0)} ${(2 * box).toFixed(0)} ${(2 * box).toFixed(0)}" `
       + `width="${(2 * box).toFixed(0)}" height="${(2 * box).toFixed(0)}">`,
     // "transparent" lets the screen it sits on be the sky, which is what keeps
     // it from reading as an image pasted into the page.
+    '<title>Your life as one organism, grown from what you have actually done.</title>',
+    `<desc>${described.join('. ')}.</desc>`,
     ground === 'transparent' ? '' : `<rect x="0" y="0" width="${W}" height="${W}" fill="${ground}"/>`,
     ...dust,
     ...rings,
@@ -561,5 +585,5 @@ export function renderOrganism(
     `<circle cx="${CX}" cy="${CY}" r="11" fill="none" stroke="${BRASS}" stroke-width="1.1" opacity="0.75"/>`,
     `<circle cx="${CX}" cy="${CY}" r="4.2" fill="${BRASS}" opacity="0.95"/>`,
     '</svg>',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }

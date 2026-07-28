@@ -100,7 +100,21 @@ export class RelationshipsService {
   }
 
   async remove(userId: string, id: string) {
-    await this.assertOwned(userId, id);
+    const person = await this.assertOwned(userId, id);
+
+    /**
+     * Keep the name on the moments before the person goes.
+     *
+     * Memory.relationshipId is SET NULL on delete, so without this the
+     * memories survive with their subject quietly removed — "the afternoon by
+     * the river" with nobody in it, and no way for anyone later to tell who it
+     * was about. Deleting a person should remove the person, not edit the past.
+     */
+    await this.prisma.memory.updateMany({
+      where: { relationshipId: id, personName: null },
+      data: { personName: person.name },
+    });
+
     await this.prisma.relationship.delete({ where: { id } });
     return { deleted: true };
   }
@@ -201,10 +215,12 @@ export class RelationshipsService {
     return { title: String(nudge.title ?? `Time with ${rel.name}?`).slice(0, 60), body };
   }
 
+  /** Returns the row as well, so callers that need it do not fetch twice. */
   private async assertOwned(userId: string, id: string) {
     const rel = await this.prisma.relationship.findFirst({
       where: { id, userId },
     });
     if (!rel) throw new NotFoundException('Relationship not found');
+    return rel;
   }
 }
