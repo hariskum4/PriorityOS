@@ -58,6 +58,51 @@ export function weekOf(d: Date): Date {
   return out;
 }
 
+/**
+ * Force stored decision options into the shape the engine requires.
+ *
+ * `options` is a Json column and `createDecision` stored whatever it was
+ * handed, so an option written without a `scores` object made the engine throw
+ * on `option.scores[factor]`. Inside a cycle that was swallowed into
+ * `result.failures` — the decision engine silently stopped working, every day,
+ * with nothing shown to the person; opening the decision directly returned a
+ * 500. Found by the first integration test that seeded a decision the way the
+ * API actually accepts one.
+ *
+ * An empty `scores` is deliberately fine: the engine treats an absent factor as
+ * no signal rather than as zero, so an option nobody has rated yet is scored on
+ * whatever else is known instead of being dragged to the bottom.
+ */
+export function normalizeDecisionOptions(raw: unknown): Array<{
+  id: string;
+  label: string;
+  scores: Record<string, number>;
+  isStatusQuo?: boolean;
+  reversible?: boolean;
+}> {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter((o): o is Record<string, unknown> => !!o && typeof o === 'object')
+    .map((o, i) => {
+      const scores: Record<string, number> = {};
+      const given = o.scores;
+      if (given && typeof given === 'object') {
+        for (const [factor, value] of Object.entries(given as Record<string, unknown>)) {
+          const n = Number(value);
+          if (Number.isFinite(n)) scores[factor] = n;
+        }
+      }
+      return {
+        id: typeof o.id === 'string' && o.id ? o.id : `option-${i + 1}`,
+        label: String(o.label ?? o.title ?? `Option ${i + 1}`),
+        scores,
+        ...(typeof o.isStatusQuo === 'boolean' ? { isStatusQuo: o.isStatusQuo } : {}),
+        ...(typeof o.reversible === 'boolean' ? { reversible: o.reversible } : {}),
+      };
+    });
+}
+
 @Injectable()
 export class LifeOsService {
   private readonly log = new Logger(LifeOsService.name);
@@ -295,7 +340,7 @@ export class LifeOsService {
             question: d.question,
             horizonYears: d.horizonYears,
             valueRanking,
-            options: (d.options as any[]) ?? [],
+            options: normalizeDecisionOptions(d.options),
           })),
         },
       },
@@ -711,7 +756,9 @@ export class LifeOsService {
       data: {
         userId,
         question: String(body.question ?? '').slice(0, 200),
-        options: body.options ?? [],
+        // Normalised on the way in too, so the column cannot hold a shape
+        // the engine will choke on later.
+        options: normalizeDecisionOptions(body.options),
         horizonYears: Number(body.horizonYears) || 5,
       },
     });
@@ -742,7 +789,7 @@ export class LifeOsService {
       question: decision.question,
       horizonYears: decision.horizonYears,
       valueRanking,
-      options: (decision.options as any[]) ?? [],
+      options: normalizeDecisionOptions(decision.options),
     });
 
     return { decision, assessment };
