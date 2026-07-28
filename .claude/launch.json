@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "priority-api",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/harishkumar/Downloads/priority/apps/api && exec node dist/src/main.js"
+      ],
+      "port": 3001
+    },
+    {
+      "name": "priority-mobile-web",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/harishkumar/Downloads/priority/apps/mobile && exec npx expo start --web --port 8081"
+      ],
+      "port": 8081
+    }
+  ]
+}

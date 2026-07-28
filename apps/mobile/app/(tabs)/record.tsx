@@ -23,6 +23,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { Organism } from '@/components/Organism';
 import { colors, type, space, alpha, serifFamily, monoFamily, skyGradient } from '@/theme';
 
 /* ── markdown → the Observatory's three voices ───────────────────────── */
@@ -195,6 +196,11 @@ export default function Record() {
             </Text>
           ) : null}
         </View>
+
+        <Organism size={320} />
+        <Text style={[type.faint, { textAlign: 'center', marginTop: -8 }]}>
+          Every limb is a domain, every tip an act. Thickness is what it holds up.
+        </Text>
 
         <Pressable
           onPress={exportDoc}

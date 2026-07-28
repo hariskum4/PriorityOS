@@ -14,6 +14,7 @@ import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { LifeOsService } from './life-os.service';
 import { LifeDocumentService } from './life-document.service';
 import { LifeTimelineService } from './life-timeline.service';
+import { LifeOrganismService } from './life-organism.service';
 
 @UseGuards(JwtGuard)
 @Controller('life-os')
@@ -22,7 +23,29 @@ export class LifeOsController {
     private lifeOs: LifeOsService,
     private document: LifeDocumentService,
     private timeline: LifeTimelineService,
+    private organism: LifeOrganismService,
   ) {}
+
+  /**
+   * The Record's opening image: this life grown as one organism.
+   *
+   * Returns SVG markup rather than a URL so the client has no second fetch and
+   * nothing is written to disk. `?refresh=1` skips the ten-minute cache.
+   */
+  @Get('organism')
+  async organismSvg(
+    @CurrentUser() u: JwtUser,
+    @Query('sky') sky?: string,
+    @Query('refresh') refresh?: string,
+  ) {
+    return {
+      svg: await this.organism.svg(
+        u.userId,
+        sky === 'light' ? 'light' : 'dark',
+        refresh === '1',
+      ),
+    };
+  }
 
   /**
    * Today, reduced.
