@@ -1,15 +1,22 @@
+/**
+ * Shared primitives, Observatory spec.
+ *
+ * Proportions come from the direction deck: 22px card radius, hairline
+ * rules rather than filled borders, brass as the only accent, and every
+ * uppercase label set as a letterspaced mono instrument tick.
+ */
 import React from 'react';
 import {
   View, Text, Pressable, TextInput, StyleSheet, ViewStyle,
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { colors, type, space, domainColor } from '../theme';
+import { colors, type, space, domainColor, alpha, liningNums } from '../theme';
 
 export function Card({ children, style, accent }: {
   children: React.ReactNode; style?: ViewStyle; accent?: string;
 }) {
   return (
-    <View style={[s.card, accent ? { borderColor: accent } : null, style]}>
+    <View style={[s.card, accent ? { borderColor: alpha(accent, 0.35) } : null, style]}>
       {children}
     </View>
   );
@@ -33,15 +40,18 @@ export function Button({
         small && s.btnSmall,
         kind === 'ghost' && s.btnGhost,
         kind === 'danger' && s.btnDanger,
-        pressed && { transform: [{ scale: 0.97 }], opacity: 0.9 },
-        disabled && { opacity: 0.4 },
+        pressed && { transform: [{ scale: 0.98 }], opacity: 0.9 },
+        // Dimming brass just makes mud. A disabled control drops the fill
+        // entirely and reads as an outline waiting to be earned.
+        disabled && s.btnDisabled,
       ]}
     >
       <Text style={[
         s.btnText,
-        small && { fontSize: 13 },
+        small && { fontSize: 13.5 },
         kind === 'ghost' && { color: colors.textDim },
         kind === 'danger' && { color: colors.rose },
+        disabled && { color: colors.textFaint },
       ]}>
         {title}
       </Text>
@@ -54,8 +64,12 @@ export function Chip({ label, color, onPress, active }: {
 }) {
   const c = color ?? colors.textDim;
   const inner = (
-    <View style={[s.chip, { borderColor: active ? c : colors.line }, active && { backgroundColor: colors.surfaceRaised }]}>
-      <Text style={{ color: c, fontSize: 12, fontWeight: '600' }}>{label}</Text>
+    <View style={[
+      s.chip,
+      { borderColor: active ? alpha(c, 0.5) : colors.lineSoft },
+      active && { backgroundColor: alpha(c, 0.1) },
+    ]}>
+      <Text style={[type.label, { color: c, fontSize: 10 }]}>{label}</Text>
     </View>
   );
   if (!onPress) return inner;
@@ -66,6 +80,7 @@ export function Chip({ label, color, onPress, active }: {
   );
 }
 
+/** A domain's star, shrunk to a bullet — same colour language as the sky. */
 export function DomainDot({ domain, size = 8 }: { domain: string; size?: number }) {
   return (
     <View style={{
@@ -80,10 +95,10 @@ export function Avatar({ name, color, size = 44 }: { name: string; color: string
   return (
     <View style={{
       width: size, height: size, borderRadius: size / 2,
-      backgroundColor: `${color}26`, borderWidth: 1, borderColor: `${color}59`,
+      backgroundColor: alpha(color, 0.14), borderWidth: 1, borderColor: alpha(color, 0.34),
       alignItems: 'center', justifyContent: 'center',
     }}>
-      <Text style={{ color, fontWeight: '700', fontSize: size * 0.36 }}>{initials}</Text>
+      <Text style={{ color, fontWeight: '600', fontSize: size * 0.34 }}>{initials}</Text>
     </View>
   );
 }
@@ -93,17 +108,18 @@ export function Input(props: React.ComponentProps<typeof TextInput>) {
     <TextInput
       placeholderTextColor={colors.textFaint}
       {...props}
-      style={[s.input, props.multiline && { minHeight: 72, textAlignVertical: 'top' }, props.style]}
+      style={[s.input, props.multiline && { minHeight: 76, textAlignVertical: 'top' }, props.style]}
     />
   );
 }
 
 /**
- * The hero metric: overall life alignment (100 - weighted say/do gap)
- * as a ring. One glance answers "am I living what I say matters?"
+ * Overall life alignment (100 − weighted say/do gap) as a ring. One glance
+ * answers "am I living what I say matters?" Set in the serif, because it is
+ * a statement about a life rather than a metric.
  */
 export function AlignmentRing({ score, size = 128 }: { score: number; size?: number }) {
-  const stroke = 9;
+  const stroke = 6;
   const r = (size - stroke) / 2;
   const circ = 2 * Math.PI * r;
   const clamped = Math.max(0, Math.min(100, score));
@@ -111,7 +127,7 @@ export function AlignmentRing({ score, size = 128 }: { score: number; size?: num
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.surfaceRaised} strokeWidth={stroke} fill="none" />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.line} strokeWidth={stroke} fill="none" />
         <Circle
           cx={size / 2} cy={size / 2} r={r}
           stroke={ringColor} strokeWidth={stroke} fill="none"
@@ -120,8 +136,8 @@ export function AlignmentRing({ score, size = 128 }: { score: number; size?: num
           strokeDashoffset={circ * (1 - clamped / 100)}
         />
       </Svg>
-      <Text style={[type.stat, { fontSize: size * 0.26 }]}>{Math.round(clamped)}</Text>
-      <Text style={[type.faint, { marginTop: -2 }]}>aligned</Text>
+      <Text style={[type.stat, { fontSize: size * 0.28 }]}>{Math.round(clamped)}</Text>
+      <Text style={[type.label, { marginTop: 2 }]}>aligned</Text>
     </View>
   );
 }
@@ -144,7 +160,7 @@ export function GapBar({ importance, attention, color }: {
   importance: number; attention: number; color?: string;
 }) {
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: 7 }}>
       <Row label="you say" value={importance} color={color ?? colors.blue} />
       <Row label="you do" value={attention} color={colors.green} />
     </View>
@@ -153,12 +169,12 @@ export function GapBar({ importance, attention, color }: {
 
 function Row({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <Text style={[type.faint, { width: 50, fontSize: 11 }]}>{label}</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+      <Text style={[type.label, { width: 52, fontSize: 9.5 }]}>{label}</Text>
       <View style={s.track}>
         <View style={[s.fill, { width: `${Math.min(100, value)}%`, backgroundColor: color }]} />
       </View>
-      <Text style={[type.faint, { width: 28, textAlign: 'right', fontSize: 11 }]}>
+      <Text style={[type.label, { width: 26, textAlign: 'right', fontSize: 10, fontVariant: liningNums }]}>
         {Math.round(value)}
       </Text>
     </View>
@@ -172,7 +188,7 @@ export function EmptyState({ icon, headline, body }: {
   return (
     <View style={s.empty}>
       {icon}
-      <Text style={[type.heading, { textAlign: 'center' }]}>{headline}</Text>
+      <Text style={[type.serif, { textAlign: 'center', fontSize: 19 }]}>{headline}</Text>
       {body ? <Text style={[type.dim, { textAlign: 'center' }]}>{body}</Text> : null}
     </View>
   );
@@ -180,21 +196,21 @@ export function EmptyState({ icon, headline, body }: {
 
 const s = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
+    backgroundColor: colors.surfaceSunken,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.lineSoft,
-    padding: space(4),
+    padding: 18,
     gap: space(2),
   },
   btn: {
     backgroundColor: colors.amber,
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 13,
+    paddingVertical: 13,
     paddingHorizontal: 18,
     alignItems: 'center',
   },
-  btnSmall: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10 },
+  btnSmall: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 11 },
   btnGhost: {
     backgroundColor: 'transparent',
     borderWidth: 1,
@@ -203,48 +219,53 @@ const s = StyleSheet.create({
   btnDanger: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: colors.roseSoft,
+    borderColor: alpha(colors.rose, 0.4),
+  },
+  btnDisabled: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.lineSoft,
   },
   btnText: { color: colors.ink, fontWeight: '700', fontSize: 15 },
   chip: {
     borderWidth: 1,
     borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 11,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
   },
   input: {
     backgroundColor: colors.surfaceSunken,
-    borderRadius: 12,
+    borderRadius: 13,
     borderWidth: 1,
     borderColor: colors.line,
     color: colors.text,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
     fontSize: 15,
   },
   track: {
     flex: 1,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.surfaceRaised,
-    overflow: 'hidden',
-  },
-  fill: { height: 6, borderRadius: 3 },
-  xpTrack: {
     height: 4,
     borderRadius: 2,
-    backgroundColor: colors.surfaceRaised,
+    backgroundColor: colors.line,
+    overflow: 'hidden',
+  },
+  fill: { height: 4, borderRadius: 2 },
+  xpTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.line,
     overflow: 'hidden',
     flex: 1,
   },
-  xpFill: { height: 4, borderRadius: 2, backgroundColor: colors.amber },
+  xpFill: { height: 3, borderRadius: 2, backgroundColor: colors.amber },
   empty: {
     alignItems: 'center',
-    gap: space(2),
-    paddingVertical: space(8),
+    gap: space(3),
+    paddingVertical: space(10),
     paddingHorizontal: space(6),
   },
 });

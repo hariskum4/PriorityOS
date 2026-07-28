@@ -54,6 +54,10 @@ model User {
   analyticsEvents     AnalyticsEvent[]
   partnerLinks        PartnerLink[]  @relation("owner")
   partneredWith       PartnerLink[]  @relation("partner")
+  decisions           Decision[]
+  knowledgeItems      KnowledgeItem[]
+  attentionSamples    DomainAttentionSample[]
+  lifeOsState         LifeOsState?
   lastSeenAt          DateTime?      // for "notice when you go quiet"
   reengagedAt         DateTime?      // last time we sent a warm return nudge
 }
@@ -239,7 +243,10 @@ model Goal {
   domainId     String?
   domain       LifeDomain? @relation(fields: [domainId], references: [id], onDelete: SetNull)
   domainType   String
-  title        String
+  /// A name, not an essay. GoalsService derives this via deriveGoalTitle()
+  /// (GOAL_TITLE_MAX = 72) and puts any longer prose in `description`; the cap
+  /// is the backstop for anything that bypasses the service.
+  title        String      @db.VarChar(120)
   description  String?
   horizon      String      @default("1y") // 1y | 5y
   targetDate   DateTime?
@@ -458,4 +465,107 @@ model AppConfig {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Life OS kernel — host-side storage for @priority/life-os
+//
+// The kernel itself is pure: it takes an EngineContext and returns observations
+// and proposals. These four models are the state it cannot hold for itself —
+// the decisions being weighed, the knowledge library, the weekly history that
+// trends are computed from, and the ration clock that keeps profound truths
+// rare across cycles.
+// ---------------------------------------------------------------------------
+
+/// A real fork in a life, held open while the person thinks.
+///
+/// Options live in Json rather than a child table because they are always read
+/// and written together, and their factor set is owned by the engine's `Factor`
+/// union rather than by the database.
+model Decision {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// What they are deciding, in their own words.
+  question    String   @db.VarChar(200)
+  /// DecisionOption[] from @priority/life-os — { id, label, scores, isStatusQuo, reversible }
+  options     Json     @default("[]")
+  /// Years over which consequences should be judged. Longer favours values.
+  horizonYears Int     @default(5)
+  status      String   @default("open")   // open | decided | abandoned
+  /// Which option they actually chose, once they do. The raw material for
+  /// learning whether our leans were any good.
+  chosenOptionId String?
+  decidedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+/// Books, articles, podcasts, notes — everything taken in, as connected
+/// knowledge rather than a reading list.
+model KnowledgeItem {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind          String   // book | article | podcast | video | note | course
+  title         String   @db.VarChar(300)
+  /// Normalised lowercase tags. The join key to goals and decisions.
+  topics        Json     @default("[]")
+  status        String   @default("queued")  // queued | active | finished | released
+  domainType    String?
+  /// 0..1 where the medium has a position.
+  progress      Decimal? @db.Decimal(4, 3)
+  lastTouchedAt DateTime?
+  /// One line the person kept, in their words. Shown verbatim, never rewritten.
+  takeaway      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+/// A weekly snapshot of one domain's standing.
+///
+/// LifeDomain holds only *current* scores, and the Regret and Prediction engines
+/// need history — a pattern is not a moment, and a trend needs at least six
+/// points. One row per user per domain per week, written by the weekly snapshot
+/// job. Until enough rows accumulate those engines correctly stay silent.
+model DomainAttentionSample {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domainType String
+  /// Monday of the week this samples, at UTC midnight. The idempotency key.
+  weekOf     DateTime @db.Date
+  importance Decimal  @default(0) @db.Decimal(5, 2)
+  attention  Decimal  @default(0) @db.Decimal(5, 2)
+  /// Self-reported energy for the week, when given. The strongest burnout
+  /// signal available without wearables.
+  energy     Decimal? @db.Decimal(5, 2)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, domainType, weekOf])
+  @@index([userId, weekOf])
+}
+
+/// Cross-cycle memory for the orchestrator.
+///
+/// The kernel is stateless by design, so the two things it must remember
+/// between cycles live here: when a profound truth was last shown (the ration
+/// clock) and which findings have already been delivered, so the same truth is
+/// never re-served as though it were news.
+model LifeOsState {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastProfoundAt      DateTime?
+  /// Observation ids already surfaced. Trimmed to a bounded window.
+  seenObservationIds  Json     @default("[]")
+  /// Topics the person has permanently declined. The Retreat principle: one
+  /// tap, honoured forever, never followed by a survey asking why.
+  declinedTopics      Json     @default("[]")
+  lastCycleAt         DateTime?
+  updatedAt           DateTime @updatedAt
 }

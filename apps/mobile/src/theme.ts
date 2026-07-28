@@ -1,16 +1,23 @@
 /**
- * Priority visual system — two skies, one soul.
+ * Priority visual system — "The Observatory".
  *
- * Dark: "a quiet room at night" — warm near-black ink, one amber accent.
- * Light: "morning paper" — warm parchment, earth-deep text, ochre accent
- * (blueprint §7.1's Dawn/Earth palette). Both keep the signature GAP BAR
- * and the per-domain identity colors, re-tuned per mode for contrast.
+ * Celestial cartography: brass on midnight, ink on parchment. Hairline
+ * instrument rules, an engraved serif for anything true, a letterspaced
+ * mono for anything measured, and a plain sans for anything you act on.
+ *
+ * Dark: "the sky at 4am" — indigo-shifted near-black, one brass accent.
+ * Light: "an old star atlas" — warm paper, deep ink, oxidised-brass accent.
+ *
+ * The export surface is deliberately unchanged from the previous amber
+ * system: every screen already consumes `colors`, `type`, `space`,
+ * `domainColor` and friends, so the whole app retunes from this one file.
  *
  * Mode is resolved synchronously at module load (system scheme, with a
- * stored override on web) so every StyleSheet in the app evaluates against
- * the right palette; switching themes reloads the JS world.
+ * stored override on web) so every StyleSheet evaluates against the right
+ * sky; switching themes reloads the JS world.
  */
 import { Appearance, Platform } from 'react-native';
+import type { TextStyle } from 'react-native';
 
 export type ThemeMode = 'dark' | 'light';
 
@@ -43,98 +50,160 @@ export function setThemeMode(next: ThemeMode | 'system') {
   }
 }
 
+/* ── ground & ink ─────────────────────────────────────────────────
+ * Key names are inherited from the amber system so nothing downstream has
+ * to change; the values are entirely new. `amber*` now carries brass, and
+ * green/rose/blue are kept strictly as semantics (good / tender / cool),
+ * never as decoration.
+ */
 const darkColors = {
-  bg: '#12100E',
-  surface: '#1C1917',
-  surfaceRaised: '#26211D',
-  surfaceSunken: '#171412',
-  line: '#332C26',
-  lineSoft: '#292420',
-  text: '#F5EFE6',
-  textDim: '#A69B8C',
-  textFaint: '#6E6558',
-  amber: '#E8A33D',
-  amberBright: '#F5B95C',
-  amberSoft: '#4A3618',
-  amberFaint: '#2E2415',
-  green: '#7FB069',
-  greenSoft: '#22301E',
-  rose: '#D4737E',
-  roseSoft: '#3A2226',
-  blue: '#7A9CC6',
-  ink: '#2A1D06',        // text on amber buttons
+  bg: '#090D18',
+  surface: '#101626',
+  surfaceRaised: '#182034',
+  surfaceSunken: '#0D121F',
+  line: '#1E2739',
+  lineSoft: '#161D2C',
+  text: '#F2EEE6',
+  textDim: '#98A0B8',
+  textFaint: '#5A6178',
+  amber: '#E0AE54',        // brass — the only accent
+  amberBright: '#F0C87E',
+  amberSoft: '#3A2C17',    // brass border tint
+  amberFaint: '#1A1610',   // brass ground tint
+  green: '#34C79A',
+  greenSoft: '#102B24',
+  rose: '#F0637E',
+  roseSoft: '#2D1620',
+  blue: '#5B9BE8',
+  ink: '#12161F',          // text sitting on a brass fill
 };
 
 const lightColors: typeof darkColors = {
-  bg: '#FAF6F0',
+  // Cards are white paper laid on a parchment ground — on light, "sunken"
+  // reads as *cleaner*, not darker, or the whole page turns to mush.
+  bg: '#F4EFE4',
   surface: '#FFFFFF',
-  surfaceRaised: '#F1E9DE',
-  surfaceSunken: '#F4EEE5',
-  line: '#E3D8C9',
-  lineSoft: '#ECE4D7',
-  text: '#2C2420',
-  textDim: '#6B5F52',
-  textFaint: '#9C8F7F',
-  amber: '#C77E22',
-  amberBright: '#A96812',
-  amberSoft: '#EFD9B4',
-  amberFaint: '#F7EDDA',
-  green: '#4E8A3C',
-  greenSoft: '#E3EFDA',
-  rose: '#C25562',
-  roseSoft: '#F6E1E3',
-  blue: '#4A6FA5',
+  surfaceRaised: '#EDE6D8',
+  surfaceSunken: '#FFFFFF',
+  line: '#D9CFBD',
+  lineSoft: '#E6DDCC',
+  text: '#161A26',
+  textDim: '#565D72',
+  textFaint: '#8C92A6',
+  amber: '#A9761C',
+  amberBright: '#8A5D0F',
+  amberSoft: '#E8D6B4',
+  amberFaint: '#F6EEDF',
+  green: '#0E8C68',
+  greenSoft: '#DFF0E8',
+  rose: '#D93A5C',
+  roseSoft: '#F9E2E6',
+  blue: '#2F72C4',
   ink: '#FFFFFF',
 };
 
 export const colors = isLight ? lightColors : darkColors;
 
-/** Domain identity colors — dark mode gets luminous tints, light mode
- * gets earthier, higher-contrast versions of the same hues. */
+/**
+ * Alpha suffix for hex colors. RN accepts 8-digit hex, so this is the
+ * cheapest way to tint without pulling in a color library.
+ */
+export const alpha = (hex: string, a: number) =>
+  `${hex}${Math.round(Math.max(0, Math.min(1, a)) * 255).toString(16).padStart(2, '0')}`;
+
+/* ── domain hues ──────────────────────────────────────────────────
+ * Twelve domains, each keeping the emotion its counterpart carried in the
+ * direction deck. Colour here is strictly information — it never brands
+ * and never decorates. Tuned twice so both skies stay legible.
+ */
 const darkDomains: Record<string, string> = {
-  family: '#E8846B',
-  partner: '#D4737E',
-  children: '#E89B4B',  // marigold — warm, joyful
-  friends: '#B08BC9',
-  health: '#7FB069',
-  career: '#7A9CC6',
-  finance: '#5FB0A5',
-  growth: '#C9A227',
-  experiences: '#6FB8E8', // adventure sky
-  reflection: '#A9A2D8',  // moonstone — inner life
-  purpose: '#9F86E0',   // Creative & Purpose — the blueprint's creative violet
-  impact: '#63B58F',    // Contribution & Impact — earth green
+  family: '#F0798A',
+  partner: '#F0637E',
+  children: '#F5A05C',
+  friends: '#C79BF0',
+  health: '#34C79A',
+  career: '#5B9BE8',
+  finance: '#E4B33E',
+  growth: '#A78BFA',
+  experiences: '#6FC3F0',
+  reflection: '#8E96E8',
+  purpose: '#3FBFB4',
+  impact: '#63C98F',
 };
 const lightDomains: Record<string, string> = {
-  family: '#C05138',
-  partner: '#B23A4D',
-  children: '#A8661A',
-  friends: '#7E56A0',
-  health: '#4E8A3C',
-  career: '#3E6390',
-  finance: '#2E7D71',
-  growth: '#96760F',
-  experiences: '#2D6FA8',
-  reflection: '#5C549E',
-  purpose: '#6647B8',
-  impact: '#2F7D4F',
+  family: '#C43F55',
+  partner: '#B8304A',
+  children: '#B26A18',
+  friends: '#7B4FA8',
+  health: '#0E8C68',
+  career: '#2F6BB8',
+  finance: '#9A7212',
+  growth: '#6D46C4',
+  experiences: '#1F6E9E',
+  reflection: '#4A52B8',
+  purpose: '#14827D',
+  impact: '#2C8355',
 };
 export const domainColors = isLight ? lightDomains : darkDomains;
 export const domainColor = (d: string) => domainColors[d] ?? colors.blue;
 
+/** Subtle emotional tint for a domain card background. */
+export const domainTint = (d: string) => alpha(domainColor(d), isLight ? 0.07 : 0.09);
+
+/* ── type ─────────────────────────────────────────────────────────
+ * Three voices, three jobs:
+ *   serif — anything true about a life ("Fourteen summers")
+ *   sans  — anything you act on ("Done · Not today")
+ *   mono  — anything measured ("2.4H THIS WEEK · TARGET 10H")
+ *
+ * Hoefler Text ships with iOS and macOS, which covers this app's two real
+ * surfaces. Android has no old-style serif worth naming, so it falls back
+ * to the platform serif rather than shipping a font binary.
+ */
+export const serifFamily = Platform.select({
+  ios: 'Hoefler Text',
+  web: "'Hoefler Text', 'Iowan Old Style', Palatino, Georgia, serif",
+  default: 'serif',
+}) as string;
+
+export const monoFamily = Platform.select({
+  ios: 'Menlo',
+  web: "ui-monospace, 'SF Mono', Menlo, monospace",
+  default: 'monospace',
+}) as string;
+
+/**
+ * Hoefler defaults to old-style figures — lovely mid-sentence, unreadable
+ * as standalone data ("0" reads as a letter O, "1" as a Roman numeral).
+ * Measured numbers force lining, tabular figures; prose keeps the default.
+ */
+export const liningNums = ['lining-nums', 'tabular-nums'] as TextStyle['fontVariant'];
+
 export const type = {
-  display: { fontSize: 30, fontWeight: '800' as const, letterSpacing: -0.8, color: colors.text },
-  title: { fontSize: 19, fontWeight: '700' as const, letterSpacing: -0.3, color: colors.text },
-  heading: { fontSize: 16, fontWeight: '700' as const, color: colors.text },
-  body: { fontSize: 15, color: colors.text, lineHeight: 22 },
-  serif: {
-    fontSize: 16, color: colors.text, lineHeight: 26,
-    fontFamily: 'Georgia' as any,
+  display: {
+    fontFamily: serifFamily, fontSize: 30, lineHeight: 36,
+    letterSpacing: -0.3, color: colors.text,
   },
-  dim: { fontSize: 13, color: colors.textDim, lineHeight: 19 },
-  faint: { fontSize: 12, color: colors.textFaint, lineHeight: 17 },
-  label: { fontSize: 11, fontWeight: '700' as const, letterSpacing: 1.4, textTransform: 'uppercase' as const, color: colors.textDim },
-  stat: { fontSize: 26, fontWeight: '800' as const, letterSpacing: -0.5, color: colors.text },
+  title: {
+    fontSize: 19, fontWeight: '600' as const,
+    letterSpacing: -0.3, color: colors.text,
+  },
+  heading: { fontSize: 16, fontWeight: '600' as const, color: colors.text },
+  body: { fontSize: 15, lineHeight: 22, color: colors.text },
+  serif: {
+    fontFamily: serifFamily, fontSize: 17, lineHeight: 26, color: colors.text,
+  },
+  dim: { fontSize: 13.5, color: colors.textDim, lineHeight: 20 },
+  faint: { fontSize: 12.5, color: colors.textFaint, lineHeight: 18 },
+  /** The instrument tick — every uppercase label in the app runs through this. */
+  label: {
+    fontFamily: monoFamily, fontSize: 10.5, letterSpacing: 1.6,
+    textTransform: 'uppercase' as const, color: colors.textFaint,
+  },
+  stat: {
+    fontFamily: serifFamily, fontSize: 26, letterSpacing: -0.2,
+    color: colors.text, fontVariant: liningNums,
+  },
 };
 
 export const space = (n: number) => n * 4;
@@ -149,36 +218,37 @@ export function levelProgress(totalXp: number) {
   return { level, intoLevel: totalXp - base, neededForNext: next - base };
 }
 
+/** Time-of-day greeting in the Observatory's register — calm, never chirpy. */
 export function greeting(): string {
   const h = new Date().getHours();
-  if (h < 5) return 'Still up';
+  if (h < 5) return 'Still awake';
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 21) return 'Good evening';
+  return 'Winding down';
 }
 
 /**
- * Emotional layer — color psychology research for wellness apps:
- * warm terracotta/peach reads as human warmth and change; earthy tones
- * ground; soft gradients build trust. The sky changes with the day and
- * so does the app: dawn ember, midday amber, dusk rose, night violet.
+ * The sky changes with the hour and so does the app: dawn ember, midday
+ * brass, dusk rose, night indigo. Kept very low-contrast — this is
+ * atmosphere, not a gradient hero.
  */
 export const emotion = isLight
   ? {
       ember: '#B85A32',
       emberSoft: '#F3DACB',
-      dawnGlow: '#F7E3CE',
-      duskGlow: '#F2DFE4',
-      nightGlow: '#E8E3F0',
-      middayGlow: '#F6ECD6',
+      dawnGlow: '#F6E6D2',
+      duskGlow: '#F2E2E4',
+      nightGlow: '#E7E4EF',
+      middayGlow: '#F4EEDF',
     }
   : {
       ember: '#D97A54',
-      emberSoft: '#3D2418',
-      dawnGlow: '#3A2517',
-      duskGlow: '#33202B',
-      nightGlow: '#241E2E',
-      middayGlow: '#332815',
+      emberSoft: '#2A1A12',
+      dawnGlow: '#1D1A22',
+      duskGlow: '#1E1723',
+      nightGlow: '#12142A',
+      middayGlow: '#141A26',
     };
 
 /** [top, bottom] gradient for the current hour — the sky inside the app. */
@@ -190,6 +260,3 @@ export function skyGradient(): [string, string] {
   if (h < 21) return [emotion.duskGlow, colors.bg];
   return [emotion.nightGlow, colors.bg];
 }
-
-/** Subtle emotional tint for a domain card background. */
-export const domainTint = (d: string) => `${domainColor(d)}${isLight ? '12' : '14'}`;

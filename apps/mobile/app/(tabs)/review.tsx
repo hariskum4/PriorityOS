@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
-import { colors, type, space, domainColor } from '@/theme';
+import { colors, type, space, domainColor, alpha } from '@/theme';
 
 /**
  * The Sunday Session — 6 steps, ~15 minutes, the retention backbone.

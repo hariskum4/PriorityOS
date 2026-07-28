@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { useMemoryDraft } from '@/store/memoryDraft';
 import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
-import { colors, type, space } from '@/theme';
+import { colors, type, space, alpha } from '@/theme';
 
 const MEMORY_TYPES: Record<string, string> = {
   relationship: 'together', experience: 'experience', achievement: 'achievement',
@@ -163,6 +163,16 @@ function Memories() {
   const [countKey, setCountKey] = useState<string>('');
   const [reflection, setReflection] = useState('');
   const [justSaved, setJustSaved] = useState(false);
+  /**
+   * When it happened, not when it was typed.
+   *
+   * A life did not begin when the app was installed. Backdating is what lets the
+   * years grid on the Time tab light up 2009 for a graduation — the timeline
+   * reads `occurredAt`, so without a way to set it every memory collapses onto
+   * today and the whole archive looks a few weeks old.
+   */
+  const [occurredOn, setOccurredOn] = useState('');   // YYYY-MM-DD, blank = today
+  const dateValid = occurredOn === '' || /^\d{4}-\d{2}-\d{2}$/.test(occurredOn);
 
   useEffect(() => {
     if (draft) {
@@ -184,10 +194,13 @@ function Memories() {
           missionId: draft?.missionId,
           relationshipId: draft?.relationshipId,
           domainType: draft?.domainType,
+          // Noon UTC, so a date never lands on the previous day in a western
+          // timezone once it comes back as a timestamp.
+          occurredAt: occurredOn ? `${occurredOn}T12:00:00.000Z` : undefined,
         },
       }),
     onSuccess: () => {
-      setTitle(''); setReflection(''); setPeople([]); setCountKey('');
+      setTitle(''); setReflection(''); setPeople([]); setCountKey(''); setOccurredOn('');
       clear();
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2500);
@@ -233,6 +246,28 @@ function Memories() {
             </Pressable>
           ))}
         </View>
+
+        {/* When it happened. Blank means today; a past date lights up that year
+            on the Time tab, which is how a life older than the app gets in. */}
+        <View style={{ gap: space(1) }}>
+          <Text style={type.faint}>When did it happen?</Text>
+          <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
+            <Input
+              placeholder="today"
+              value={occurredOn}
+              onChangeText={(v) => setOccurredOn(v.replace(/[^0-9-]/g, '').slice(0, 10))}
+              autoCapitalize="none"
+              style={{ maxWidth: 150 }}
+            />
+            <Text style={[type.faint, !dateValid && { color: colors.rose }]}>
+              {occurredOn === ''
+                ? 'YYYY-MM-DD for something older'
+                : dateValid
+                  ? 'Will land on that year'
+                  : 'Needs to look like 2009-06-14'}
+            </Text>
+          </View>
+        </View>
         {relationships && relationships.length > 0 && (
           <View style={{ gap: space(1) }}>
             <Text style={type.faint}>Who was there?</Text>
@@ -273,7 +308,11 @@ function Memories() {
             <Text style={[type.dim, { color: colors.green }]}>Kept — +30 XP. This is what the numbers were for.</Text>
           </View>
         ) : (
-          <Button title="Keep this moment" onPress={() => save.mutate()} disabled={!title.trim() || save.isPending} />
+          <Button
+            title="Keep this moment"
+            onPress={() => save.mutate()}
+            disabled={!title.trim() || !dateValid || save.isPending}
+          />
         )}
       </Card>
 

@@ -4,11 +4,12 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { deriveGoalTitle } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { track } from '@/services/analytics';
 import { Button, Card, DomainDot, GapBar, Input, Label } from '@/components/ui';
 import { ShareRevealButton } from '@/components/ShareReveal';
-import { colors, type, space, domainColor } from '@/theme';
+import { colors, type, space, domainColor, alpha } from '@/theme';
 
 const DOMAIN_LABELS: Record<string, string> = {
   family: 'Family / Parents',
@@ -161,12 +162,18 @@ export default function Onboarding() {
         },
       });
       // The postponed thing becomes the user's first real goal — the Goals
-      // table is what the engine's importance scoring reads from.
+      // table is what the engine's importance scoring reads from. This answer
+      // is free text and people write paragraphs, so split it into a name and
+      // its reasoning rather than posting an essay as a title. The API
+      // normalises again on its side; doing it here keeps the intent explicit
+      // and lets the reveal show the same short name the user will see later.
       if (postponing.trim()) {
+        const goal = deriveGoalTitle(postponing);
         await api('/goals', {
           method: 'POST',
           body: {
-            title: postponing.trim(),
+            title: goal.title,
+            description: goal.description,
             domainType: postponingDomain || ranking[0] || 'growth',
             horizon: '1y',
           },

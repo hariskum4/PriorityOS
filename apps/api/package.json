@@ -12,7 +12,9 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "test": "jest"
   },
-  "prisma": { "seed": "ts-node prisma/seed.ts" },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "dependencies": {
     "@nestjs/common": "^10.3.0",
     "@nestjs/core": "^10.3.0",
@@ -33,7 +35,8 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "@priority/life-os": "*"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.0",

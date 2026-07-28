@@ -14,13 +14,17 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: colors.surface,
+          // The dock sits on the ground, separated by a hairline rather than
+          // a raised slab — the sky should feel continuous behind it.
+          backgroundColor: colors.bg,
           borderTopColor: colors.lineSoft,
-          height: 58,
-          paddingBottom: 6,
-          paddingTop: 6,
+          borderTopWidth: 1,
+          height: 60,
+          paddingBottom: 7,
+          paddingTop: 8,
+          elevation: 0,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 10.5, fontWeight: '500', letterSpacing: 0.2 },
         tabBarActiveTintColor: colors.amber,
         tabBarInactiveTintColor: colors.textFaint,
       }}
@@ -31,6 +35,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="people" options={{ title: 'People', tabBarIcon: icon('people-outline', 'people') }} />
       <Tabs.Screen name="journal" options={{ title: 'Journal', tabBarIcon: icon('create-outline', 'create') }} />
       <Tabs.Screen name="review" options={{ title: 'Review', tabBarIcon: icon('telescope-outline', 'telescope') }} />
+      {/* Everything the system knows, readable. Generated, never stored. */}
+      <Tabs.Screen name="record" options={{ title: 'Record', tabBarIcon: icon('book-outline', 'book') }} />
       <Tabs.Screen name="you" options={{ title: 'You', tabBarIcon: icon('person-circle-outline', 'person-circle') }} />
     </Tabs>
   );

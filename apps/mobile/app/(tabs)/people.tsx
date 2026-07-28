@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { Avatar, Card, Chip, EmptyState } from '@/components/ui';
-import { colors, type, space, domainColor } from '@/theme';
+import { colors, type, space, domainColor, alpha } from '@/theme';
 
 const relationDomain: Record<string, string> = {
   mother: 'family', father: 'family', parent: 'family', sibling: 'family',
@@ -77,21 +77,26 @@ export default function People() {
           <Card accent={overdue ? colors.roseSoft : undefined} style={{ gap: space(3) }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(3) }}>
               <Avatar name={r.name} color={color} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={type.title}>{r.name}</Text>
+              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                  <Text style={type.title} numberOfLines={1}>{r.name}</Text>
                   <Text style={[type.faint, { textTransform: 'capitalize' }]}>{r.relationType}</Text>
                 </View>
-                <Text style={[type.dim, overdue && { color: colors.rose }]}>
+                {/* Elapsed time is measured, so it's set as an instrument tick —
+                    which also keeps it on one line beside the overdue chip. */}
+                <Text
+                  style={[type.label, { letterSpacing: 1 }, overdue && { color: colors.rose }]}
+                  numberOfLines={1}
+                >
                   {d === null
-                    ? 'No contact logged yet'
+                    ? 'never logged'
                     : d === 0
-                      ? 'Talked today'
-                      : `${d} day${d === 1 ? '' : 's'} since contact`}
-                  {' · '}aiming {r.desiredCallFrequency}
+                      ? 'talked today'
+                      : `${d}d ago`}
+                  {' · '}{r.desiredCallFrequency}
                 </Text>
               </View>
-              {overdue && <Chip label="overdue" color={colors.rose} />}
+              {overdue && <View style={{ flexShrink: 0 }}><Chip label="overdue" color={colors.rose} /></View>}
             </View>
             {/* Something to reach out WITH — memory-grounded, not a guilt ping */}
             {overdueRatio(r) >= 1 && r.reachOutLine && !just && (

@@ -23,7 +23,8 @@ import {
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { Button, Card, Chip, DomainDot, Input, Label } from '@/components/ui';
-import { colors, type, space, domainColor } from '@/theme';
+import { YearGrid } from '@/components/YearGrid';
+import { colors, type, space, domainColor, alpha } from '@/theme';
 
 /**
  * Time Reality — the user's own finite windows, computed live from their
@@ -59,6 +60,25 @@ export default function TimeReality() {
   const { data: insights } = useQuery({
     queryKey: ['insights'],
     queryFn: () => api<any[]>('/insights/opportunities'),
+  });
+
+  /**
+   * The year drill-down.
+   *
+   * `activeYears` marks which squares hold anything, so the life grid shows
+   * where there is something to open rather than making every year look alike.
+   */
+  const [openYear, setOpenYear] = useState<number | null>(null);
+  const { data: activeYearsData } = useQuery({
+    queryKey: ['timeline-years'],
+    queryFn: () => api<{ years: number[] }>('/life-os/timeline/years'),
+    staleTime: 10 * 60_000,
+  });
+  const activeYears = activeYearsData?.years ?? [];
+  const { data: yearData } = useQuery({
+    queryKey: ['timeline', openYear],
+    queryFn: () => api<any>(`/life-os/timeline/${openYear}`),
+    enabled: openYear != null,
   });
 
   const [ageDraft, setAgeDraft] = useState('');
@@ -115,6 +135,7 @@ export default function TimeReality() {
   });
 
   const age = ageFromDob(me?.dob);
+  const birthYear = me?.dob ? new Date(me.dob).getUTCFullYear() : null;
   const intensityOff = prefs?.insightIntensity === 'off';
 
   if (!me) return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
@@ -210,24 +231,61 @@ export default function TimeReality() {
               <Label>Your life in years</Label>
             </View>
             <View style={s.lifeGrid}>
-              {Array.from({ length: weeks.yearsLived + weeks.yearsAhead }).map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    s.lifeCell,
-                    i < weeks.yearsLived && s.lifeCellLived,
-                    i === weeks.yearsLived && s.lifeCellNow,
-                  ]}
-                />
-              ))}
+              {Array.from({ length: weeks.yearsLived + weeks.yearsAhead }).map((_, i) => {
+                // Cell i is the year the person turned i, so it maps to a real
+                // calendar year and can be opened.
+                const calendarYear = birthYear != null ? birthYear + i : null;
+                const lived = i <= weeks.yearsLived;
+                const hasEvents = calendarYear != null && activeYears.includes(calendarYear);
+                const isOpen = calendarYear != null && calendarYear === openYear;
+                /* `sized` decides who owns the 4.2% width. A tappable year puts
+                   it on the Pressable and lets the square fill it — nesting two
+                   percentage widths collapses the inner one to nothing. */
+                const cell = (sized: boolean) => (
+                  <View
+                    style={[
+                      sized ? s.lifeCell : s.lifeCellFill,
+                      i < weeks.yearsLived && s.lifeCellLived,
+                      i === weeks.yearsLived && s.lifeCellNow,
+                      // A year holding recorded life gets a visible edge, so the
+                      // grid shows where there is something to open.
+                      hasEvents && s.lifeCellHasEvents,
+                      isOpen && s.lifeCellOpen,
+                    ]}
+                  />
+                );
+                if (!lived || calendarYear == null) {
+                  return <React.Fragment key={i}>{cell(true)}</React.Fragment>;
+                }
+                return (
+                  <Pressable
+                    key={i}
+                    onPress={() => setOpenYear(isOpen ? null : calendarYear)}
+                    hitSlop={3}
+                    style={({ pressed }) => [s.lifeCellHit, pressed && { opacity: 0.6 }]}
+                  >
+                    {cell(false)}
+                  </Pressable>
+                );
+              })}
             </View>
             <Text style={type.faint}>
               Each square is a year on a {PLANNING_HORIZON_AGE}-year horizon — generous on purpose, and it
               extends further the closer you get. Filled ones are lived; the bright one is now —
               {' '}{weeks.weeksLived.toLocaleString()} weeks in, ~{weeks.weeksAhead.toLocaleString()} ahead.
+              {birthYear != null ? ' Tap a lived year to open its days.' : ''}
             </Text>
             <Text style={type.serif}>{weeks.framingText}</Text>
           </Card>
+
+          {/* The second zoom level — a year as days, opened from the grid above. */}
+          {openYear != null ? (
+            yearData && yearData.year === openYear ? (
+              <YearGrid data={yearData} onClose={() => setOpenYear(null)} />
+            ) : (
+              <Card><Label>{openYear}</Label><Text style={type.dim}>Reading that year…</Text></Card>
+            )
+          ) : null}
 
           <Card accent={colors.amberSoft} style={{ gap: space(4), paddingVertical: space(5) }}>
             <View style={{ flexDirection: 'row' }}>
@@ -596,10 +654,23 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, backgroundColor: 'transparent',
   },
   lifeCellLived: {
-    backgroundColor: colors.amberSoft, borderColor: colors.amberSoft,
+    // Lived years are brass at half strength — present and countable, but
+    // quieter than "now". The old border-tint token was too dark to read
+    // as a fill against the night ground.
+    backgroundColor: alpha(colors.amber, 0.45),
+    borderColor: alpha(colors.amber, 0.55),
   },
   lifeCellNow: {
     backgroundColor: colors.amber, borderColor: colors.amber,
+  },
+  // A year with recorded life reads as openable; the current year still wins.
+  lifeCellHasEvents: { borderColor: colors.amber },
+  lifeCellOpen: { borderColor: colors.text, borderWidth: 1.5 },
+  lifeCellHit: { width: '4.2%', aspectRatio: 1 },
+  /** Same square, but filling a parent that already owns the width. */
+  lifeCellFill: {
+    width: '100%', height: '100%', borderRadius: 3,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: 'transparent',
   },
   momentsRow: {
     borderTopWidth: 1, borderTopColor: colors.lineSoft, paddingTop: space(2),

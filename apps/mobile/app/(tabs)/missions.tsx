@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { tinyStep } from '@priority/scoring-engine';
 import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
-import { colors, type, space, domainColor } from '@/theme';
+import { colors, type, space, domainColor, alpha } from '@/theme';
 
 function completedRelative(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -86,10 +86,17 @@ export default function Missions() {
                 const stepPlanned = (data ?? []).some((m) => m.goalId === g.id);
                 return (
                   <View key={g.id} style={{ gap: space(2) }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <DomainDot domain={g.domainType} />
-                      <Text style={[type.heading, { flex: 1 }]}>{g.title}</Text>
-                      <Chip label={g.horizon === '5y' ? '5 years' : 'this year'} />
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 9 }}>
+                      <View style={{ paddingTop: 6 }}><DomainDot domain={g.domainType} /></View>
+                      {/* A goal title is an identifier, not an essay. Some are
+                          stored as whole paragraphs, so clamp rather than let
+                          one goal push the rest of the card off-screen. */}
+                      <Text style={[type.heading, { flex: 1, minWidth: 0 }]} numberOfLines={2}>
+                        {g.title}
+                      </Text>
+                      <View style={{ flexShrink: 0 }}>
+                        <Chip label={g.horizon === '5y' ? '5 years' : 'this year'} />
+                      </View>
                     </View>
                     {stepPlanned ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

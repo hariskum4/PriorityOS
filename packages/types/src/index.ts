@@ -50,3 +50,77 @@ export interface OpportunityInsight {
   estimate: number;
   unit: string;
 }
+
+// ---------------------------------------------------------------------------
+// Taxonomy bridge — the app's twelve domains ↔ the Life OS kernel's eight
+//
+// The product surfaces twelve domains because that is how people describe a
+// life ("partner" and "children" are not the same relationship). The kernel's
+// balance model uses eight, because cross-domain influence stays tractable at
+// eight and turns to mush at twelve.
+//
+// Both mappings live here, next to DomainType, so the API and the mobile client
+// can never disagree about which star a proposal belongs to. Every previous
+// version of this map was a private const in one file, which is exactly how a
+// filter silently stops matching.
+// ---------------------------------------------------------------------------
+
+/** The kernel's eight. Mirrors `Domain` in @priority/life-os. */
+export type LifeDomain =
+  | 'relationships'
+  | 'health'
+  | 'career'
+  | 'finances'
+  | 'growth'
+  | 'experiences'
+  | 'mindfulness'
+  | 'purpose';
+
+export const ALL_LIFE_DOMAINS: LifeDomain[] = [
+  'relationships', 'health', 'career', 'finances',
+  'growth', 'experiences', 'mindfulness', 'purpose',
+];
+
+/** Twelve → eight. Lossy by design. */
+export const DOMAIN_TO_LIFE: Record<DomainType, LifeDomain> = {
+  family: 'relationships',
+  partner: 'relationships',
+  children: 'relationships',
+  friends: 'relationships',
+  health: 'health',
+  career: 'career',
+  finance: 'finances',
+  growth: 'growth',
+  experiences: 'experiences',
+  reflection: 'mindfulness',
+  purpose: 'purpose',
+  impact: 'purpose',
+};
+
+/**
+ * Eight → one representative twelve.
+ *
+ * Only for writing a record that needs a concrete domain (a Mission). Lossy in
+ * the other direction too: `relationships` picks `family` because it is the
+ * broadest, but a proposal about a named person should resolve its domain from
+ * that person's `relationType` instead of using this.
+ */
+export const LIFE_TO_DOMAIN: Record<LifeDomain, DomainType> = {
+  relationships: 'family',
+  health: 'health',
+  career: 'career',
+  finances: 'finance',
+  growth: 'growth',
+  experiences: 'experiences',
+  mindfulness: 'reflection',
+  purpose: 'purpose',
+};
+
+/** A relationship's own type decides its domain, which is finer than the map. */
+export function domainForRelationType(relationType: string): DomainType {
+  const t = relationType.toLowerCase();
+  if (t === 'spouse' || t === 'partner') return 'partner';
+  if (t === 'child' || t === 'children' || t === 'son' || t === 'daughter') return 'children';
+  if (t === 'friend' || t === 'friends' || t === 'mentor') return 'friends';
+  return 'family';
+}

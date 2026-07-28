@@ -18,6 +18,7 @@ export * from './timeReality';
 export * from './timeWindows';
 export * from './safety';
 export * from './tinySteps';
+export * from './goalTitle';
 export * from './lifeWindows';
 export * from './timeArithmetic';
 export * from './timeStacking';

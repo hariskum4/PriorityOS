@@ -21,6 +21,7 @@ import { GamificationModule } from './gamification/gamification.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { PartnersModule } from './partners/partners.module';
+import { LifeOsModule } from './life-os/life-os.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -48,6 +49,7 @@ import { HealthController } from './health.controller';
     GamificationModule,
     NotificationsModule,
     PartnersModule,
+    LifeOsModule,
   ],
 })
 export class AppModule {}

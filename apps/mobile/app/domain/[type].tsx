@@ -12,7 +12,7 @@ import {
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { Button, Card, Chip, DomainDot, EmptyState, GapBar, Label } from '@/components/ui';
-import { colors, type, space, domainColor, isLight } from '@/theme';
+import { colors, type, space, domainColor, isLight, alpha } from '@/theme';
 
 const DOMAIN_LABELS: Record<string, string> = {
   family: 'Family / Parents', partner: 'Partner', children: 'Children',
