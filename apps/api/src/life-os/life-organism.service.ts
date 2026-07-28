@@ -60,19 +60,14 @@ export class LifeOrganismService {
 
     const hue = sky === 'light' ? HUE_LIGHT : HUE_DARK;
 
-    const [rows, years, graph] = await Promise.all([
+    // One pass for the whole record. Walking year by year cost five queries
+    // per year lived, which is the wrong shape for something meant to still
+    // work on someone's sixtieth year of using it.
+    const [rows, acts, graph] = await Promise.all([
       this.prisma.lifeDomain.findMany({ where: { userId } }),
-      this.timeline.yearsWithActivity(userId),
+      this.timeline.actTotalsByDomain(userId),
       this.lifeOs.graphFor(userId),
     ]);
-
-    const acts: Record<string, number> = {};
-    for (const year of years) {
-      const { byDomain } = await this.timeline.year(userId, year);
-      for (const [domain, n] of Object.entries(byDomain)) {
-        acts[domain] = (acts[domain] ?? 0) + n;
-      }
-    }
 
     // Net signed influence arriving at each kernel domain, straight from the
     // graph's own propagate(). A domain below par pushes its neighbours by the

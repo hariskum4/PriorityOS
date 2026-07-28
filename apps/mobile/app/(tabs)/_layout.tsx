@@ -1,6 +1,9 @@
 import React from 'react';
+import { View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { OfflineBar } from '@/components/OfflineBar';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { colors } from '@/theme';
 
 const icon = (name: keyof typeof Ionicons.glyphMap, focusedName: keyof typeof Ionicons.glyphMap) =>
@@ -10,7 +13,12 @@ const icon = (name: keyof typeof Ionicons.glyphMap, focusedName: keyof typeof Io
 
 export default function TabsLayout() {
   return (
-    <Tabs
+    // The bar sits above the whole tab stack rather than inside each screen:
+    // being offline is a fact about the app, not about Today.
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <OfflineBar />
+      <ErrorBoundary label="tabs">
+      <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
@@ -38,6 +46,8 @@ export default function TabsLayout() {
       {/* Everything the system knows, readable. Generated, never stored. */}
       <Tabs.Screen name="record" options={{ title: 'Record', tabBarIcon: icon('book-outline', 'book') }} />
       <Tabs.Screen name="you" options={{ title: 'You', tabBarIcon: icon('person-circle-outline', 'person-circle') }} />
-    </Tabs>
+      </Tabs>
+      </ErrorBoundary>
+    </View>
   );
 }

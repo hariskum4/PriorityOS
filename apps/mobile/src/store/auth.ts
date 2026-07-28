@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { storage } from '../services/storage';
+import { clearPersistedCache } from '../services/cache';
 
 interface AuthState {
   accessToken: string | null;
@@ -24,6 +25,10 @@ export const useAuth = create<AuthState>((set) => ({
   logout: async () => {
     await storage.deleteItem('accessToken');
     await storage.deleteItem('refreshToken');
+    // The offline cache holds a readable copy of this person's life. Signing
+    // out has to take it with them, or the next person to open the app on this
+    // device reads it.
+    await clearPersistedCache();
     set({ accessToken: null });
   },
 }));

@@ -77,6 +77,24 @@ export class LifeTimelineService {
     return [...new Set(acts.map((a) => a.at.getUTCFullYear()))].sort();
   }
 
+  /**
+   * Lifetime act counts per domain, in one pass.
+   *
+   * The organism needs totals across every year on record. Asking for them a
+   * year at a time costs five queries per year — fine for a demo profile with
+   * two years, and three hundred round trips for the sixty-year record this
+   * product is built to hold. Same five queries here whether someone has been
+   * using it for a week or a lifetime.
+   */
+  async actTotalsByDomain(userId: string): Promise<Record<string, number>> {
+    const acts = await this.gather(userId);
+    const totals: Record<string, number> = {};
+    for (const a of acts) {
+      if (a.domain) totals[a.domain] = (totals[a.domain] ?? 0) + 1;
+    }
+    return totals;
+  }
+
   async year(userId: string, year: number): Promise<TimelineYear> {
     const from = new Date(Date.UTC(year, 0, 1));
     const to = new Date(Date.UTC(year + 1, 0, 1));
