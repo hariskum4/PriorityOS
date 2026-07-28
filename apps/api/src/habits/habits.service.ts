@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserClock } from '../common/clock.module';
 import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { advanceStreak } from '@priority/scoring-engine';
@@ -10,14 +11,15 @@ export class HabitsService {
     private prisma: PrismaService,
     private scoring: ScoringService,
     private game: GamificationService,
+    private clock: UserClock,
   ) {}
 
-  list(userId: string) {
+  async list(userId: string) {
     return this.prisma.habit.findMany({
       where: { userId, isActive: true },
       include: {
         logs: {
-          where: { completedAt: { gte: startOfWeek() } },
+          where: { completedAt: { gte: await this.clock.startOfWeek(userId) } },
           orderBy: { completedAt: 'desc' },
         },
       },
@@ -54,7 +56,7 @@ export class HabitsService {
   async rolloverWeek(userId: string) {
     const habits = await this.prisma.habit.findMany({
       where: { userId, isActive: true },
-      include: { logs: { where: { completedAt: { gte: startOfWeek(-7) } } } },
+      include: { logs: { where: { completedAt: { gte: await this.clock.daysAgo(userId, 7) } } } },
     });
     for (const h of habits) {
       const next = advanceStreak(
@@ -77,9 +79,3 @@ export class HabitsService {
   }
 }
 
-function startOfWeek(offsetDays = 0): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offsetDays); // Monday
-  d.setHours(0, 0, 0, 0);
-  return d;
-}

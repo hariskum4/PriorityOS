@@ -166,6 +166,12 @@ model Relationship {
 
   missions              Mission[]
   contactLogs           ContactLog[]
+
+  // One person, one row. Enforced in the database by a case-insensitive
+  // unique index on ("userId", lower(name), "relationType") — created in
+  // migration 20260728220000_merge_duplicate_people, because Prisma cannot
+  // express a functional index in this schema. Do not drop it: without it,
+  // one person's history silently splits across rows.
   insights              OpportunityInsight[]
 
   @@index([userId])

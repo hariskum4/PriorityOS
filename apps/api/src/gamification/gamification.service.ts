@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserClock } from '../common/clock.module';
+import { startOfDayIn } from '../common/time';
 import { XP_TABLE, XpEvent, levelForXp } from '@priority/scoring-engine';
 
 /** Achievement catalog (blueprint §5.7): earned for real-life behavior,
@@ -32,7 +34,9 @@ interface AchievementStats {
 
 @Injectable()
 export class GamificationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService,
+    private clock: UserClock,
+  ) {}
 
   async award(userId: string, event: XpEvent, domainType: string, refId?: string) {
     const amount = XP_TABLE[event];
@@ -96,11 +100,12 @@ export class GamificationService {
   private async touchDailyStreak(userId: string) {
     const p = await this.prisma.gamificationProfile.findUnique({ where: { userId } });
     if (!p) return;
-    const today = new Date();
-    const startOfDay = (d: Date) =>
-      new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const last = p.lastActiveDate ? startOfDay(p.lastActiveDate) : null;
-    const now = startOfDay(today);
+    // A streak is a claim about the user's days, so it has to be measured in
+    // the user's zone — on a UTC server an evening in Bengaluru already counts
+    // as tomorrow, and the streak breaks while they are still awake.
+    const tz = await this.clock.zoneOf(userId);
+    const last = p.lastActiveDate ? startOfDayIn(tz, p.lastActiveDate) : null;
+    const now = startOfDayIn(tz);
     if (last && now.getTime() === last.getTime()) return; // already counted today
 
     let { dailyStreak, graceRemaining } = p;
@@ -119,7 +124,10 @@ export class GamificationService {
         dailyStreak,
         graceRemaining,
         bestStreak: Math.max(p.bestStreak, dailyStreak),
-        lastActiveDate: today,
+        // Store the user's midnight, not the moment: the next comparison is
+        // against another user-local midnight, and mixing the two is how a
+        // streak silently gains or loses a day.
+        lastActiveDate: now,
       },
     });
   }

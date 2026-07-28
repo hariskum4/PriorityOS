@@ -6,7 +6,18 @@ import { useAuth } from '../store/auth';
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
-async function refreshTokens(): Promise<boolean> {
+/**
+ * One refresh at a time.
+ *
+ * A screen opening five queries at once will get five 401s at once. Without
+ * this, each fired its own refresh: the first rotated the stored token and the
+ * other four presented one that no longer existed, so four requests failed and
+ * the server logged four stack traces on every sign-in. They all wait on the
+ * same promise now, and the losers get the winner's tokens.
+ */
+let inFlight: Promise<boolean> | null = null;
+
+async function doRefresh(): Promise<boolean> {
   const refreshToken = await storage.getItem('refreshToken');
   if (!refreshToken) return false;
   const res = await fetch(`${BASE}/auth/refresh`, {
@@ -18,6 +29,13 @@ async function refreshTokens(): Promise<boolean> {
   const tokens = await res.json();
   await useAuth.getState().setTokens(tokens);
   return true;
+}
+
+function refreshTokens(): Promise<boolean> {
+  if (!inFlight) {
+    inFlight = doRefresh().finally(() => { inFlight = null; });
+  }
+  return inFlight;
 }
 
 export async function api<T = unknown>(

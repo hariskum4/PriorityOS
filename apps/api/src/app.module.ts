@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
+import { ClockModule } from './common/clock.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
@@ -31,6 +33,7 @@ import { HealthController } from './health.controller';
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     PrismaModule,
+    ClockModule,
     AnalyticsModule,
     AuthModule,
     UsersModule,
@@ -50,6 +53,15 @@ import { HealthController } from './health.controller';
     NotificationsModule,
     PartnersModule,
     LifeOsModule,
+  ],
+  providers: [
+    /**
+     * Registering ThrottlerModule alone does nothing: without this guard the
+     * `@Throttle` decorators on login and register are inert documentation,
+     * and credential stuffing is unmetered. It is global so a new controller
+     * is rate-limited by default rather than by remembering.
+     */
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

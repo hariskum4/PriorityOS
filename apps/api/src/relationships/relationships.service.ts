@@ -35,11 +35,49 @@ export class RelationshipsService {
     return rels;
   }
 
-  create(userId: string, data: any) {
+  /**
+   * Add someone, or fill in the person already there.
+   *
+   * The database now refuses a second row for the same name and relation, so
+   * this has to decide what a repeat means. Re-adding "Amma / mother" is never
+   * a request for a second mother — it is someone entering her again, usually
+   * with more detail than the first time. So we update in place, and only
+   * where the new value says something: a blank field must not erase what is
+   * already known.
+   */
+  async create(userId: string, data: any) {
+    const name = String(data.name ?? '').trim();
+    const existing = await this.prisma.relationship.findFirst({
+      where: {
+        userId,
+        relationType: data.relationType,
+        name: { equals: name, mode: 'insensitive' },
+      },
+    });
+
+    if (existing) {
+      const patch = Object.fromEntries(
+        Object.entries({
+          age: data.age,
+          city: data.city,
+          closenessScore: data.closenessScore,
+          inPersonFrequency: data.inPersonFrequency,
+          callFrequency: data.callFrequency,
+          desiredCallFrequency: data.desiredCallFrequency,
+          healthStatus: data.healthStatus,
+          locationType: data.locationType,
+          wantsMoreTime: data.wantsMoreTime,
+          meaningfulMomentTypes: data.meaningfulMomentTypes,
+          notes: data.notes,
+        }).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+      );
+      return this.prisma.relationship.update({ where: { id: existing.id }, data: patch });
+    }
+
     return this.prisma.relationship.create({
       data: {
         userId,
-        name: data.name,
+        name,
         relationType: data.relationType,
         age: data.age ?? null,
         city: data.city ?? null,

@@ -8,6 +8,7 @@ import * as argon2 from 'argon2';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto, LoginDto } from './auth.dto';
+import { requireSecret } from '../common/env';
 import { ALL_DOMAINS } from '@priority/types';
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
@@ -56,7 +57,7 @@ export class AuthService {
     let payload: { sub: string; email: string; jti: string };
     try {
       payload = this.jwt.verify(refreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
+        secret: requireSecret('JWT_REFRESH_SECRET'),
       });
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
@@ -68,7 +69,15 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token revoked or expired');
 
     // Rotation: revoke the used token, issue a new pair.
-    await this.prisma.refreshToken.delete({ where: { id: stored.id } });
+    //
+    // deleteMany, not delete, and the count is the lock. Two requests can
+    // arrive with the same valid token — a client waking several screens at
+    // once — and exactly one of them deletes the row. The loser used to hit a
+    // Prisma "record not found" and surface as a 500; it now gets a plain 401
+    // and retries with whatever the winner stored.
+    const { count } = await this.prisma.refreshToken.deleteMany({ where: { id: stored.id } });
+    if (count === 0) throw new UnauthorizedException('Refresh token already used');
+
     return this.issueTokens(payload.sub, payload.email);
   }
 
@@ -76,14 +85,14 @@ export class AuthService {
     const accessToken = this.jwt.sign(
       { sub: userId, email },
       {
-        secret: process.env.JWT_ACCESS_SECRET ?? 'dev-secret',
+        secret: requireSecret('JWT_ACCESS_SECRET'),
         expiresIn: process.env.JWT_ACCESS_TTL ?? '15m',
       },
     );
     const refreshToken = this.jwt.sign(
       { sub: userId, email, jti: randomUUID() },
       {
-        secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh',
+        secret: requireSecret('JWT_REFRESH_SECRET'),
         expiresIn: process.env.JWT_REFRESH_TTL ?? '30d',
       },
     );

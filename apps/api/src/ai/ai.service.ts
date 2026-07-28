@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserClock } from '../common/clock.module';
 import { PromptTemplate } from '@priority/ai-prompts';
+import { buildPseudonyms, redact, restore } from './redaction';
 
 const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
@@ -22,7 +24,9 @@ const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 export class AiService {
   private readonly logger = new Logger(AiService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService,
+    private clock: UserClock,
+  ) {}
 
   get enabled(): boolean {
     return process.env.AI_ENABLED !== 'false' && !!process.env.AI_API_KEY;
@@ -39,8 +43,7 @@ export class AiService {
     // Day-level cache: hot paths (the dashboard) must not regenerate — or
     // even re-persist — the same narrative on every single request.
     if (opts?.cacheKey) {
-      const dayStart = new Date();
-      dayStart.setHours(0, 0, 0, 0);
+      const dayStart = await this.clock.startOfToday(userId);
       const cached = await this.prisma.aiRecommendation.findFirst({
         where: { userId, kind, createdAt: { gte: dayStart } },
         orderBy: { createdAt: 'desc' },
@@ -55,6 +58,27 @@ export class AiService {
 
     const model = process.env.AI_MODEL ?? DEFAULT_MODEL;
     const baseUrl = process.env.AI_BASE_URL ?? 'https://openrouter.ai/api/v1';
+
+    // Free pools generally reserve the right to train on what they are sent.
+    // That is an acceptable trade for a demo and not for a person's marriage,
+    // so production has to say the word out loud.
+    if (model.endsWith(':free')
+      && process.env.NODE_ENV === 'production'
+      && process.env.AI_ALLOW_FREE_TIER !== 'true') {
+      this.logger.warn(
+        `Refusing to send personal data to the free model "${model}". `
+        + 'Set AI_MODEL to a paid endpoint, or AI_ALLOW_FREE_TIER=true to accept the terms.',
+      );
+      return this.persist(userId, kind, fallback, 'fallback', opts?.cacheKey);
+    }
+
+    // Names are swapped for placeholders before anything is sent, and put back
+    // before the copy reaches the person.
+    const names = await this.prisma.relationship.findMany({
+      where: { userId },
+      select: { name: true },
+    });
+    const pseudonyms = buildPseudonyms(names.map((n) => n.name));
     try {
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
@@ -73,7 +97,7 @@ export class AiService {
           temperature: 0.4,
           messages: [
             { role: 'system', content: template.system },
-            { role: 'user', content: template.buildUser(context) },
+            { role: 'user', content: redact(template.buildUser(context), pseudonyms) },
           ],
         }),
         // Free pools sometimes hang instead of failing — never stall a request.
@@ -85,7 +109,7 @@ export class AiService {
       const text: string = data.choices?.[0]?.message?.content ?? '';
       if (!text) throw new Error('Empty completion');
 
-      const parsed = parseStrictJson<T>(text);
+      const parsed = parseStrictJson<T>(restore(text, pseudonyms));
       return this.persist(userId, kind, parsed, model, opts?.cacheKey);
     } catch (err) {
       this.logger.warn(`AI generation failed for ${kind}: ${String(err)}`);

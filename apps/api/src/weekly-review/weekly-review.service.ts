@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserClock } from '../common/clock.module';
+import { startOfWeekIn, startOfDayIn } from '../common/time';
 import { GamificationService } from '../gamification/gamification.service';
 import { AiService } from '../ai/ai.service';
 import { InsightsService } from '../insights/insights.service';
@@ -12,10 +14,11 @@ export class WeeklyReviewService {
     private game: GamificationService,
     private ai: AiService,
     private insights: InsightsService,
+    private clock: UserClock,
   ) {}
 
   async current(userId: string) {
-    const { weekStart } = weekBounds();
+    const { weekStart } = weekBounds(await this.clock.zoneOf(userId));
     return this.prisma.weeklyReview.findUnique({
       where: { userId_weekStart: { userId, weekStart } },
     });
@@ -23,7 +26,7 @@ export class WeeklyReviewService {
 
   /** Generate (or regenerate) this week's review from deterministic stats. */
   async generate(userId: string) {
-    const { weekStart, weekEnd } = weekBounds();
+    const { weekStart, weekEnd } = weekBounds(await this.clock.zoneOf(userId));
 
     // PRD §10.5: opportunity insights refresh at exactly two moments —
     // onboarding and the weekly review cycle. This is the second one.
@@ -209,7 +212,7 @@ export class WeeklyReviewService {
       intentionWord?: string;
     },
   ) {
-    const { weekStart } = weekBounds();
+    const { weekStart } = weekBounds(await this.clock.zoneOf(userId));
     // Ensure this week's review exists (user may run the session early).
     let review = await this.current(userId);
     if (!review) review = await this.generate(userId);
@@ -251,7 +254,7 @@ export class WeeklyReviewService {
 
   /** User acknowledges the review — this is the retention ritual, reward it. */
   async acknowledge(userId: string) {
-    const { weekStart } = weekBounds();
+    const { weekStart } = weekBounds(await this.clock.zoneOf(userId));
     const review = await this.prisma.weeklyReview.update({
       where: { userId_weekStart: { userId, weekStart } },
       data: { userCompletedAt: new Date() },
@@ -266,12 +269,19 @@ export class WeeklyReviewService {
   }
 }
 
-export function weekBounds(ref = new Date()): { weekStart: Date; weekEnd: Date } {
-  const weekStart = new Date(ref);
-  weekStart.setDate(ref.getDate() - ((ref.getDay() + 6) % 7)); // Monday
-  weekStart.setHours(0, 0, 0, 0);
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 6);
-  weekEnd.setHours(23, 59, 59, 999);
+/**
+ * The user's week, Monday to Sunday, in their own zone.
+ *
+ * `tz` is required rather than defaulted: a review that covers the wrong seven
+ * days is worse than one that fails loudly, and defaulting to the server's
+ * week is exactly the bug this replaces.
+ */
+export function weekBounds(
+  tz: string,
+  ref = new Date(),
+): { weekStart: Date; weekEnd: Date } {
+  const weekStart = startOfWeekIn(tz, ref);
+  const weekEnd = new Date(startOfDayIn(tz, new Date(weekStart.getTime() + 6 * 86_400_000)));
+  weekEnd.setTime(startOfDayIn(tz, new Date(weekEnd.getTime() + 86_400_000)).getTime() - 1);
   return { weekStart, weekEnd };
 }

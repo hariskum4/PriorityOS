@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserClock } from '../common/clock.module';
 import { MissionsService } from '../missions/missions.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { InsightsService } from '../insights/insights.service';
@@ -14,6 +15,7 @@ export class DashboardService {
     private game: GamificationService,
     private insights: InsightsService,
     private ai: AiService,
+    private clock: UserClock,
   ) {}
 
   /**
@@ -30,7 +32,7 @@ export class DashboardService {
       this.prisma.habit.findMany({
         where: { userId, isActive: true },
         include: {
-          logs: { where: { completedAt: { gte: startOfToday() } } },
+          logs: { where: { completedAt: { gte: await this.clock.startOfToday(userId) } } },
         },
       }),
       this.game.profile(userId),
@@ -71,7 +73,7 @@ export class DashboardService {
         },
         { whyToday: fallbackWhy, encouragement: encouragements[dayIndex] },
         // One generation per mission per day — not one per page load.
-        { cacheKey: `${topMission.id}:${new Date().toISOString().slice(0, 10)}` },
+        { cacheKey: `${topMission.id}:${await this.clock.dayKey(userId)}` },
       );
     }
 
@@ -130,8 +132,3 @@ export class DashboardService {
   }
 }
 
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
