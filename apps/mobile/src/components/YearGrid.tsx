@@ -272,10 +272,20 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
    * table rather than a picture of a life.
    */
   const isThisYear = data.year === new Date().getUTCFullYear();
-  const [mode, setMode] = useState<'month' | 'year'>(isThisYear ? 'month' : 'year');
-  // Opening the current year lands on the month you are living in. Opening 2009
-  // lands on the whole of 2009 — there is no "this month" in a year you are
-  // visiting, and what you came for is its shape.
+  /**
+   * The year opens first, always.
+   *
+   * You arrive here by tapping a year in the life grid, so a year is what you
+   * asked for — and the shape of a whole one is the thing this view can say
+   * that nothing else in the app can. Opening on a month answers a question
+   * nobody asked yet and hides the only picture that shows how much of a year
+   * was rest.
+   *
+   * The month is where you go once the year has told you where to look.
+   */
+  const [mode, setMode] = useState<'month' | 'year'>('year');
+  // Which month a zoom-in lands on before one is chosen. Only reached by
+  // tapping a month label, which sets it explicitly — this is the fallback.
   const [month, setMonth] = useState(isThisYear ? new Date().getUTCMonth() : 0);
 
   const [picked, setPicked] = useState<TimelineDay | null>(null);
