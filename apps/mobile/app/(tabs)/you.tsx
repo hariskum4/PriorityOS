@@ -3,6 +3,7 @@ import { View, Text, ScrollView, Pressable, RefreshControl, StyleSheet } from 'r
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { useAuth } from '@/store/auth';
 import { Button, Card, Chip, Input, Label, XpBar } from '@/components/ui';
@@ -54,6 +55,59 @@ export default function You() {
     mutationFn: (id: string) => api(`/notifications/${id}/read`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   });
+
+  /**
+   * The zone a life is measured in.
+   *
+   * Signup records the device's zone and nothing has ever changed it since, so
+   * someone who moves country keeps filing days and weeks against a zone they
+   * no longer live in — permanently, in a record meant to outlast the move.
+   *
+   * It asks rather than following the device on its own. Bucketing happens at
+   * read time from the raw timestamp, so changing this re-reads the whole past
+   * record through the new zone: a fortnight in Tokyo would silently shift days
+   * near midnight and shift them back on the way home. A move is worth one tap;
+   * a holiday should not rewrite a history.
+   */
+  const deviceZone = React.useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const [zoneDismissed, setZoneDismissed] = useState(false);
+  const setZone = useMutation({
+    mutationFn: (timezone: string) => api('/me', { method: 'PATCH', body: { timezone } }),
+    onSuccess: () => {
+      // Everything dated is read through this, so the whole record is stale.
+      qc.invalidateQueries({ queryKey: ['me'] });
+      invalidateLifeRecord(qc);
+    },
+  });
+  /**
+   * `Asia/Calcutta` and `Asia/Kolkata` are the same place — one is the
+   * deprecated alias, and both are already in this database from real signups.
+   * Comparing the strings would offer to "move" someone who has not moved.
+   */
+  const sameZone = (a?: string | null, b?: string | null) => {
+    if (!a || !b) return true;
+    if (a === b) return true;
+    try {
+      const at = new Date();
+      const fmt = (z: string) =>
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: z, year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', hour12: false,
+        }).format(at);
+      return fmt(a) === fmt(b);
+    } catch {
+      // An unrecognised zone is not evidence of a move.
+      return true;
+    }
+  };
+  const zoneMoved = !!me?.timezone && !!deviceZone
+    && !sameZone(me.timezone, deviceZone) && !zoneDismissed;
 
   const { data: partners } = useQuery({ queryKey: ['partners'], queryFn: () => api<any>('/partners') });
   const [inviteEmail, setInviteEmail] = useState('');
@@ -198,6 +252,40 @@ export default function You() {
             );
           })}
         </View>
+      </Card>
+
+      {/* Which calendar this life is filed against. Quiet unless it disagrees
+          with the device, because for almost everyone it never will. */}
+      <Card style={{ gap: space(3) }}>
+        <Label>Your days</Label>
+        <Text style={type.body}>
+          Measured in <Text style={{ color: colors.amber }}>{me?.timezone ?? 'UTC'}</Text>
+        </Text>
+        {zoneMoved ? (
+          <>
+            <Text style={type.faint}>
+              This device says {deviceZone}. If you have moved, updating this files your days
+              and weeks against where you actually live. Your past record is re-read through
+              the new zone, so a day logged near midnight can shift by one.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: space(2) }}>
+              <View style={{ flex: 1 }}>
+                <Button
+                  title={setZone.isPending ? 'Updating…' : `Use ${deviceZone}`}
+                  small
+                  onPress={() => setZone.mutate(deviceZone!)}
+                  disabled={setZone.isPending}
+                />
+              </View>
+              <Button title="Keep it" small kind="ghost" onPress={() => setZoneDismissed(true)} />
+            </View>
+          </>
+        ) : (
+          <Text style={type.faint}>
+            A day starts at midnight where you are, not where the server is. Priority asks
+            before changing this — travelling is not moving.
+          </Text>
+        )}
       </Card>
 
       {/* Accountability partner — the shared-life moat */}
