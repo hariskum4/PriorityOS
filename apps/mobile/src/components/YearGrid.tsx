@@ -20,6 +20,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { Button } from './ui';
 import { colors, type, space, domainColor, alpha } from '../theme';
 
 export interface TimelineDay {
@@ -251,7 +252,29 @@ function YearHeat({ days, width, picked, litColour, onPick, onMonth }: {
   );
 }
 
-export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: () => void }) {
+export function YearGrid({
+  year, data, years, onYear, onClose, offline, failed, onRetry,
+}: {
+  year: number;
+  /**
+   * Null while this year is still on its way.
+   *
+   * The shell owns the loading and error states rather than the tab, because
+   * the tab could only express them by swapping this whole component out for a
+   * different card — which unmounted it, and took the filter, the zoom and the
+   * open day with it. Stepping from 2026 to 2025 would silently clear a filter
+   * you set two taps ago. Now the year changes underneath a header that stays
+   * put, the way a calendar's does.
+   */
+  data: TimelineYearData | null;
+  /** Years that hold something, ascending — the ones worth stepping to. */
+  years: number[];
+  onYear: (y: number) => void;
+  onClose?: () => void;
+  offline?: boolean;
+  failed?: boolean;
+  onRetry?: () => void;
+}) {
   /**
    * Two zooms, because they answer different questions.
    *
@@ -271,7 +294,7 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
    * but no vertical or diagonal pattern meant anything, so it read as a lookup
    * table rather than a picture of a life.
    */
-  const isThisYear = data.year === new Date().getUTCFullYear();
+  const isThisYear = year === new Date().getUTCFullYear();
   /**
    * The year opens first, always.
    *
@@ -301,12 +324,49 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
 
   const [gridWidth, setGridWidth] = useState(0);
 
+  /**
+   * A picked day belongs to a year. When the year changes underneath it — the
+   * point of the arrows — it is gone, and it has to go during this render:
+   * clearing it in an effect would paint one frame of a January 2026 day
+   * sitting under the heading "2025".
+   *
+   * `focus` and the zoom deliberately survive. "Show me family" is a question
+   * about a life, not about a year, and carrying it across is the reason this
+   * component stays mounted at all.
+   */
+  const [shownYear, setShownYear] = useState(year);
+  if (shownYear !== year) {
+    setShownYear(year);
+    setPicked(null);
+  }
+
+  const days = data?.days ?? [];
+
   /** Every day of the year, by date, for direct lookup. */
   const byDate = useMemo(() => {
     const m = new Map<string, TimelineDay>();
-    for (const d of data.days) m.set(d.date, d);
+    for (const d of days) m.set(d.date, d);
     return m;
-  }, [data.days]);
+  }, [days]);
+
+  /**
+   * The neighbouring year that holds something, in a direction.
+   *
+   * Years are stepped the way days are: to the next one that holds something,
+   * not to the next one on the calendar. Someone who started this year and
+   * kept two memories from childhood has three years on record and thirty
+   * empty ones between them; arrows that walked every year in between would be
+   * a scroll bar through nothing.
+   */
+  const yearAt = (delta: number): number | null => {
+    const i = years.indexOf(year);
+    if (i >= 0) return years[i + delta] ?? null;
+    // An empty year, opened straight from the life grid. Step out of it to the
+    // nearest year on either side that has anything to show.
+    return delta > 0
+      ? years.find((y) => y > year) ?? null
+      : [...years].reverse().find((y) => y < year) ?? null;
+  };
 
   /**
    * The days worth stepping through, in order — filtered, and across the whole
@@ -315,8 +375,8 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
    * outside the open month brings the month with it.
    */
   const walk = useMemo(
-    () => data.days.filter((d) => (focus ? (d.byDomain[focus] ?? 0) > 0 : d.total > 0)),
-    [data.days, focus],
+    () => days.filter((d) => (focus ? (d.byDomain[focus] ?? 0) > 0 : d.total > 0)),
+    [days, focus],
   );
   const walkIndex = picked ? walk.findIndex((d) => d.date === picked.date) : -1;
 
@@ -340,17 +400,53 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
   const canBack = !!target(-1);
   const canFwd = !!target(1);
 
-  const present = Object.entries(data.byDomain).sort((a, b) => b[1] - a[1]);
+  /**
+   * The header's arrows step whatever the heading names — months when a month
+   * is open, years when the year is. One control per state, the way a calendar
+   * works: a second pair that always stepped years would put four arrows in a
+   * header, two of them doing nothing you can see.
+   *
+   * Stepping off the end of December is what a year boundary is for, so it
+   * carries into January of the next year on record rather than stopping.
+   */
+  const headBack = mode === 'month' ? month > 0 || yearAt(-1) != null : yearAt(-1) != null;
+  const headFwd = mode === 'month' ? month < 11 || yearAt(1) != null : yearAt(1) != null;
+  const headStep = (delta: number) => {
+    if (mode === 'year') {
+      const y = yearAt(delta);
+      if (y != null) onYear(y);
+      return;
+    }
+    const next = month + delta;
+    if (next >= 0 && next <= 11) { setMonth(next); return; }
+    const y = yearAt(delta);
+    if (y == null) return;
+    setMonth(next < 0 ? 11 : 0);
+    onYear(y);
+  };
+
+  /**
+   * The year's domains, plus whichever one is filtered.
+   *
+   * A filter carried in from another year can find nothing here. It stays in
+   * the row at zero, because a control that disappears while its own state is
+   * still switched on leaves no way back to everything.
+   */
+  const present = useMemo(() => {
+    const list = Object.entries(data?.byDomain ?? {}).sort((a, b) => b[1] - a[1]);
+    if (focus && !list.some(([d]) => d === focus)) list.push([focus, 0]);
+    return list;
+  }, [data?.byDomain, focus]);
 
   /** Days in the open month holding the focused domain — what is on screen. */
   const monthFocusDays = useMemo(() => {
     if (!focus) return 0;
-    const prefix = `${data.year}-${String(month + 1).padStart(2, '0')}-`;
-    return data.days.filter((d) => d.date.startsWith(prefix) && (d.byDomain[focus] ?? 0) > 0).length;
-  }, [data.days, data.year, month, focus]);
+    const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+    return days.filter((d) => d.date.startsWith(prefix) && (d.byDomain[focus] ?? 0) > 0).length;
+  }, [days, year, month, focus]);
 
   /** Everything recorded on the open day, and the part of it in focus. */
-  const daySample = (picked && data.sample[picked.date]) || [];
+  const daySample = (picked && data?.sample[picked.date]) || [];
   const dayActs = focus ? daySample.filter((a) => a.domain === focus) : daySample;
   const focusTotal = (focus && picked && (picked.byDomain[focus] ?? 0)) || 0;
 
@@ -367,37 +463,53 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
           {/* The title is the zoom control, the way a calendar's is — no
               segmented control, no extra chrome to hold a state the heading
               can hold by itself. */}
-          {mode === 'month' ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Pressable onPress={() => setMode('year')} hitSlop={8}>
-                <Text style={s.year}>{MONTHS_LONG[month]} {data.year}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {mode === 'month' ? (
+              /* Set smaller than the year. "September 2026" beside two arrows
+                 and Close does not fit a 375pt phone at the year's size, and
+                 the fix is not to truncate it — a heading that reads
+                 "September…" has lost the only word the arrows can change. It
+                 is also the right hierarchy: the year is the headline, the
+                 month is where you are inside it. */
+              <Pressable onPress={() => setMode('year')} hitSlop={8} style={{ flexShrink: 1 }}>
+                <Text style={[s.year, s.monthTitle]} numberOfLines={1}>{MONTHS_LONG[month]} {year}</Text>
               </Pressable>
-              <Pressable
-                onPress={() => setMonth((m) => Math.max(0, m - 1))}
-                disabled={month === 0}
-                hitSlop={10}
-                style={({ pressed }) => [s.stepper, month === 0 && { opacity: 0.25 }, pressed && { opacity: 0.5 }]}
-              >
-                <Text style={s.stepperGlyph}>‹</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setMonth((m) => Math.min(11, m + 1))}
-                disabled={month === 11}
-                hitSlop={10}
-                style={({ pressed }) => [s.stepper, month === 11 && { opacity: 0.25 }, pressed && { opacity: 0.5 }]}
-              >
-                <Text style={s.stepperGlyph}>›</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <Text style={s.year}>{data.year}</Text>
-          )}
+            ) : (
+              <Text style={s.year}>{year}</Text>
+            )}
+            <Pressable
+              onPress={() => headStep(-1)}
+              disabled={!headBack}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={mode === 'month' ? 'Previous month' : 'Previous year'}
+              style={({ pressed }) => [s.stepper, !headBack && { opacity: 0.25 }, pressed && { opacity: 0.5 }]}
+            >
+              <Text style={s.stepperGlyph}>‹</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => headStep(1)}
+              disabled={!headFwd}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={mode === 'month' ? 'Next month' : 'Next year'}
+              style={({ pressed }) => [s.stepper, !headFwd && { opacity: 0.25 }, pressed && { opacity: 0.5 }]}
+            >
+              <Text style={s.stepperGlyph}>›</Text>
+            </Pressable>
+          </View>
 
           {/* A filtered month can show three lit days and read as an empty
               month. Scoping the sentence to what is actually on screen is the
               whole cost of letting the filter survive the zoom, so it is paid
               here rather than left for the person to work out. */}
-          {focus ? (
+          {!data ? (
+            /* Only while it is genuinely still coming. A year that has failed
+               says so once, in the body — a subheading reading "Reading that
+               year…" above "That year would not load" is the app arguing with
+               itself. */
+            offline || failed ? null : <Text style={type.faint}>Reading that year…</Text>
+          ) : focus ? (
             <Text style={type.faint}>
               {mode === 'month'
                 ? `${monthFocusDays} ${focus} day${monthFocusDays === 1 ? '' : 's'} in ${MONTHS_LONG[month]} · ${data.byDomain[focus] ?? 0} this year`
@@ -418,10 +530,33 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
         ) : null}
       </View>
 
+      {/**
+        * Waiting, and failing, are states of this view — not replacements for
+        * it. Loading is deliberately silent: the heading above already says
+        * "Reading that year…", and a spinner in a box that is about to be full
+        * of days is one more thing moving on a screen about a settled past.
+        */}
+      {!data ? (
+        <View style={{ marginTop: space(4), gap: space(3) }}>
+          {offline || failed ? (
+            <>
+              <Text style={type.body}>
+                {offline
+                  ? 'This year lives on the server, and you are offline right now. It will open the moment you are back.'
+                  : 'That year would not load. Nothing is lost — the days are still recorded.'}
+              </Text>
+              {onRetry ? <Button title="Try again" small kind="ghost" onPress={onRetry} /> : null}
+            </>
+          ) : (
+            <View style={{ height: 84 }} />
+          )}
+        </View>
+      ) : (
+        <>
       <View style={{ marginTop: space(3) }} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
         {mode === 'month' ? (
           <MonthGrid
-            year={data.year}
+            year={year}
             month={month}
             byDate={byDate}
             width={gridWidth}
@@ -598,7 +733,8 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
           much you did. Tap one to see what it was.
         </Text>
       )}
-
+        </>
+      )}
     </View>
   );
 }
@@ -617,6 +753,7 @@ const s = StyleSheet.create({
     fontFamily: type.stat.fontFamily, fontSize: 28, color: colors.text,
     letterSpacing: -0.4, fontVariant: type.stat.fontVariant,
   },
+  monthTitle: { fontSize: 21, letterSpacing: -0.2 },
   close: {
     borderWidth: 1, borderColor: colors.line, borderRadius: 999,
     paddingVertical: 5, paddingHorizontal: 12,

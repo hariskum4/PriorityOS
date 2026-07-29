@@ -135,6 +135,33 @@ export default function TimeReality() {
     retry: 1,
   });
 
+  /**
+   * The years either side of the open one, fetched before they are asked for.
+   *
+   * Stepping between years should feel like stepping between days, and a day
+   * is instant because the whole year is already in hand. Without this, every
+   * tap of the year arrows would blank the grid for a round trip — on a
+   * control people use to sweep through a life, that reads as broken. A year
+   * is one small payload, and there are only ever two neighbours.
+   */
+  const neighbourYears = React.useMemo(() => {
+    if (openYear == null) return [];
+    const years: number[] = activeYearsData?.years ?? [];
+    const before = [...years].reverse().find((y) => y < openYear);
+    const after = years.find((y) => y > openYear);
+    return [before, after].filter((y): y is number => y != null);
+  }, [openYear, activeYearsData]);
+
+  React.useEffect(() => {
+    for (const y of neighbourYears) {
+      qc.prefetchQuery({
+        queryKey: ['timeline', y],
+        queryFn: () => api<any>(`/life-os/timeline/${y}`),
+        staleTime: 60_000,
+      });
+    }
+  }, [neighbourYears, qc]);
+
   const [ageDraft, setAgeDraft] = useState('');
   const saveAge = useMutation({
     mutationFn: () =>
@@ -340,41 +367,26 @@ export default function TimeReality() {
             <Text style={type.serif}>{weeks.framingText}</Text>
           </Card>
 
-          {/* The second zoom level — a year as days, opened from the grid above. */}
+          {/**
+            * The second zoom level — a year as days, opened from the grid above.
+            *
+            * One component for every state of it, including waiting and
+            * failing. Swapping in a separate card while a year loaded meant
+            * unmounting this one, so stepping from 2026 to 2025 quietly threw
+            * away the filter, the zoom level and the open day. The shell now
+            * stays put and the year changes underneath it.
+            */}
           {openYear != null ? (
-            yearData && yearData.year === openYear ? (
-              <YearGrid data={yearData} onClose={() => setOpenYear(null)} />
-            ) : (
-              /**
-               * Loading is a state, not the only state. This used to render
-               * "Reading that year…" unconditionally, so a request that failed
-               * — or one paused because the phone is offline, which is the
-               * normal case for an offline-first app — sat there reading as if
-               * it were still working, forever. A year that will not open has
-               * to say why and offer the way back.
-               */
-              <Card style={{ gap: space(3) }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Label>{openYear}</Label>
-                  <View style={{ flex: 1 }} />
-                  <Pressable onPress={() => setOpenYear(null)} hitSlop={10}>
-                    <Text style={[type.label, { color: colors.textDim }]}>Close</Text>
-                  </Pressable>
-                </View>
-                {yearWaitingForNetwork || yearFailed ? (
-                  <>
-                    <Text style={type.body}>
-                      {yearWaitingForNetwork
-                        ? 'This year lives on the server, and you are offline right now. It will open the moment you are back.'
-                        : 'That year would not load. Nothing is lost — the days are still recorded.'}
-                    </Text>
-                    <Button title="Try again" small kind="ghost" onPress={() => refetchYear()} />
-                  </>
-                ) : (
-                  <Text style={type.dim}>Reading that year…</Text>
-                )}
-              </Card>
-            )
+            <YearGrid
+              year={openYear}
+              data={yearData && yearData.year === openYear ? yearData : null}
+              years={activeYears}
+              onYear={setOpenYear}
+              onClose={() => setOpenYear(null)}
+              offline={yearWaitingForNetwork}
+              failed={yearFailed}
+              onRetry={() => refetchYear()}
+            />
           ) : null}
 
           <Section
