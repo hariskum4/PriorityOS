@@ -14,7 +14,8 @@ import {
   estimateCostOfWaiting,
   estimateCreativeCompounding,
   suggestStacks,
-  domainsCovered,
+  shortfallsCovered,
+  domainShares,
   weeklyAllocation,
   healthspan,
   energyBudget,
@@ -32,6 +33,11 @@ import { colors, type, space, domainColor, alpha } from '@/theme';
  * onboarding facts. Everything is a planning lens: numbers move the
  * moment patterns move, and the whole tab respects insightIntensity=off.
  */
+
+/** Days a desired contact cadence stands for. Mirrors the People tab's map. */
+const CADENCE_DAYS: Record<string, number> = {
+  daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
+};
 
 function ageFromDob(dob?: string | null): number | null {
   if (!dob) return null;
@@ -105,6 +111,18 @@ export default function TimeReality() {
   const { data: insights } = useQuery({
     queryKey: ['insights'],
     queryFn: () => api<any[]>('/insights/opportunities'),
+  });
+  /**
+   * Who is actually in this life.
+   *
+   * The suggestions used to say "calling a parent" and "a friend" while the
+   * app knew their names, and had known which of them was overdue since the
+   * People tab was built. Same query key the People tab uses, so this is
+   * usually served from cache.
+   */
+  const { data: relationships } = useQuery({
+    queryKey: ['relationships'],
+    queryFn: () => api<any[]>('/relationships'),
   });
 
   /**
@@ -271,11 +289,44 @@ export default function TimeReality() {
 
   // "Fit it all in" — the synthesis layer.
   const activeDomains = (dashboard?.domains ?? []).filter((d: any) => d.importance > 0);
-  const neglected = activeDomains
-    .filter((d: any) => d.neglectRisk >= 40 || d.importance - d.attention >= 25)
-    .map((d: any) => d.domainType);
-  const stacks = suggestStacks(neglected.length ? neglected : activeDomains.map((d: any) => d.domainType), 3);
-  const stackReach = domainsCovered(stacks);
+
+  /**
+   * The people a stack can name, each with how far past their own rhythm they
+   * are. A stack that names someone should name whoever is actually waiting.
+   */
+  const stackPeople = (relationships ?? []).map((r: any) => {
+    const days = r.lastContactAt
+      ? Math.floor((Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000)
+      : null;
+    return {
+      name: r.name,
+      relationType: r.relationType,
+      daysSince: days,
+      // Never logged counts as well over — the same reading the People tab uses.
+      overdue: days === null ? 2 : days / (CADENCE_DAYS[r.desiredCallFrequency] ?? 30),
+    };
+  });
+
+  /**
+   * What each domain was promised against what it received.
+   *
+   * This replaced a raw-level test — `neglectRisk >= 40 || importance -
+   * attention >= 25` — that flagged nothing at all for a real profile whose
+   * `purpose` sat at importance 12 and attention 0. Nothing flagged meant the
+   * ranker fell back to "everything is neglected", which tied almost every
+   * suggestion and handed back the catalog in the order it was written. Shares
+   * are also the unit `lifeAlignment` uses, so the tile and the alignment score
+   * can no longer name different domains as the starving one.
+   */
+  const shares = domainShares(
+    activeDomains.map((d: any) => ({
+      domainType: d.domainType, importance: d.importance, attention: d.attention,
+    })),
+  );
+  const shortDomains = shares.filter((s) => s.shortfall > 0);
+  const stacks = suggestStacks(shares, stackPeople, 3);
+  /** What these moves would actually feed — not merely touch. */
+  const stackHelps = shortfallsCovered(stacks);
   const allocation = weeklyAllocation(
     windows.freeTime.freeHoursPerWeek,
     activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance })),
@@ -416,7 +467,11 @@ export default function TimeReality() {
             <Section
               icon="git-merge-outline"
               title="Fit it all in"
-              preview={`${stacks.length} moves · ${stackReach.length} domains`}
+              preview={
+                shortDomains.length > 0
+                  ? `${stacks.length} moves · ${stackHelps.length} of ${shortDomains.length} gaps`
+                  : `${stacks.length} moves · nothing short`
+              }
             >
               <Text style={type.dim}>
                 You can't buy separate hours for eight lives. You steal them — one hour, two domains — and you don't fire everything at once.
@@ -432,15 +487,39 @@ export default function TimeReality() {
                   <View key={st.key} style={s.windowRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                       <Text style={[type.body, { flex: 1, fontWeight: '600' }]}>{st.action}</Text>
-                      <View style={{ flexDirection: 'row', gap: 4 }}>
-                        {st.domains.map((d) => <DomainDot key={d} domain={d} size={9} />)}
+                      {/* A domain this move does not actually help is drawn
+                          faint. A full-strength dot for a domain already
+                          getting more than it was promised is the same
+                          overselling the summary line used to do. */}
+                      <View style={{ flexDirection: 'row', gap: 4, paddingTop: 5 }}>
+                        {st.domains.map((d) => (
+                          <View key={d} style={st.covers.includes(d) ? undefined : { opacity: 0.3 }}>
+                            <DomainDot domain={d} size={9} />
+                          </View>
+                        ))}
                       </View>
                     </View>
+                    {/* Why this one, in numbers the person can check against
+                        their own dashboard. A suggestion that cannot say why
+                        it is a suggestion is a slogan. */}
+                    {st.reason ? (
+                      <Text style={[type.faint, { color: domainColor(st.reasonDomain!) }]}>
+                        {st.reason}
+                      </Text>
+                    ) : null}
                     <Text style={type.faint}>{st.framing}</Text>
                   </View>
                 ))}
+                {/* Counts what these moves would feed, not what they brush
+                    past. The old line said "touch 5 of your life domains" when
+                    four of the five were already getting more attention than
+                    they were promised — true, and useless. */}
                 <Text style={[type.faint, { color: colors.green }]}>
-                  These {stacks.length} actions alone touch {stackReach.length} of your life domains.
+                  {shortDomains.length === 0
+                    ? 'Nothing is short of what you asked for right now — these are simply good uses of an hour.'
+                    : `These ${stacks.length} moves reach ${stackHelps.length} of the ${shortDomains.length} ${
+                        shortDomains.length === 1 ? 'domain' : 'domains'
+                      } getting less attention than you asked for.`}
                 </Text>
               </Card>
 

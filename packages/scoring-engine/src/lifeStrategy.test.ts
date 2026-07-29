@@ -1,36 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { suggestStacks, domainsCovered } from './timeStacking';
 import { weeklyAllocation } from './allocation';
 import { healthspan, energyBudget, costOfDelay, suggestSeason } from './lifeStrategy';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted/i;
 
-describe('time-stacking', () => {
-  it('prioritizes stacks that cover two neglected domains', () => {
-    const stacks = suggestStacks(['health', 'family'], 3);
-    expect(stacks[0].covers.length).toBe(2); // walk_call_parent covers both
-    expect(stacks[0].domains).toContain('health');
-    expect(stacks[0].domains).toContain('family');
-  });
-
-  it('every stack names a concrete action and serves 2+ domains', () => {
-    const stacks = suggestStacks(['growth'], 5);
-    for (const st of stacks) {
-      expect(st.action.length).toBeGreaterThan(8);
-      expect(st.domains.length).toBeGreaterThanOrEqual(2);
-    }
-  });
-
-  it('falls back to broadly useful stacks when nothing is neglected', () => {
-    const stacks = suggestStacks([], 3);
-    expect(stacks.length).toBe(3);
-  });
-
-  it('domainsCovered reports the full reach of a set of stacks', () => {
-    const stacks = suggestStacks(['health', 'family', 'growth'], 2);
-    expect(domainsCovered(stacks).length).toBeGreaterThanOrEqual(2);
-  });
-});
+// Time-stacking moved to its own suite when its ranking was rewritten to work
+// in share points — see timeStacking.test.ts.
 
 describe('weekly allocation', () => {
   const weights = [
