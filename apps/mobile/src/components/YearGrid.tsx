@@ -52,7 +52,6 @@ const KIND_LABEL: Record<string, string> = {
   habit: 'habit', reflection: 'wrote',
 };
 
-const WEEKDAYS = ['M', '', 'W', '', 'F', '', 'S'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** "Tuesday, 14 July 2026" — a day someone lived, not a database key. */
@@ -61,11 +60,6 @@ function longDate(ymd: string): string {
   return d.toLocaleDateString(undefined, {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
   });
-}
-
-/** Monday-first weekday index, so weeks read the way a diary does. */
-function weekdayIndex(d: Date): number {
-  return (d.getUTCDay() + 6) % 7;
 }
 
 export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: () => void }) {
@@ -120,40 +114,32 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
   const canBack = !!target(-1);
   const canFwd = !!target(1);
 
-  /** Days arranged into week columns, aligned so row 0 is always Monday. */
-  const columns = useMemo(() => {
-    const cols: Array<Array<TimelineDay | null>> = [];
-    let current: Array<TimelineDay | null> = new Array(7).fill(null);
-    let started = false;
-
+  /**
+   * Twelve rows of thirty-one, indexed by calendar position rather than by
+   * running order — so a month is a row and a date is a column, and neither
+   * has to be counted out.
+   */
+  const byMonth = useMemo(() => {
+    const grid: Array<Array<TimelineDay | null>> = Array.from({ length: 12 }, () => new Array(31).fill(null));
     for (const day of data.days) {
-      const wd = weekdayIndex(new Date(`${day.date}T00:00:00Z`));
-      // The first week of the year is usually partial; leading slots stay null.
-      if (!started) {
-        started = true;
-      } else if (wd === 0) {
-        cols.push(current);
-        current = new Array(7).fill(null);
-      }
-      current[wd] = day;
+      const mo = Number(day.date.slice(5, 7)) - 1;
+      const dd = Number(day.date.slice(8, 10)) - 1;
+      if (grid[mo]) grid[mo][dd] = day;
     }
-    if (started) cols.push(current);
-    return cols;
+    return grid;
   }, [data.days]);
 
-  /** Which column each month begins in, for the axis labels. */
-  const monthMarks = useMemo(() => {
-    const marks: Array<{ month: number; col: number }> = [];
-    columns.forEach((col, i) => {
-      const first = col.find((d) => d !== null);
-      if (!first) return;
-      const month = Number(first.date.slice(5, 7)) - 1;
-      if (!marks.length || marks[marks.length - 1].month !== month) {
-        marks.push({ month, col: i });
-      }
-    });
-    return marks;
-  }, [columns]);
+  /**
+   * Cells sized to whatever width we are given, so the year never scrolls
+   * sideways — the whole reason for the rotation. Measured rather than
+   * assumed: this sits in a card that is 560 wide on a tablet and about 320
+   * on a phone, and a fixed cell size would either overflow one or waste the
+   * other.
+   */
+  const [gridWidth, setGridWidth] = useState(0);
+  const cell = gridWidth > 0
+    ? Math.max(5, Math.min(18, (gridWidth - LABEL_W - 31 * GAP) / 31))
+    : 9;
 
   const present = Object.entries(data.byDomain)
     .sort((a, b) => b[1] - a[1]);
@@ -195,72 +181,74 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
         ) : null}
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: space(3) }}>
-        <View>
-          {/* Month axis. One full-width row with the labels placed at absolute
-              offsets — a per-column container is only 11px wide, which either
-              wraps "Jan" or ellipsizes it however you style the Text. */}
-          <View
-            style={{
-              height: 14,
-              marginLeft: 14,
-              width: columns.length * (CELL + GAP),
-            }}
-          >
-            {monthMarks.map((mark) => (
-              <Text
-                key={mark.month}
-                style={[s.axis, { position: 'absolute', left: mark.col * (CELL + GAP), top: 0 }]}
-              >
-                {MONTHS[mark.month]}
-              </Text>
-            ))}
-          </View>
+      {/*
+        A year as twelve rows of days.
 
-          <View style={{ flexDirection: 'row' }}>
-            {/* weekday axis */}
-            <View style={{ width: 14 }}>
-              {WEEKDAYS.map((w, i) => (
-                <View key={i} style={{ height: CELL + GAP, justifyContent: 'center' }}>
-                  <Text style={s.axis}>{w}</Text>
-                </View>
-              ))}
-            </View>
+        This was a contributions heatmap: week-columns, weekday-rows, and 53
+        columns of it scrolling *horizontally* inside a tab that scrolls
+        vertically. That gesture conflict was the real defect — finding a date
+        meant fighting the page, and even then July 14 had to be counted out
+        column by column rather than read.
 
-            {columns.map((col, ci) => (
-              <View key={ci}>
-                {col.map((day, ri) => {
-                  if (!day) return <View key={ri} style={s.cellSpacer} />;
-                  /* With a domain in focus, a day lights only if it held that
-                     domain — and in that domain's colour, not the day's own
-                     dominant one, so the answer reads in a single hue. */
-                  const lit = focus
-                    ? (day.byDomain[focus] ?? 0) > 0
-                    : day.total > 0 && !!day.dominant;
-                  const c = lit ? domainColor(focus ?? (day.dominant as string)) : null;
-                  const isPicked = picked?.date === day.date;
-                  return (
-                    <Pressable
-                      key={ri}
-                      onPress={() => setPicked(isPicked ? null : day)}
-                      hitSlop={2}
-                      style={[
-                        s.cell,
-                        // Rest days are the faintest possible mark — present, but
-                        // never reading as an accusation.
-                        lit
-                          ? { backgroundColor: c as string, borderColor: c as string }
-                          : { borderColor: colors.lineSoft },
-                        isPicked && s.cellPicked,
-                      ]}
-                    />
-                  );
-                })}
-              </View>
-            ))}
-          </View>
+        Rotated, it fits any phone without scrolling at all, and a date is
+        legible again: down to the month, across to the day. What it costs is
+        weekday alignment — "I only ever call on Sundays" is no longer visible
+        in the shape. That is a real loss, taken deliberately: the day panel
+        states the weekday in words, and a grid you cannot navigate is worth
+        less than a pattern you can rarely use.
+
+        What it keeps is the point of the thing. A year is still one picture,
+        so 14 lit days out of 365 still reads as mostly empty — and a domain in
+        focus still collapses the whole year to the few days that held it.
+      */}
+      <View style={{ marginTop: space(3) }} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+        {/* Day-number ticks, placed at absolute offsets: a per-column
+            container is under twelve pixels wide and would wrap or clip. */}
+        <View style={{ height: 12, marginLeft: LABEL_W }}>
+          {[1, 5, 10, 15, 20, 25, 30].map((d) => (
+            <Text key={d} style={[s.axis, { position: 'absolute', left: (d - 1) * (cell + GAP), top: 0 }]}>
+              {d}
+            </Text>
+          ))}
         </View>
-      </ScrollView>
+
+        {byMonth.map((days, mo) => (
+          <View key={mo} style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={[s.axis, { width: LABEL_W }]}>{MONTHS[mo]}</Text>
+            {days.map((day, di) => {
+              // February has no 30th. An absent day is a gap, not a rest day.
+              if (!day) return <View key={di} style={{ width: cell, height: cell, marginRight: GAP }} />;
+              /* With a domain in focus, a day lights only if it held that
+                 domain — and in that domain's colour, not the day's own
+                 dominant one, so the answer reads in a single hue. */
+              const lit = focus
+                ? (day.byDomain[focus] ?? 0) > 0
+                : day.total > 0 && !!day.dominant;
+              const c = lit ? domainColor(focus ?? (day.dominant as string)) : null;
+              const isPicked = picked?.date === day.date;
+              return (
+                <Pressable
+                  key={di}
+                  onPress={() => setPicked(isPicked ? null : day)}
+                  hitSlop={{ top: 5, bottom: 5, left: 1, right: 1 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${MONTHS[mo]} ${di + 1}, ${day.total} recorded`}
+                  style={[
+                    s.cell,
+                    { width: cell, height: cell, marginRight: GAP },
+                    // Rest days are the faintest possible mark — present, but
+                    // never reading as an accusation.
+                    lit
+                      ? { backgroundColor: c as string, borderColor: c as string }
+                      : { borderColor: colors.lineSoft },
+                    isPicked && s.cellPicked,
+                  ]}
+                />
+              );
+            })}
+          </View>
+        ))}
+      </View>
 
       {/* ── the filter ─────────────────────────────────────────────
           One control, one place.
@@ -423,8 +411,9 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
   );
 }
 
-const CELL = 9;
-const GAP = 2;
+const GAP = 1.5;
+/** Width of the month gutter. */
+const LABEL_W = 26;
 
 const s = StyleSheet.create({
   wrap: {
@@ -445,10 +434,8 @@ const s = StyleSheet.create({
     color: colors.textFaint, letterSpacing: 0.5,
   },
   cell: {
-    width: CELL, height: CELL, marginBottom: GAP, marginRight: GAP,
-    borderRadius: 2, borderWidth: 1, backgroundColor: 'transparent',
+    marginBottom: GAP, borderRadius: 2, borderWidth: 1, backgroundColor: 'transparent',
   },
-  cellSpacer: { width: CELL, height: CELL, marginBottom: GAP, marginRight: GAP },
   cellPicked: {
     borderColor: colors.text, borderWidth: 1.5,
   },
