@@ -24,7 +24,7 @@ import {
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { useRefresh } from '@/hooks/useRefresh';
-import { Button, Card, Chip, DomainDot, Input, Label } from '@/components/ui';
+import { Button, Card, Chip, DomainDot, ErrorNote, Input, Label } from '@/components/ui';
 import { YearGrid } from '@/components/YearGrid';
 import { colors, type, space, domainColor, alpha } from '@/theme';
 
@@ -33,6 +33,16 @@ import { colors, type, space, domainColor, alpha } from '@/theme';
  * onboarding facts. Everything is a planning lens: numbers move the
  * moment patterns move, and the whole tab respects insightIntensity=off.
  */
+
+/**
+ * How long a finished stack rests before it can be suggested again.
+ *
+ * Long enough that finishing something is not immediately answered by being
+ * asked to do it again, short enough that a weekly-to-monthly rhythm comes back
+ * while it is still the right suggestion. These are habits, not errands, so the
+ * answer is a pause rather than retirement.
+ */
+const RESUGGEST_AFTER_DAYS = 14;
 
 /** Days a desired contact cadence stands for. Mirrors the People tab's map. */
 const CADENCE_DAYS: Record<string, number> = {
@@ -124,6 +134,31 @@ export default function TimeReality() {
     queryKey: ['relationships'],
     queryFn: () => api<any[]>('/relationships'),
   });
+  /**
+   * What is already planned — the same key and query the Missions tab uses.
+   *
+   * A suggestion you have already agreed to is not a suggestion. Without this
+   * the card would keep offering the thing sitting on your list, which is how
+   * a panel of advice turns into wallpaper.
+   */
+  const { data: pendingMissions } = useQuery({
+    queryKey: ['missions'],
+    queryFn: () => api<any[]>('/missions?status=pending'),
+  });
+  /**
+   * And what was finished recently, which is not the same thing.
+   *
+   * A finished stack has to be able to come back — "train with Arjun once a
+   * week" is a rhythm, not an errand, and a card that retires it forever after
+   * one go is worse than one that repeats. But it must not come back the same
+   * afternoon: caught in use, completing all of them put every one of them
+   * straight back on the card, so the reward for doing the work was being
+   * asked to do it again.
+   */
+  const { data: doneMissions } = useQuery({
+    queryKey: ['missions', 'completed'],
+    queryFn: () => api<any[]>('/missions?status=completed'),
+  });
 
   /**
    * The year drill-down.
@@ -179,6 +214,45 @@ export default function TimeReality() {
       });
     }
   }, [neighbourYears, qc]);
+
+  /**
+   * Agreeing to a stolen hour.
+   *
+   * These were text. You could read that walking while calling your father
+   * serves two parts of your life and there was nothing to press — so it never
+   * entered the record, never earned anything, and the same three lines were
+   * still there next month. Logging it puts it on the Missions list, which is
+   * what feeds the timeline, which is what the year grid draws.
+   *
+   * The confirmation is the list itself: the moment one is logged it drops out
+   * of the suggestions and a fourth takes its place.
+   */
+  const [justPlanned, setJustPlanned] = useState<string | null>(null);
+  const planStack = useMutation({
+    mutationFn: (st: any) =>
+      api('/missions', {
+        method: 'POST',
+        body: {
+          title: st.action,
+          description: st.framing,
+          // A mission belongs to one domain, so it belongs to the one the
+          // suggestion argued from — the hungriest thing it feeds.
+          domainType: st.reasonDomain ?? st.covers[0] ?? st.domains[0],
+          missionType: st.personId ? 'relationship' : 'one_time',
+          relationshipId: st.personId ?? null,
+          // Stacking is the whole thesis of this card, so an action that
+          // genuinely serves three parts of a life is worth more than one that
+          // serves two. Nothing here is worth more for being harder.
+          xpReward: 20 * st.domains.length,
+          sourceType: 'system',
+        },
+      }),
+    onSuccess: (_res, st: any) => {
+      setJustPlanned(st.action);
+      qc.invalidateQueries({ queryKey: ['missions'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
 
   const [ageDraft, setAgeDraft] = useState('');
   const saveAge = useMutation({
@@ -299,6 +373,7 @@ export default function TimeReality() {
       ? Math.floor((Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000)
       : null;
     return {
+      id: r.id,
       name: r.name,
       relationType: r.relationType,
       daysSince: days,
@@ -324,7 +399,15 @@ export default function TimeReality() {
     })),
   );
   const shortDomains = shares.filter((s) => s.shortfall > 0);
-  const stacks = suggestStacks(shares, stackPeople, 3);
+  const stacks = suggestStacks(shares, stackPeople, 3, [
+    ...(pendingMissions ?? []).map((m: any) => m.title),
+    ...(doneMissions ?? [])
+      .filter((m: any) => {
+        if (!m.completedAt) return false;
+        return Date.now() - new Date(m.completedAt).getTime() < RESUGGEST_AFTER_DAYS * 86_400_000;
+      })
+      .map((m: any) => m.title),
+  ]);
   /** What these moves would actually feed — not merely touch. */
   const stackHelps = shortfallsCovered(stacks);
   const allocation = weeklyAllocation(
@@ -474,14 +557,15 @@ export default function TimeReality() {
               }
             >
               <Text style={type.dim}>
-                You can't buy separate hours for eight lives. You steal them — one hour, two domains — and you don't fire everything at once.
+                You can't buy separate hours for eight lives. You steal them — one hour serving
+                two or three parts at once — and you don't fire everything at the same time.
               </Text>
 
               {/* 1. Time-stacking */}
               <Card style={{ gap: space(3) }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Ionicons name="git-merge-outline" size={14} color={colors.textDim} />
-                  <Label>Steal the time — one action, two domains</Label>
+                  <Label>Steal the time — one action, several domains</Label>
                 </View>
                 {stacks.map((st) => (
                   <View key={st.key} style={s.windowRow}>
@@ -507,9 +591,40 @@ export default function TimeReality() {
                         {st.reason}
                       </Text>
                     ) : null}
-                    <Text style={type.faint}>{st.framing}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space(3) }}>
+                      <Text style={[type.faint, { flex: 1 }]}>{st.framing}</Text>
+                      <Pressable
+                        onPress={() => planStack.mutate(st)}
+                        disabled={planStack.isPending}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Plan it: ${st.action}`}
+                        style={({ pressed }) => [
+                          s.planChip,
+                          planStack.isPending && { opacity: 0.5 },
+                          pressed && { backgroundColor: colors.surfaceRaised, transform: [{ scale: 0.96 }] },
+                        ]}
+                      >
+                        <Ionicons name="add" size={14} color={colors.amber} />
+                        <Text style={{ color: colors.amber, fontWeight: '600', fontSize: 12.5 }}>Plan it</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 ))}
+
+                {/* Said once, plainly. The real confirmation is that the row
+                    above is gone and a new one has taken its place. */}
+                {justPlanned && !stacks.some((st) => st.action === justPlanned) ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                    <Ionicons name="checkmark-circle" size={15} color={colors.green} style={{ marginTop: 1 }} />
+                    <Text style={[type.faint, { flex: 1, color: colors.green }]}>
+                      “{justPlanned}” is on your missions.
+                    </Text>
+                  </View>
+                ) : null}
+                {planStack.isError ? (
+                  <ErrorNote error={planStack.error} onRetry={() => planStack.reset()} />
+                ) : null}
                 {/* Counts what these moves would feed, not what they brush
                     past. The old line said "touch 5 of your life domains" when
                     four of the five were already getting more attention than
@@ -863,6 +978,13 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: space(3), paddingHorizontal: space(2),
     borderBottomWidth: 1, borderBottomColor: colors.lineSoft,
+  },
+  /* Small and quiet. The action is the thing to read; this is the thing to
+     press once you have decided, so it should not compete with it. */
+  planChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderWidth: 1, borderColor: alpha(colors.amber, 0.35), borderRadius: 999,
+    paddingVertical: 5, paddingHorizontal: 10,
   },
   windowRow: {
     gap: 4, borderTopWidth: 1, borderTopColor: colors.lineSoft, paddingTop: space(2),

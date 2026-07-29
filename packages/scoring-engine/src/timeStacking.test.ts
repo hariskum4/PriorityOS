@@ -4,6 +4,9 @@ import { domainShares } from './alignment';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted/i;
 
+/** "Give me the whole catalog" — comfortably past however long it grows. */
+const ALL = 100;
+
 /** A share table straight from `domainShares`, so the tests use the real currency. */
 const shares = (rows: Array<[string, number, number]>) =>
   domainShares(rows.map(([domainType, importance, attention]) => ({ domainType, importance, attention })));
@@ -39,7 +42,7 @@ describe('time-stacking', () => {
     const worth = top.domains.reduce((s, d) => s + Math.max(0, gap(d)), 0);
 
     for (const other of ['walk_call_parent', 'weekend_trip_family', 'volunteer_family']) {
-      const alt = suggestStacks(REAL_LIFE, PEOPLE, 20).find((s) => s.key === other)!;
+      const alt = suggestStacks(REAL_LIFE, PEOPLE, ALL).find((s) => s.key === other)!;
       expect(worth).toBeGreaterThan(alt.domains.reduce((s, d) => s + Math.max(0, gap(d)), 0));
     }
   });
@@ -68,14 +71,14 @@ describe('time-stacking', () => {
   it('does not describe a life the person has told us they do not have', () => {
     // Five people on record and no child: naming one is not a suggestion.
     const withoutChild = PEOPLE.filter((p) => p.relationType !== 'child');
-    const keys = suggestStacks(REAL_LIFE, withoutChild, 20).map((s) => s.key);
+    const keys = suggestStacks(REAL_LIFE, withoutChild, ALL).map((s) => s.key);
     expect(keys).not.toContain('cook_with_kid');
     expect(keys).not.toContain('creative_with_kid');
   });
 
   it('keeps the generic wording when nobody has been recorded at all', () => {
     // Unknown is not the same as childless — a new account still gets the idea.
-    const fresh = suggestStacks(REAL_LIFE, [], 20);
+    const fresh = suggestStacks(REAL_LIFE, [], ALL);
     const parent = fresh.find((s) => s.key === 'walk_call_parent')!;
     expect(parent.action).toBe('Take your walk while calling a parent');
     expect(parent.person).toBeNull();
@@ -83,14 +86,14 @@ describe('time-stacking', () => {
   });
 
   it('names the person in that role who is most overdue', () => {
-    const parent = suggestStacks(REAL_LIFE, PEOPLE, 20).find((s) => s.key === 'walk_call_parent')!;
+    const parent = suggestStacks(REAL_LIFE, PEOPLE, ALL).find((s) => s.key === 'walk_call_parent')!;
     expect(parent.action).toBe('Take your walk while calling Appa'); // 1.3 cadences over, vs Amma at 0.1
     expect(parent.person).toBe('Appa');
   });
 
   it('no action is left holding an unfilled slot', () => {
     for (const people of [PEOPLE, []]) {
-      for (const st of suggestStacks(REAL_LIFE, people, 20)) {
+      for (const st of suggestStacks(REAL_LIFE, people, ALL)) {
         expect(st.action).not.toContain('{who}');
         expect(st.action.length).toBeGreaterThan(8);
         expect(st.domains.length).toBeGreaterThanOrEqual(2);
@@ -107,7 +110,7 @@ describe('time-stacking', () => {
   it('names the domain each reason argues from, so it can be coloured after it', () => {
     // reasonDomain is not always covers[0]: the reason speaks to whatever is
     // still hungriest, and covers is in the stack's own order.
-    for (const st of suggestStacks(REAL_LIFE, PEOPLE, 20)) {
+    for (const st of suggestStacks(REAL_LIFE, PEOPLE, ALL)) {
       if (!st.reason) { expect(st.reasonDomain).toBeNull(); continue; }
       expect(st.covers).toContain(st.reasonDomain!);
       expect(st.reason.startsWith(st.reasonDomain!)).toBe(true);
@@ -124,17 +127,42 @@ describe('time-stacking', () => {
   });
 
   it('mentions someone by name in the reason only when they are actually waiting', () => {
+    const waiting: StackPerson[] = [{ name: 'Arjun', relationType: 'friend', daysSince: 40, overdue: 1.4 }];
     const punctual = PEOPLE.map((p) => ({ ...p, overdue: 0.2 }));
-    const withNames = suggestStacks(REAL_LIFE, PEOPLE, 20);
-    const withoutNames = suggestStacks(REAL_LIFE, punctual, 20);
-    const named = (list: typeof withNames) =>
-      list.filter((s) => s.person && s.reason.includes(s.person)).length;
-    expect(named(withNames)).toBeGreaterThan(0);
-    expect(named(withoutNames)).toBe(0);
+    const named = (people: StackPerson[]) =>
+      suggestStacks(REAL_LIFE, people, ALL).filter((s) => s.person && s.reason.includes(s.person)).length;
+    expect(named([{ ...waiting[0], overdue: 3 }])).toBeGreaterThan(0);
+    expect(named(punctual)).toBe(0);
+  });
+
+  it('does not call someone overdue the morning after you spoke to them', () => {
+    // A daily cadence makes a person "due" one day later. Telling someone it
+    // has been a day since they talked to their partner is a reproach for a
+    // lapse that has not happened — the same trap `since()` needed a floor for.
+    const daily: StackPerson[] = [{ name: 'Priya', relationType: 'spouse', daysSince: 1, overdue: 1 }];
+    for (const st of suggestStacks(REAL_LIFE, daily, ALL)) {
+      expect(st.reason).not.toContain('Priya');
+    }
+  });
+
+  it('never counts days ungrammatically, at any gap it will mention', () => {
+    // The floor means the smallest gap it can name is three days, so "1 days"
+    // is unreachable rather than merely absent — the singular branch stays for
+    // whenever that floor is tuned.
+    for (const daysSince of [1, 2, 3, 4, 30, 400]) {
+      const reasons = suggestStacks(
+        REAL_LIFE,
+        [{ name: 'Arjun', relationType: 'friend', daysSince, overdue: 9 }],
+        ALL,
+      ).map((s) => s.reason).join(' ');
+      expect(reasons).not.toMatch(/\b1 days\b/);
+      if (daysSince < 3) expect(reasons).not.toContain('since you and Arjun');
+      else expect(reasons).toContain(`${daysSince} days since you and Arjun`);
+    }
   });
 
   it('covers only the domains that are actually short', () => {
-    for (const st of suggestStacks(REAL_LIFE, PEOPLE, 20)) {
+    for (const st of suggestStacks(REAL_LIFE, PEOPLE, ALL)) {
       for (const d of st.covers) {
         expect(REAL_LIFE.find((s) => s.domainType === d)!.shortfall).toBeGreaterThan(0);
       }
@@ -172,22 +200,88 @@ describe('time-stacking', () => {
   });
 
   it('never returns the same stack twice', () => {
-    const keys = suggestStacks(REAL_LIFE, PEOPLE, 20).map((s) => s.key);
+    const keys = suggestStacks(REAL_LIFE, PEOPLE, ALL).map((s) => s.key);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('can serve the domains that actually starve', () => {
-    // The catalog ran five deep on health and one deep on purpose, friends,
-    // career and finance — and the only purpose entry required having a child.
-    for (const domain of ['purpose', 'friends', 'career', 'finance']) {
-      const starved = shares([[domain, 90, 0], ['health', 10, 100]]);
-      const picks = suggestStacks(starved, PEOPLE.filter((p) => p.relationType !== 'child'), 2);
-      expect(picks.some((s) => s.covers.includes(domain))).toBe(true);
+  /**
+   * The twelve domains the product actually has. Held here rather than in the
+   * engine because this is an assertion about the catalog, not a thing the
+   * catalog should be able to redefine: if a domain is added to the app and no
+   * stack can reach it, this test is where that shows up.
+   */
+  const EVERY_DOMAIN = [
+    'family', 'partner', 'children', 'friends', 'health', 'career',
+    'finance', 'growth', 'experiences', 'reflection', 'purpose', 'impact',
+  ];
+
+  it.each(EVERY_DOMAIN)('can steal time for %s', (domain) => {
+    // Every domain must be reachable — a life-management tool that has no idea
+    // how to serve a whole part of a life is silent exactly when it matters.
+    const starved = shares([[domain, 90, 0], ['health', 10, 100]]);
+    const picks = suggestStacks(starved, PEOPLE, 2);
+    expect(picks.some((s) => s.covers.includes(domain))).toBe(true);
+  });
+
+  it('offers stacks that reach past two domains', () => {
+    // An afternoon outdoors with the family is health and family and a memory;
+    // capping the idea at two undersells the hour it costs.
+    const all = suggestStacks(REAL_LIFE, PEOPLE, ALL);
+    expect(all.some((s) => s.domains.length >= 3)).toBe(true);
+  });
+
+  it('drops what is already on the list, and fills the gap', () => {
+    const first = suggestStacks(REAL_LIFE, PEOPLE, 3);
+    const after = suggestStacks(REAL_LIFE, PEOPLE, 3, [first[0].action]);
+
+    expect(after.map((s) => s.action)).not.toContain(first[0].action);
+    // The slot refills rather than the card shrinking to two.
+    expect(after).toHaveLength(3);
+    expect(after.some((s) => !first.map((f) => f.key).includes(s.key))).toBe(true);
+  });
+
+  it('re-plans around what was taken rather than shuffling up', () => {
+    // Not simply first[1..3]: the decay that keeps three picks from crowding
+    // one domain depends on which stacks were chosen, so removing the top pick
+    // changes what the second and third *should* be. Agreeing to a finance
+    // move is a reason to stop leading with finance.
+    const first = suggestStacks(REAL_LIFE, PEOPLE, 4);
+    const after = suggestStacks(REAL_LIFE, PEOPLE, 3, [first[0].action]);
+    expect(after.map((s) => s.key)).not.toEqual(first.slice(1, 4).map((s) => s.key));
+  });
+
+  it('keeps going as more gets planned, without repeating itself', () => {
+    // Log one, get a new one, log that one too — for as long as the catalog
+    // holds out. The card should never run dry after a couple of accepts.
+    const planned: string[] = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < 8; i++) {
+      const [next] = suggestStacks(REAL_LIFE, PEOPLE, 1, planned);
+      expect(next).toBeDefined();
+      expect(seen.has(next.key)).toBe(false);
+      seen.add(next.key);
+      planned.push(next.action);
+    }
+  });
+
+  it('matches an excluded action however it was written down', () => {
+    const [top] = suggestStacks(REAL_LIFE, PEOPLE, 1);
+    for (const written of [top.action.toUpperCase(), `  ${top.action}  `, top.action.replace(/ /g, '  ')]) {
+      expect(suggestStacks(REAL_LIFE, PEOPLE, 3, [written]).map((s) => s.action))
+        .not.toContain(top.action);
+    }
+  });
+
+  it('hands back the id of whoever it named, so the plan can be filed under them', () => {
+    const withIds = PEOPLE.map((p, i) => ({ ...p, id: `person-${i}` }));
+    for (const st of suggestStacks(REAL_LIFE, withIds, ALL)) {
+      if (st.person) expect(st.personId).toMatch(/^person-\d$/);
+      else expect(st.personId).toBeNull();
     }
   });
 
   it('keeps the copy kind', () => {
-    for (const st of suggestStacks(REAL_LIFE, PEOPLE, 20)) {
+    for (const st of suggestStacks(REAL_LIFE, PEOPLE, ALL)) {
       expect(st.action).not.toMatch(FORBIDDEN);
       expect(st.framing).not.toMatch(FORBIDDEN);
       expect(st.reason).not.toMatch(FORBIDDEN);

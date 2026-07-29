@@ -54,6 +54,8 @@ export interface Stack {
 
 /** Someone real, and how far past the rhythm they asked for. */
 export interface StackPerson {
+  /** Opaque to this module — handed back so a caller can link what it logs. */
+  id?: string;
   name: string;
   relationType: string;
   /** Days since the last contact, or null if there has never been one. */
@@ -72,6 +74,8 @@ export interface StackSuggestion {
   covers: string[];
   /** Who it names, when it names anyone. */
   person: string | null;
+  /** That person's id, so what gets logged can be filed under them. */
+  personId: string | null;
   /** Why it is on screen, in the person's own numbers. Empty if nothing is short. */
   reason: string;
   /**
@@ -108,6 +112,20 @@ const CATALOG: Stack[] = [
   { key: 'walk_meeting', action: 'Take one work call as a walking meeting', domains: ['career', 'health'], framing: 'The work still happens; your body stops paying for it.' },
   { key: 'money_date', action: 'A monthly money review with {who}', domains: ['finance', 'partner'], framing: 'Shared clarity beats separate anxiety.', role: 'partner' },
   { key: 'nature_reflect', action: 'A quiet walk outdoors, phone in your pocket', domains: ['health', 'reflection'], framing: 'The cheapest reset there is — moving and thinking.' },
+
+  /* Three at a time.
+     Nothing about stacking stops at two — an afternoon outdoors with the
+     family is health and family and a memory, and pretending it is only two of
+     those undersells the hour it costs. The pairs above are still here because
+     a pair is often the honest count; these are the cases where it is not. */
+  { key: 'family_outing', action: 'Walk somewhere new with the family, phones away', domains: ['family', 'health', 'experiences'], framing: 'One afternoon doing the work of three.' },
+  { key: 'partner_walk_month', action: 'Walk with {who} and talk through the month', domains: ['partner', 'health', 'reflection'], framing: 'The conversation you keep meaning to have, while moving.', role: 'partner' },
+  { key: 'kid_outdoors', action: 'Take {who} outdoors instead of to a screen', domains: ['children', 'health', 'experiences'], framing: 'They remember the weather, not the tablet.', role: 'child' },
+  { key: 'kid_money_choice', action: 'Let {who} help with one real money decision', domains: ['children', 'finance', 'growth'], framing: 'A lesson that lands because the money is real.', role: 'child' },
+  { key: 'volunteer_with_friend', action: 'Volunteer somewhere with {who} once a month', domains: ['impact', 'friends', 'experiences'], framing: 'Contribution, company, and a day unlike the others.', role: 'friend' },
+  { key: 'build_in_public', action: 'Publish one small piece of the thing you are building', domains: ['purpose', 'career', 'impact'], framing: 'The work stops being private, and starts being useful.' },
+  { key: 'trip_around_learning', action: 'Plan one trip around something you want to learn', domains: ['experiences', 'growth', 'purpose'], framing: 'Go somewhere to become someone, not just to be away.' },
+  { key: 'mentor_hour', action: 'Mentor someone for one hour a month', domains: ['career', 'impact', 'growth'], framing: 'You get sharper by explaining what you already know.' },
 
   /* The catalog used to run five deep on health and one deep on purpose,
      friends, career and finance — thinnest exactly where lives starve, and the
@@ -152,18 +170,44 @@ function pct(n: number): string {
  * @param needs   Every declared domain with its claimed and received share.
  * @param people  Who is actually in this life. Empty means we have not been
  *                told, which is different from being told there is nobody.
+ * @param exclude Actions already on the person's list. Something they have
+ *                agreed to do is not a suggestion any more — offering it again
+ *                is how a card becomes wallpaper. Matched on the rendered text,
+ *                which is what a caller has: the title it wrote down.
  */
 export function suggestStacks(
   needs: DomainShare[],
   people: StackPerson[] = [],
   limit = 3,
+  exclude: string[] = [],
 ): StackSuggestion[] {
   const short = new Map<string, DomainShare>();
   for (const n of needs) if (n.shortfall > 0) short.set(n.domainType, n);
   const declared = new Set(needs.map((n) => n.domainType));
 
   const knowPeople = people.length > 0;
-  const available = CATALOG.filter((st) => !st.role || !knowPeople || pickPerson(st.role, people));
+  const spoken = new Set(exclude.map(normalise));
+
+  /**
+   * Every stack this life can actually hold, with its name already filled in.
+   *
+   * The name has to be resolved before ranking rather than after: a stack is
+   * excluded by the text of the action, and the text is not known until the
+   * person is chosen.
+   */
+  const available = CATALOG
+    .filter((st) => !st.role || !knowPeople || pickPerson(st.role, people))
+    .map((st) => {
+      const person = st.role ? pickPerson(st.role, people) : null;
+      return {
+        st,
+        person,
+        action: st.role
+          ? st.action.replace('{who}', person?.name ?? ANONYMOUS[st.role])
+          : st.action,
+      };
+    })
+    .filter((entry) => !spoken.has(normalise(entry.action)));
 
   /** What each starving domain is still worth, decayed as stacks are chosen. */
   const remaining = new Map([...short].map(([k, v]) => [k, v.shortfall]));
@@ -172,26 +216,26 @@ export function suggestStacks(
   const taken = new Set<string>();
 
   while (out.length < limit) {
-    let best: Stack | null = null;
+    let best: (typeof available)[number] | null = null;
     let bestHunger = -1;
     let bestBreadth = -1;
 
-    for (const st of available) {
-      if (taken.has(st.key)) continue;
-      const hunger = st.domains.reduce((s, d) => s + (remaining.get(d) ?? 0), 0);
+    for (const entry of available) {
+      if (taken.has(entry.st.key)) continue;
+      const hunger = entry.st.domains.reduce((s, d) => s + (remaining.get(d) ?? 0), 0);
       // Breadth only ever breaks a tie. It matters in the one case where every
       // score is zero — a life with nothing short — where the useful answer is
       // the stack touching the most domains this person actually declared.
-      const breadth = st.domains.filter((d) => declared.has(d)).length;
+      const breadth = entry.st.domains.filter((d) => declared.has(d)).length;
       if (hunger > bestHunger || (hunger === bestHunger && breadth > bestBreadth)) {
-        best = st; bestHunger = hunger; bestBreadth = breadth;
+        best = entry; bestHunger = hunger; bestBreadth = breadth;
       }
     }
     if (!best) break;
 
-    taken.add(best.key);
-    const person = best.role ? pickPerson(best.role, people) : null;
-    const covers = best.domains.filter((d) => short.has(d));
+    const { st: chosen, person, action } = best;
+    taken.add(chosen.key);
+    const covers = chosen.domains.filter((d) => short.has(d));
     // Argued from what is *still* unmet, so the third row does not repeat the
     // second row's reason. A stack chosen for health after health has already
     // been fed is really on screen for the other thing it touches.
@@ -199,25 +243,29 @@ export function suggestStacks(
       .sort((a, b) => (remaining.get(b) ?? 0) - (remaining.get(a) ?? 0))[0] ?? null;
 
     out.push({
-      key: best.key,
-      action: best.role
-        ? best.action.replace('{who}', person?.name ?? ANONYMOUS[best.role])
-        : best.action,
-      framing: best.framing,
-      domains: best.domains,
+      key: chosen.key,
+      action,
+      framing: chosen.framing,
+      domains: chosen.domains,
       covers,
       person: person?.name ?? null,
+      personId: person?.id ?? null,
       reason: arguesFrom ? reasonFor(short.get(arguesFrom)!, person) : '',
       reasonDomain: arguesFrom,
     });
 
-    for (const d of best.domains) {
+    for (const d of chosen.domains) {
       const left = remaining.get(d);
       if (left !== undefined) remaining.set(d, left * ALREADY_FED);
     }
   }
 
   return out;
+}
+
+/** Loose enough that a title written down yesterday still matches today. */
+function normalise(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 /**
@@ -230,13 +278,26 @@ export function suggestStacks(
  */
 function reasonFor(worst: DomainShare, person: StackPerson | null): string {
   const base = `${worst.domainType} is getting ${pct(worst.received)} of your attention — you asked for ${pct(worst.claimed)}`;
-  // The person is only worth naming here when they are genuinely waiting.
-  if (person && (person.overdue ?? 0) >= 1) {
-    return person.daysSince != null
-      ? `${base}. It has been ${person.daysSince} days since you and ${person.name} spoke.`
-      : `${base}. You have not logged ${person.name} yet.`;
-  }
-  return `${base}.`;
+  if (!person || !isWaiting(person)) return `${base}.`;
+  if (person.daysSince == null) return `${base}. You have not logged ${person.name} yet.`;
+  const d = person.daysSince;
+  return `${base}. It has been ${d} ${d === 1 ? 'day' : 'days'} since you and ${person.name} spoke.`;
+}
+
+/**
+ * Whether someone is far enough past their rhythm to be worth mentioning.
+ *
+ * Two guards, because one is not enough. `overdue >= 1.5` is the same bar the
+ * People tab uses before it calls anyone overdue, so the two screens cannot
+ * disagree about who is slipping. The three-day floor exists for the daily
+ * cadences: a person you asked to speak to every day is technically "due" the
+ * morning after you spoke, and telling someone it has been one day since they
+ * talked to their partner reads as a reproach for a lapse that has not
+ * happened. The API's `since()` needed the same floor for the same reason.
+ */
+function isWaiting(person: StackPerson): boolean {
+  if ((person.overdue ?? 0) < 1.5) return false;
+  return person.daysSince == null || person.daysSince >= 3;
 }
 
 /** Total domains a set of stacks would touch. */
