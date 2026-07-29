@@ -146,8 +146,21 @@ export class LifeDocumentService {
         if (r.contactLogs.length) {
           out.push('');
           out.push('Recent contact:');
+          /**
+           * One line per actual contact.
+           *
+           * Completing the same mission on two days writes two logs with the
+           * same note, and a recurring mission does it weekly — so the raw
+           * list read as "you called Amma" three times over for one call. The
+           * day and the note together are what a person would call the same
+           * event; the rest is bookkeeping.
+           */
+          const seen = new Set<string>();
           for (const c of r.contactLogs) {
-            out.push(`- ${iso(c.occurredAt)} — ${c.kind}${c.note ? `: ${c.note}` : ''}`);
+            const line = `- ${iso(c.occurredAt)} — ${c.kind}${c.note ? `: ${c.note}` : ''}`;
+            if (seen.has(line)) continue;
+            seen.add(line);
+            out.push(line);
           }
         }
         out.push('');

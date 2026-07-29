@@ -47,4 +47,21 @@ export class GoalsService {
     }
     return this.prisma.goal.update({ where: { id }, data: patch });
   }
+
+  /**
+   * Drop a goal that was never really yours.
+   *
+   * Onboarding files a goal under whichever domain the answer suggested, and
+   * it guesses wrong often enough that "abandon" is not the same request as
+   * "this was a mistake". Missions already made from it keep their own record
+   * — they were still done — so the link is cut rather than cascading them
+   * into nothing.
+   */
+  async remove(userId: string, id: string) {
+    const goal = await this.prisma.goal.findFirst({ where: { id, userId } });
+    if (!goal) throw new NotFoundException('Goal not found');
+    await this.prisma.mission.updateMany({ where: { goalId: id }, data: { goalId: null } });
+    await this.prisma.goal.delete({ where: { id } });
+    return { deleted: true };
+  }
 }

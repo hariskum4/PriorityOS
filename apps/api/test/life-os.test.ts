@@ -110,6 +110,11 @@ describe('running a cycle', () => {
       now: new Date(NOW.getTime() + 86_400_000),
     });
 
+    // Both days must actually have said something, or "nothing repeated" is
+    // satisfied by a cycle that collapsed and proposed nothing at all.
+    expect(first.proposals.length).toBeGreaterThan(0);
+    expect(second.proposals.length).toBeGreaterThan(0);
+
     const firstIds = new Set(first.proposals.flatMap((p) => p.addresses));
     const repeated = second.proposals
       .flatMap((p) => p.addresses)
@@ -135,15 +140,20 @@ describe('Retreat', () => {
      * kernel test passed. The feature did nothing.
      */
     const before = await lifeOs.runToday(life.userId, { now: NOW, persist: false });
-    const topic = before.proposals[0]?.domain;
-    expect(topic).toBeTruthy();
+    // Not proposals[0]: decision and regret proposals carry `domain: null` by
+    // design, and a change in ranking that floated one to the top would fail
+    // this test with nothing wrong in the code it exists to protect.
+    const proposal = before.proposals.find((p) => p.domain);
+    expect(proposal).toBeTruthy();
+    const topic = proposal!.domain;
 
-    await lifeOs.dismissProposal(life.userId, before.proposals[0].id, {
+    await lifeOs.dismissProposal(life.userId, proposal!.id, {
       forever: true,
       domain: topic,
     });
 
     const after = await lifeOs.runToday(life.userId, { now: NOW, persist: false });
+    expect(after.proposals.length).toBeGreaterThan(0);
     expect(after.proposals.map((p) => p.domain)).not.toContain(topic);
   });
 
@@ -155,8 +165,9 @@ describe('Retreat', () => {
 
   it('dismissing once does not silence the topic', async () => {
     const before = await lifeOs.runToday(life.userId, { now: NOW, persist: false });
-    const topic = before.proposals[0].domain;
-    await lifeOs.dismissProposal(life.userId, before.proposals[0].id, { domain: topic });
+    const proposal = before.proposals.find((p) => p.domain);
+    expect(proposal).toBeTruthy();
+    await lifeOs.dismissProposal(life.userId, proposal!.id, { domain: proposal!.domain });
     expect(await lifeOs.declinedTopics(life.userId)).toHaveLength(0);
   });
 

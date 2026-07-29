@@ -13,7 +13,7 @@
  * Reads happen in one parallel batch, once per cycle. Writes happen only after
  * the user acts, which is why running a cycle is safe to do speculatively.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
   Domain, DOMAINS, EngineContext, EngineRegistry, CycleResult,
   runCycleWith, cycleUsedProfound,
@@ -82,25 +82,52 @@ export function normalizeDecisionOptions(raw: unknown): Array<{
 }> {
   if (!Array.isArray(raw)) return [];
 
-  return raw
-    .filter((o): o is Record<string, unknown> => !!o && typeof o === 'object')
-    .map((o, i) => {
-      const scores: Record<string, number> = {};
-      const given = o.scores;
-      if (given && typeof given === 'object') {
-        for (const [factor, value] of Object.entries(given as Record<string, unknown>)) {
-          const n = Number(value);
-          if (Number.isFinite(n)) scores[factor] = n;
-        }
+  const rows = raw.filter(
+    (o): o is Record<string, unknown> => !!o && typeof o === 'object',
+  );
+
+  // Ids the person's own data already claims. A generated fallback must not
+  // collide with one of these: two options sharing an id makes `chosenOptionId`
+  // ambiguous, and the record of what they actually chose is the whole point.
+  const taken = new Set(
+    rows.map((o) => o.id).filter((id): id is string => typeof id === 'string' && !!id),
+  );
+
+  return rows.map((o, i) => {
+    const scores: Record<string, number> = {};
+    const given = o.scores;
+    if (given && typeof given === 'object') {
+      for (const [factor, value] of Object.entries(given as Record<string, unknown>)) {
+        // Only a real number counts. `Number(null)`, `Number('')`,
+        // `Number(false)` and `Number([])` are all 0, and 0 on a cost factor
+        // inverts to 100 — the most favourable value there is — so blanket
+        // coercion would let an unanswered question decide the fork. An
+        // unrated factor must stay absent. A numeric string is still a
+        // rating someone gave, so that one is read.
+        const n =
+          typeof value === 'number' ? value
+            : typeof value === 'string' && value.trim() !== '' ? Number(value)
+              : NaN;
+        if (Number.isFinite(n)) scores[factor] = n;
       }
-      return {
-        id: typeof o.id === 'string' && o.id ? o.id : `option-${i + 1}`,
-        label: String(o.label ?? o.title ?? `Option ${i + 1}`),
-        scores,
-        ...(typeof o.isStatusQuo === 'boolean' ? { isStatusQuo: o.isStatusQuo } : {}),
-        ...(typeof o.reversible === 'boolean' ? { reversible: o.reversible } : {}),
-      };
-    });
+    }
+
+    let id = typeof o.id === 'string' && o.id ? o.id : '';
+    if (!id) {
+      let n = i + 1;
+      while (taken.has(`option-${n}`)) n++;
+      id = `option-${n}`;
+      taken.add(id);
+    }
+
+    return {
+      id,
+      label: String(o.label ?? o.title ?? `Option ${i + 1}`),
+      scores,
+      ...(typeof o.isStatusQuo === 'boolean' ? { isStatusQuo: o.isStatusQuo } : {}),
+      ...(typeof o.reversible === 'boolean' ? { reversible: o.reversible } : {}),
+    };
+  });
 }
 
 @Injectable()
@@ -752,13 +779,29 @@ export class LifeOsService {
   }
 
   createDecision(userId: string, body: any) {
+    /**
+     * Stored as the person wrote it, and normalised only on the way out.
+     *
+     * Normalising on write looked safer and was worse: anything the normaliser
+     * did not recognise — options sent as a JSON string, keyed by id, or
+     * carrying fields it does not whitelist — was silently reduced to `[]` or
+     * stripped, with a 201 handed back as if nothing had happened. Nothing
+     * updates this column afterwards, so that loss is permanent, and the person
+     * is left with a fork in their life the engine calls "genuinely close".
+     * Better to refuse a shape we cannot read than to quietly discard it.
+     */
+    const options = body.options ?? [];
+    if (!Array.isArray(options)) {
+      throw new BadRequestException(
+        'options must be an array of { label, scores } — send it as JSON, not as a string.',
+      );
+    }
+
     return this.prisma.decision.create({
       data: {
         userId,
         question: String(body.question ?? '').slice(0, 200),
-        // Normalised on the way in too, so the column cannot hold a shape
-        // the engine will choke on later.
-        options: normalizeDecisionOptions(body.options),
+        options,
         horizonYears: Number(body.horizonYears) || 5,
       },
     });

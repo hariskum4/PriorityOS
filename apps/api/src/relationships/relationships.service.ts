@@ -36,6 +36,32 @@ export class RelationshipsService {
   }
 
   /**
+   * One person, whole.
+   *
+   * The list gives a name and a number of days. This is everything else the
+   * app already knew and had nowhere to show: how you said you want to see
+   * them, every contact you logged, and the moments you kept with them in
+   * them. A relationship the product cannot open is a row in a table, not a
+   * person.
+   */
+  async detail(userId: string, id: string) {
+    const person = await this.assertOwned(userId, id);
+    const [contacts, memories] = await Promise.all([
+      this.prisma.contactLog.findMany({
+        where: { relationshipId: id },
+        orderBy: { occurredAt: 'desc' },
+        take: 40,
+      }),
+      this.prisma.memory.findMany({
+        where: { userId, relationshipId: id },
+        orderBy: { occurredAt: 'desc' },
+        take: 30,
+      }),
+    ]);
+    return { ...person, contacts, memories };
+  }
+
+  /**
    * Add someone, or fill in the person already there.
    *
    * The database now refuses a second row for the same name and relation, so

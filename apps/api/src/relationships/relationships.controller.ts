@@ -20,6 +20,12 @@ export class RelationshipsController {
     return this.rels.create(u.userId, body);
   }
 
+  /** One person with their contact history and the moments kept with them. */
+  @Get(':id')
+  detail(@CurrentUser() u: JwtUser, @Param('id') id: string) {
+    return this.rels.detail(u.userId, id);
+  }
+
   @Patch(':id')
   update(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
     return this.rels.update(u.userId, id, body);

@@ -24,6 +24,8 @@ export * from './timeArithmetic';
 export * from './timeStacking';
 export * from './allocation';
 export * from './lifeStrategy';
+export * from './alignment';
+export * from './domainLadder';
 
 // ---------------------------------------------------------------------------
 // Config

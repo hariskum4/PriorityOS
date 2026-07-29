@@ -59,8 +59,17 @@ export interface TimelineYear {
   activeDays: number;
   events: number;
   byDomain: Record<string, number>;
-  /** Sample acts per day, so a tapped square can say what it was. */
-  sample: Record<string, string[]>;
+  /**
+   * What actually happened, per day, for the tapped-day read-out.
+   *
+   * This used to be four bare strings. `DatedAct` has always carried the
+   * domain and the kind of each act and both were thrown away here — so a day
+   * holding a call to your mother, a health checkup and five quiet minutes
+   * rendered as three identical lines in whichever colour happened to
+   * dominate that day. The day is the only place the whole shape of a life is
+   * visible at once; it should say what each thing was.
+   */
+  sample: Record<string, Array<{ label: string; domain: string | null; kind: string }>>;
 }
 
 function ymd(d: Date): string {
@@ -95,6 +104,115 @@ export class LifeTimelineService {
     return totals;
   }
 
+  /**
+   * Where the domains of a life sat, week by week.
+   *
+   * The Today screen draws one frame of a film: a star per domain, positioned
+   * by how far it has drifted from what its owner said it was worth. The frame
+   * is honest and completely mute about direction — a person looking at it
+   * cannot tell whether they are climbing out or sliding in, which is the only
+   * question they actually have.
+   *
+   * These samples have been written weekly since the account existed and were
+   * read by nothing but the prediction engine. Same rows, drawn as a ghost.
+   */
+  async drift(userId: string, weeks = 12): Promise<{
+    weeks: number;
+    from: string | null;
+    series: Record<string, Array<{ weekOf: string; importance: number; attention: number }>>;
+  }> {
+    const span = Math.min(Math.max(weeks, 2), 104);
+    const since = new Date(Date.now() - span * 7 * 86_400_000);
+
+    const rows = await this.prisma.domainAttentionSample.findMany({
+      where: { userId, weekOf: { gte: since } },
+      orderBy: { weekOf: 'asc' },
+      select: { domainType: true, weekOf: true, importance: true, attention: true },
+    });
+
+    const series: Record<string, Array<{ weekOf: string; importance: number; attention: number }>> = {};
+    for (const r of rows) {
+      (series[r.domainType] ??= []).push({
+        weekOf: r.weekOf.toISOString().slice(0, 10),
+        importance: Number(r.importance),
+        attention: Number(r.attention),
+      });
+    }
+
+    return {
+      weeks: span,
+      from: rows.length ? rows[0].weekOf.toISOString().slice(0, 10) : null,
+      series,
+    };
+  }
+
+  /**
+   * What has happened since a person last looked.
+   *
+   * Opening the app gave no sense of continuity at all: the same sky, the same
+   * card, no acknowledgement that four days had passed or that anything had
+   * been done in them. A life OS that cannot say "here is what changed while
+   * you were gone" is a dashboard, not a companion.
+   */
+  async since(userId: string, since: Date): Promise<{
+    since: string;
+    days: number;
+    missionsCompleted: number;
+    momentsKept: number;
+    entriesWritten: number;
+    slipped: Array<{ name: string; days: number; wanted: string | null }>;
+  }> {
+    const [missionsCompleted, momentsKept, entriesWritten, people] = await Promise.all([
+      this.prisma.mission.count({ where: { userId, status: 'completed', completedAt: { gte: since } } }),
+      this.prisma.memory.count({ where: { userId, createdAt: { gte: since } } }),
+      this.prisma.journalEntry.count({ where: { userId, createdAt: { gte: since } } }),
+      this.prisma.relationship.findMany({
+        where: { userId },
+        select: { name: true, lastContactAt: true, desiredCallFrequency: true },
+      }),
+    ]);
+
+    /**
+     * People who crossed their own cadence while you were away — the ones who
+     * were fine last time you looked and are not now. Deliberately not "who is
+     * overdue": that list never changes and stops being read. This is the
+     * change, which is the only part that is news.
+     */
+    const CADENCE: Record<string, number> = {
+      daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
+    };
+    const now = Date.now();
+    const slipped = people
+      .filter((p) => p.lastContactAt)
+      .map((p) => {
+        /**
+         * Three days, or the cadence, whichever is longer.
+         *
+         * Someone you talk to daily crosses their cadence every single morning,
+         * so a bare `days >= target` put the same three names here every day
+         * and turned the one line meant to carry news into nagging. A day late
+         * on a daily call is not an event; three days of silence is.
+         */
+        const target = Math.max(3, CADENCE[p.desiredCallFrequency ?? 'monthly'] ?? 30);
+        const daysNow = Math.floor((now - p.lastContactAt!.getTime()) / 86_400_000);
+        const daysThen = Math.floor((since.getTime() - p.lastContactAt!.getTime()) / 86_400_000);
+        return { name: p.name, days: daysNow, wanted: p.desiredCallFrequency, target, daysThen };
+      })
+      .filter((p) => p.days >= p.target && p.daysThen < p.target)
+      .sort((a, b) => b.days - a.days)
+      .slice(0, 3)
+      .map(({ name, days, wanted }) => ({ name, days, wanted }));
+
+    return {
+      since: since.toISOString(),
+      days: Math.max(0, Math.floor((now - since.getTime()) / 86_400_000)),
+      missionsCompleted,
+      momentsKept,
+      entriesWritten,
+      slipped,
+    };
+  }
+
   async year(userId: string, year: number): Promise<TimelineYear> {
     const from = new Date(Date.UTC(year, 0, 1));
     const to = new Date(Date.UTC(year + 1, 0, 1));
@@ -115,7 +233,7 @@ export class LifeTimelineService {
     // Every day of the year, present or not — the grid is a calendar, and a
     // sparse array would silently reflow it.
     const days: TimelineDay[] = [];
-    const sample: Record<string, string[]> = {};
+    const sample: TimelineYear['sample'] = {};
     for (let d = new Date(from); d < to; d.setUTCDate(d.getUTCDate() + 1)) {
       const key = ymd(d);
       const dayActs = buckets.get(key) ?? [];
@@ -139,7 +257,16 @@ export class LifeTimelineService {
 
       days.push({ date: key, total: dayActs.length, byDomain: dayDomains, dominant, kinds });
       if (dayActs.length) {
-        sample[key] = dayActs.slice(0, 4).map((a) => a.label);
+        // The cap exists only to bound a year's payload — 365 uncapped days of
+        // a busy life is megabytes over the wire. Day totals and per-domain
+        // counts are always exact (`total`, `byDomain`), so the client can
+        // state honestly what it is not showing rather than guessing from the
+        // length of this list.
+        sample[key] = dayActs.slice(0, 24).map((a) => ({
+          label: a.label,
+          domain: a.domain,
+          kind: a.kind,
+        }));
       }
     }
 

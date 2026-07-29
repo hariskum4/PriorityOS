@@ -9,8 +9,10 @@
  * noticing.
  */
 import type { PrismaService } from '../src/prisma/prisma.service';
+import { weekOf } from '../src/life-os/life-os.service';
 
 const DAY = 86_400_000;
+const WEEKS = 16;
 
 export interface SeededLife {
   userId: string;
@@ -64,18 +66,22 @@ export async function seedLife(
 
   // Sixteen weeks of history, so the trend engines have a slope to read.
   const samples = [];
-  for (let week = 0; week < 16; week++) {
-    const weekOf = new Date(now.getTime() - week * 7 * DAY);
-    weekOf.setUTCHours(0, 0, 0, 0);
+  for (let week = 0; week < WEEKS; week++) {
+    // Monday of that week, because that is the sample's idempotency key.
+    // Anything else writes rows `snapshotWeek` can never match, and the same
+    // week quietly ends up sampled twice.
+    const monday = weekOf(new Date(now.getTime() - week * 7 * DAY));
     for (const [domainType, importance, attention] of domains) {
       samples.push({
         userId,
         domainType,
-        weekOf,
+        weekOf: monday,
         importance,
-        // Sliding downward into the present: a gap that is widening reads
-        // differently from one that has always been there.
-        attention: Math.max(0, attention - week * 0.8),
+        // `week` counts backwards, so the subtraction has to grow with age:
+        // highest fifteen weeks ago, lowest now. Sliding downward into the
+        // present — a gap that is widening reads differently from one that has
+        // always been there.
+        attention: Math.max(0, attention - (WEEKS - 1 - week) * 0.8),
       });
     }
   }

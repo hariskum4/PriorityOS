@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GamificationService } from '../gamification/gamification.service';
 
@@ -73,5 +73,37 @@ export class MemoriesService {
       memory.id,
     );
     return { ...memory, xp };
+  }
+
+  /**
+   * Correct a moment.
+   *
+   * Mostly this is a date. A memory typed today about a graduation in 2009
+   * lands on today unless the person remembers to backdate it, and getting the
+   * year wrong puts it on the wrong square of a grid meant to show their life
+   * — worth being able to fix without deleting and retyping the whole thing.
+   */
+  async update(userId: string, id: string, data: any) {
+    await this.assertOwned(userId, id);
+    const patch: Record<string, unknown> = {};
+    for (const field of ['title', 'memoryType', 'domainType', 'countKey', 'location', 'reflection', 'relationshipId']) {
+      if (data[field] !== undefined) patch[field] = data[field];
+    }
+    if (Array.isArray(data.peoplePresent)) patch.peoplePresent = data.peoplePresent;
+    if (data.occurredAt) patch.occurredAt = new Date(data.occurredAt);
+    return this.prisma.memory.update({ where: { id }, data: patch });
+  }
+
+  /** No XP is clawed back — it was true when it happened. */
+  async remove(userId: string, id: string) {
+    await this.assertOwned(userId, id);
+    await this.prisma.memory.delete({ where: { id } });
+    return { deleted: true };
+  }
+
+  private async assertOwned(userId: string, id: string) {
+    const memory = await this.prisma.memory.findFirst({ where: { id, userId } });
+    if (!memory) throw new NotFoundException('Memory not found');
+    return memory;
   }
 }

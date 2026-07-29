@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards,
+} from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { MemoriesService } from './memories.service';
@@ -30,5 +32,15 @@ export class MemoriesController {
   @Post()
   create(@CurrentUser() u: JwtUser, @Body() body: any) {
     return this.memories.create(u.userId, body ?? {});
+  }
+
+  @Patch(':id')
+  update(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
+    return this.memories.update(u.userId, id, body ?? {});
+  }
+
+  @Delete(':id')
+  remove(@CurrentUser() u: JwtUser, @Param('id') id: string) {
+    return this.memories.remove(u.userId, id);
   }
 }

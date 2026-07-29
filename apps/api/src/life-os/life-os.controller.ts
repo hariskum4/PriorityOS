@@ -125,6 +125,22 @@ export class LifeOsController {
     return { years };
   }
 
+  /** Weekly domain history — what the sky looked like before today. */
+  @Get('drift')
+  drift(@CurrentUser() u: JwtUser, @Query('weeks') weeks?: string) {
+    return this.timeline.drift(u.userId, weeks ? Number(weeks) : 12);
+  }
+
+  /** What changed while they were away. */
+  @Get('since')
+  since(@CurrentUser() u: JwtUser, @Query('at') at?: string) {
+    const parsed = at ? new Date(at) : null;
+    const valid = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+    // A first open, or a nonsense timestamp, means "since yesterday" rather
+    // than an error — this is a greeting, not a query.
+    return this.timeline.since(u.userId, valid ?? new Date(Date.now() - 86_400_000));
+  }
+
   /**
    * One year as days.
    *
