@@ -1,11 +1,19 @@
 import React from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { invalidateLifeRecord } from '@/services/invalidate';
 import { tinyStep } from '@priority/scoring-engine';
-import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
+import {
+  Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
+} from '@/components/ui';
 import { colors, type, space, domainColor, alpha } from '@/theme';
+
+const DOMAINS = [
+  'family', 'partner', 'children', 'health', 'career', 'finance',
+  'growth', 'friends', 'experiences', 'reflection', 'purpose', 'impact',
+];
 
 function completedRelative(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -16,9 +24,189 @@ function completedRelative(iso: string): string {
   return weeks === 1 ? 'a week ago' : `${weeks} weeks ago`;
 }
 
+/**
+ * The goal editor.
+ *
+ * Onboarding files a goal under whichever domain the answer hinted at, and it
+ * guesses wrong often — "open a hotel" landed under *children*, which then
+ * chose its colour, its suggested first step ("sit down where they are
+ * playing"), and which engine reads it. A misfiled goal quietly corrupts the
+ * model of the person, so correcting one has to be possible from inside the
+ * app rather than only at the moment of creation.
+ */
+function GoalForm({ goal, onClose }: { goal?: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [title, setTitle] = React.useState(goal?.title ?? '');
+  const [domainType, setDomainType] = React.useState(goal?.domainType ?? 'health');
+  const [horizon, setHorizon] = React.useState(goal?.horizon ?? '1y');
+
+  const done = () => {
+    qc.invalidateQueries({ queryKey: ['goals'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+    onClose();
+  };
+
+  const save = useMutation({
+    mutationFn: () =>
+      goal
+        ? api(`/goals/${goal.id}`, { method: 'PATCH', body: { title: title.trim(), domainType, horizon } })
+        : api('/goals', { method: 'POST', body: { title: title.trim(), domainType, horizon } }),
+    onSuccess: done,
+  });
+
+  return (
+    <Card style={{ gap: space(3) }}>
+      <Label>{goal ? 'Fix this goal' : 'What are you aiming at?'}</Label>
+      <Input
+        placeholder="Run a 10K by December"
+        value={title}
+        onChangeText={setTitle}
+        autoFocus={!goal}
+      />
+      <Text style={type.faint}>Which part of your life is this?</Text>
+      <View style={s.chipWrap}>
+        {DOMAINS.map((d) => (
+          <Pressable key={d} onPress={() => setDomainType(d)} style={[s.chip, domainType === d && s.chipOn]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <DomainDot domain={d} size={7} />
+              <Text style={[type.faint, domainType === d && { color: colors.amber, fontWeight: '700' }]}>{d}</Text>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={type.faint}>
+        This is what decides the colour, the first step it suggests, and which part of your life gets
+        the credit when you move on it.
+      </Text>
+      <View style={s.chipWrap}>
+        {(['1y', '5y'] as const).map((h) => (
+          <Pressable key={h} onPress={() => setHorizon(h)} style={[s.chip, horizon === h && s.chipOn]}>
+            <Text style={[type.faint, horizon === h && { color: colors.amber, fontWeight: '700' }]}>
+              {h === '1y' ? 'this year' : 'five years'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
+      <View style={{ flexDirection: 'row', gap: space(2) }}>
+        <View style={{ flex: 1 }}>
+          <Button
+            title={save.isPending ? 'Saving…' : goal ? 'Save' : 'Add this goal'}
+            onPress={() => save.mutate()}
+            disabled={!title.trim() || save.isPending}
+          />
+        </View>
+        <Button title="Cancel" kind="ghost" onPress={onClose} />
+      </View>
+    </Card>
+  );
+}
+
+function GoalRow({ goal, hasStep }: { goal: any; hasStep: boolean }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = React.useState(false);
+  const [step, setStep] = React.useState('');
+  const suggestion = tinyStep({ title: goal.title, domainType: goal.domainType });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['missions'] });
+    qc.invalidateQueries({ queryKey: ['goals'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+  };
+
+  const planStep = useMutation({
+    // The suggestion is the default, not decoration. It used to sit in the
+    // placeholder beside a button disabled until you typed — so the one
+    // obvious action on the screen looked available and did nothing.
+    mutationFn: () =>
+      api('/missions', {
+        method: 'POST',
+        body: {
+          title: step.trim() || suggestion,
+          domainType: goal.domainType,
+          goalId: goal.id,
+          estimatedMinutes: 15,
+          xpReward: 40,
+        },
+      }),
+    onSuccess: () => { setStep(''); invalidate(); },
+  });
+
+  const achieve = useMutation({
+    mutationFn: () => api(`/goals/${goal.id}`, { method: 'PATCH', body: { status: 'achieved' } }),
+    onSuccess: invalidate,
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api(`/goals/${goal.id}`, { method: 'DELETE' }),
+    onSuccess: invalidate,
+  });
+
+  if (editing) return <GoalForm goal={goal} onClose={() => setEditing(false)} />;
+
+  return (
+    <View style={{ gap: space(2), borderTopWidth: 1, borderTopColor: colors.lineSoft, paddingTop: space(3) }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 9 }}>
+        <View style={{ paddingTop: 6 }}><DomainDot domain={goal.domainType} /></View>
+        {/* A goal title is an identifier, not an essay. Some are stored as
+            whole paragraphs, so clamp rather than let one goal push the rest
+            of the card off-screen. */}
+        <Text style={[type.heading, { flex: 1, minWidth: 0 }]} numberOfLines={2}>
+          {goal.title}
+        </Text>
+        <View style={{ flexShrink: 0 }}>
+          <Chip label={goal.horizon === '5y' ? '5 years' : 'this year'} />
+        </View>
+        <Pressable onPress={() => setEditing(true)} hitSlop={8}>
+          <Ionicons name="create-outline" size={16} color={colors.textFaint} />
+        </Pressable>
+      </View>
+
+      {hasStep ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Ionicons name="checkmark-circle" size={15} color={colors.green} />
+          <Text style={[type.faint, { color: colors.green }]}>This week's step is in your missions.</Text>
+        </View>
+      ) : (
+        <View style={{ gap: space(2) }}>
+          <Input placeholder={suggestion} value={step} onChangeText={setStep} />
+          <ErrorNote error={planStep.error} onRetry={() => planStep.mutate()} retrying={planStep.isPending} />
+          <Button
+            title={planStep.isPending ? 'Adding…' : step.trim() ? "Make it this week's mission" : 'Use this step'}
+            small
+            kind="ghost"
+            onPress={() => planStep.mutate()}
+            disabled={planStep.isPending}
+          />
+        </View>
+      )}
+
+      <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
+        <Button
+          title={achieve.isPending ? 'Marking…' : 'Achieved'}
+          small
+          kind="ghost"
+          onPress={() => achieve.mutate()}
+          disabled={achieve.isPending}
+        />
+        <DangerConfirm
+          label="Remove"
+          confirmLabel="Yes, remove"
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate()}
+        />
+      </View>
+      <ErrorNote error={achieve.error ?? remove.error} />
+    </View>
+  );
+}
+
 export default function Missions() {
   const qc = useQueryClient();
-  const { data } = useQuery({
+  const [goalsOpen, setGoalsOpen] = React.useState(false);
+  const [adding, setAdding] = React.useState(false);
+
+  const { data, isError, refetch, isRefetching } = useQuery({
     queryKey: ['missions'],
     queryFn: () => api<any[]>('/missions?status=pending'),
   });
@@ -35,25 +223,8 @@ export default function Missions() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['missions'] });
     qc.invalidateQueries({ queryKey: ['missions-completed'] });
-    qc.invalidateQueries({ queryKey: ['dashboard'] });
+    invalidateLifeRecord(qc);
   };
-  // IKEA effect: a step the user names themselves is one they value —
-  // and complete. The app suggests; the user builds.
-  const [stepDrafts, setStepDrafts] = React.useState<Record<string, string>>({});
-  const planStep = useMutation({
-    mutationFn: (g: any) =>
-      api('/missions', {
-        method: 'POST',
-        body: {
-          title: stepDrafts[g.id]?.trim() || `First step: ${g.title}`,
-          domainType: g.domainType,
-          goalId: g.id,
-          estimatedMinutes: 15,
-          xpReward: 40,
-        },
-      }),
-    onSuccess: invalidate,
-  });
   const complete = useMutation({
     mutationFn: (id: string) => api(`/missions/${id}/complete`, { method: 'POST' }),
     onSuccess: invalidate,
@@ -62,6 +233,10 @@ export default function Missions() {
     mutationFn: (id: string) => api(`/missions/${id}/snooze`, { method: 'POST' }),
     onSuccess: invalidate,
   });
+  /** Which row is mid-flight, so only that card's buttons go quiet. */
+  const busyId = complete.isPending ? complete.variables : snooze.isPending ? snooze.variables : null;
+
+  const openGoals = (goals ?? []).filter((g) => g.status !== 'achieved' && g.status !== 'done');
 
   return (
     <FlatList
@@ -69,6 +244,9 @@ export default function Missions() {
       contentContainerStyle={s.wrap}
       data={data ?? []}
       keyExtractor={(m) => m.id}
+      refreshControl={
+        <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={colors.amber} />
+      }
       ListHeaderComponent={
         <View style={{ gap: space(3), marginBottom: space(2) }}>
           <View style={{ gap: 4 }}>
@@ -79,85 +257,101 @@ export default function Missions() {
               </Text>
             )}
           </View>
-          {goals && goals.filter((g) => g.status !== 'done').length > 0 && (
-            <Card style={{ gap: space(3) }}>
-              <Label>Your goals</Label>
-              {goals.filter((g) => g.status !== 'done').map((g) => {
-                const stepPlanned = (data ?? []).some((m) => m.goalId === g.id);
-                return (
-                  <View key={g.id} style={{ gap: space(2) }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 9 }}>
-                      <View style={{ paddingTop: 6 }}><DomainDot domain={g.domainType} /></View>
-                      {/* A goal title is an identifier, not an essay. Some are
-                          stored as whole paragraphs, so clamp rather than let
-                          one goal push the rest of the card off-screen. */}
-                      <Text style={[type.heading, { flex: 1, minWidth: 0 }]} numberOfLines={2}>
-                        {g.title}
-                      </Text>
-                      <View style={{ flexShrink: 0 }}>
-                        <Chip label={g.horizon === '5y' ? '5 years' : 'this year'} />
-                      </View>
-                    </View>
-                    {stepPlanned ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Ionicons name="checkmark-circle" size={15} color={colors.green} />
-                        <Text style={[type.faint, { color: colors.green }]}>This week's step is in your missions.</Text>
-                      </View>
-                    ) : (
-                      <View style={{ gap: space(2) }}>
-                        <Input
-                          placeholder={tinyStep({ title: g.title, domainType: g.domainType })}
-                          value={stepDrafts[g.id] ?? ''}
-                          onChangeText={(v) => setStepDrafts({ ...stepDrafts, [g.id]: v })}
-                        />
-                        <Button
-                          title="Make it this week's mission"
-                          small
-                          kind="ghost"
-                          onPress={() => planStep.mutate(g)}
-                          disabled={!(stepDrafts[g.id] ?? '').trim()}
-                        />
-                        <Text style={type.faint}>Name the tiniest step yourself — steps you write are steps you take.</Text>
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
-              <Text style={type.faint}>A goal without a scheduled step is a wish. One small step a week compounds.</Text>
-            </Card>
-          )}
+          {isError ? (
+            <ErrorNote error={new Error('Could not load your missions.')} onRetry={() => refetch()} />
+          ) : null}
+          {(complete.isError || snooze.isError) ? (
+            <ErrorNote
+              error={complete.error ?? snooze.error}
+              onRetry={() => { complete.reset(); snooze.reset(); }}
+            />
+          ) : null}
+
+          {/* Goals fold. Seven of them, each with a title, an input and a
+              button, buried the one pending mission a thousand pixels down —
+              the tab was mostly a form for things that are not today. */}
+          <View style={{ gap: goalsOpen ? space(3) : 0 }}>
+            <Pressable
+              onPress={() => setGoalsOpen((v) => !v)}
+              style={({ pressed }) => [s.sectionHead, pressed && { opacity: 0.6 }]}
+            >
+              <Ionicons name="flag-outline" size={14} color={goalsOpen ? colors.amber : colors.textDim} />
+              <Label color={goalsOpen ? colors.amber : undefined}>Your goals</Label>
+              <View style={{ flex: 1 }} />
+              {!goalsOpen ? (
+                <Text style={type.faint}>
+                  {openGoals.length} open · {openGoals.filter((g) => (data ?? []).some((m) => m.goalId === g.id)).length} with a step
+                </Text>
+              ) : null}
+              <Ionicons name={goalsOpen ? 'chevron-up' : 'chevron-down'} size={14} color={colors.textFaint} />
+            </Pressable>
+
+            {goalsOpen ? (
+              <Card style={{ gap: space(3) }}>
+                {openGoals.map((g) => (
+                  <GoalRow
+                    key={g.id}
+                    goal={g}
+                    hasStep={(data ?? []).some((m) => m.goalId === g.id)}
+                  />
+                ))}
+                {adding ? (
+                  <GoalForm onClose={() => setAdding(false)} />
+                ) : (
+                  <Pressable onPress={() => setAdding(true)} style={({ pressed }) => [s.addRow, pressed && { opacity: 0.6 }]}>
+                    <Ionicons name="add-circle-outline" size={18} color={colors.amber} />
+                    <Text style={[type.label, { color: colors.amber }]}>Add a goal</Text>
+                  </Pressable>
+                )}
+                <Text style={type.faint}>
+                  A goal without a scheduled step is a wish. One small step a week compounds.
+                </Text>
+              </Card>
+            ) : null}
+          </View>
         </View>
       }
-      renderItem={({ item: m }) => (
-        <Card style={{ gap: space(3) }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-              <DomainDot domain={m.domainType} />
-              <Text style={[type.faint, { color: domainColor(m.domainType), fontWeight: '600', textTransform: 'capitalize' }]}>
-                {m.domainType}{m.relationship ? ` · ${m.relationship.name}` : ''}
+      renderItem={({ item: m }) => {
+        const busy = busyId === m.id;
+        return (
+          <Card style={{ gap: space(3) }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <DomainDot domain={m.domainType} />
+                <Text style={[type.faint, { color: domainColor(m.domainType), fontWeight: '600', textTransform: 'capitalize' }]}>
+                  {m.domainType}{m.relationship ? ` · ${m.relationship.name}` : ''}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {m.estimatedMinutes ? <Chip label={`${m.estimatedMinutes} min`} /> : null}
+                <Chip label={`+${m.xpReward} XP`} color={colors.amber} />
+              </View>
+            </View>
+            <Text style={type.title}>{m.title}</Text>
+            {m.aiRationale && <Text style={type.dim}>{m.aiRationale}</Text>}
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+              <Ionicons name="footsteps-outline" size={13} color={colors.green} style={{ marginTop: 2 }} />
+              <Text style={[type.faint, { flex: 1 }]}>
+                {tinyStep({ title: m.title, domainType: m.domainType, missionType: m.missionType, personName: m.relationship?.name })}
               </Text>
             </View>
-            <View style={{ flexDirection: 'row', gap: 6 }}>
-              {m.estimatedMinutes ? <Chip label={`${m.estimatedMinutes} min`} /> : null}
-              <Chip label={`+${m.xpReward} XP`} color={colors.amber} />
+            <View style={{ flexDirection: 'row', gap: space(2) }}>
+              <View style={{ flex: 1 }}>
+                {/* Guarded, because two taps used to mean two completions and
+                    double XP — and on a slow connection nothing moved to say
+                    the first tap had landed. */}
+                <Button
+                  title={busy ? 'Saving…' : 'Complete'}
+                  small
+                  onPress={() => complete.mutate(m.id)}
+                  disabled={busy}
+                />
+              </View>
+              <Button title="Later" kind="ghost" small onPress={() => snooze.mutate(m.id)} disabled={busy} />
             </View>
-          </View>
-          <Text style={type.title}>{m.title}</Text>
-          {m.aiRationale && <Text style={type.dim}>{m.aiRationale}</Text>}
-          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
-            <Ionicons name="footsteps-outline" size={13} color={colors.green} style={{ marginTop: 2 }} />
-            <Text style={[type.faint, { flex: 1 }]}>
-              {tinyStep({ title: m.title, domainType: m.domainType, missionType: m.missionType, personName: m.relationship?.name })}
-            </Text>
-          </View>
-          <View style={{ flexDirection: 'row', gap: space(2) }}>
-            <View style={{ flex: 1 }}>
-              <Button title="Complete" small onPress={() => complete.mutate(m.id)} />
-            </View>
-            <Button title="Later" kind="ghost" small onPress={() => snooze.mutate(m.id)} />
-          </View>
-        </Card>
-      )}
+          </Card>
+        );
+      }}
       ListEmptyComponent={
         <Card>
           <EmptyState
@@ -194,4 +388,20 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: colors.surfaceSunken, borderRadius: 10, padding: 10,
   },
+  sectionHead: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: space(3), paddingHorizontal: space(2),
+    borderBottomWidth: 1, borderBottomColor: colors.lineSoft,
+  },
+  addRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderWidth: 1, borderStyle: 'dashed', borderColor: alpha(colors.amber, 0.4),
+    borderRadius: 13, paddingVertical: 12,
+  },
+  chipWrap: { flexDirection: 'row', gap: space(2), flexWrap: 'wrap' },
+  chip: {
+    borderWidth: 1, borderColor: colors.line, borderRadius: 16,
+    paddingVertical: 6, paddingHorizontal: 12, backgroundColor: colors.surface,
+  },
+  chipOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
 });

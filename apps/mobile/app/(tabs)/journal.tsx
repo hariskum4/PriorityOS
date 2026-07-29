@@ -1,16 +1,35 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import {
+  View, Text, ScrollView, Pressable, RefreshControl, StyleSheet,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { invalidateLifeRecord } from '@/services/invalidate';
 import { useMemoryDraft } from '@/store/memoryDraft';
-import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
+import {
+  Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
+} from '@/components/ui';
 import { colors, type, space, alpha } from '@/theme';
 
 const MEMORY_TYPES: Record<string, string> = {
   relationship: 'together', experience: 'experience', achievement: 'achievement',
   reflection: 'realization', gratitude: 'gratitude',
 };
+
+const DOMAINS = [
+  'family', 'partner', 'children', 'health', 'career', 'finance',
+  'growth', 'friends', 'experiences', 'reflection', 'purpose', 'impact',
+];
+
+/** How the day felt, 1–5. Stored as `mood`, which nothing has ever written. */
+const MOODS: Array<[number, string, string]> = [
+  [1, 'sad-outline', 'hard'],
+  [2, 'rainy-outline', 'heavy'],
+  [3, 'remove-circle-outline', 'flat'],
+  [4, 'partly-sunny-outline', 'good'],
+  [5, 'sunny-outline', 'bright'],
+];
 
 export default function Journal() {
   const [segment, setSegment] = useState<'reflect' | 'memories'>('reflect');
@@ -49,16 +68,69 @@ function Reflect() {
   const qc = useQueryClient();
   const [whatMattered, setWhatMattered] = useState('');
   const [whatIAvoided, setWhatIAvoided] = useState('');
+  const [gratitude, setGratitude] = useState('');
+  const [gladNotPostponed, setGladNotPostponed] = useState('');
+  const [mood, setMood] = useState<number | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const [more, setMore] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
-  const { data } = useQuery({ queryKey: ['journal'], queryFn: () => api<any[]>('/journal') });
+  /** How far back we have asked for. Bumped by "Show older". */
+  const [pages, setPages] = useState<string[]>([]);
+
+  const { data, refetch, isRefetching } = useQuery({
+    queryKey: ['journal'],
+    queryFn: () => api<any[]>('/journal?take=30'),
+  });
+  const { data: older } = useQuery({
+    queryKey: ['journal-older', pages],
+    queryFn: async () => {
+      const out: any[] = [];
+      for (const before of pages) {
+        out.push(...await api<any[]>(`/journal?take=30&before=${encodeURIComponent(before)}`));
+      }
+      return out;
+    },
+    enabled: pages.length > 0,
+  });
+
+  const loaded = [...(data ?? []), ...(older ?? [])];
+  /**
+   * Search, over what has been loaded.
+   *
+   * Deliberately not a server query: these columns are encrypted at rest, so
+   * the database cannot match on them without giving up the encryption — which
+   * is a far worse trade than searching the entries you have pulled down. Load
+   * older entries and they join the search.
+   */
+  const [query, setQuery] = useState('');
+  const needle = query.trim().toLowerCase();
+  const entries = needle
+    ? loaded.filter((e) =>
+        [e.whatMattered, e.whatIAvoided, e.gratitude, e.gladNotPostponed]
+          .filter(Boolean)
+          .some((v: string) => v.toLowerCase().includes(needle)))
+    : loaded;
 
   const save = useMutation({
     mutationFn: () =>
-      api<any>('/journal', { method: 'POST', body: { whatMattered, whatIAvoided } }),
+      api<any>('/journal', {
+        method: 'POST',
+        body: {
+          whatMattered: whatMattered || null,
+          whatIAvoided: whatIAvoided || null,
+          gratitude: gratitude || null,
+          gladNotPostponed: gladNotPostponed || null,
+          mood,
+          // The schema calls this the field that feeds attention scoring, and
+          // nothing had ever set it — so writing in your journal counted for
+          // nothing in the model of where your attention actually goes.
+          domainTags: tags,
+        },
+      }),
     onSuccess: (res) => {
-      setWhatMattered('');
-      setWhatIAvoided('');
+      setWhatMattered(''); setWhatIAvoided(''); setGratitude('');
+      setGladNotPostponed(''); setMood(null); setTags([]); setMore(false);
       if (res?.supportSuggested) {
         setShowSupport(true);
       } else {
@@ -66,8 +138,19 @@ function Reflect() {
         setTimeout(() => setSaved(false), 2500);
       }
       qc.invalidateQueries({ queryKey: ['journal'] });
+      invalidateLifeRecord(qc);
     },
   });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/journal/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['journal'] });
+      qc.invalidateQueries({ queryKey: ['journal-older'] });
+    },
+  });
+
+  const empty = !whatMattered && !whatIAvoided && !gratitude && !gladNotPostponed && mood === null;
 
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
@@ -98,6 +181,27 @@ function Reflect() {
 
       <Card style={{ gap: space(3) }}>
         <View style={{ gap: space(2) }}>
+          <Label>How was today?</Label>
+          <View style={{ flexDirection: 'row', gap: space(2) }}>
+            {MOODS.map(([value, icon, word]) => (
+              <Pressable
+                key={value}
+                onPress={() => setMood(mood === value ? null : value)}
+                style={[s.mood, mood === value && s.moodOn]}
+              >
+                <Ionicons
+                  name={icon as never}
+                  size={19}
+                  color={mood === value ? colors.amber : colors.textFaint}
+                />
+                <Text style={[type.faint, { fontSize: 10 }, mood === value && { color: colors.amber }]}>
+                  {word}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        <View style={{ gap: space(2) }}>
           <Label>What mattered today?</Label>
           <Input multiline value={whatMattered} onChangeText={setWhatMattered} placeholder="A moment, a person, a choice…" />
         </View>
@@ -105,20 +209,94 @@ function Reflect() {
           <Label>What did I avoid?</Label>
           <Input multiline value={whatIAvoided} onChangeText={setWhatIAvoided} placeholder="The call you didn't make, the thing you didn't say…" />
         </View>
+
+        {/* The rest of the entry, folded. Four questions on an empty screen is
+            an interrogation; two is a journal. The other fields have always
+            existed in the database and simply had nowhere to be written. */}
+        {more ? (
+          <>
+            <View style={{ gap: space(2) }}>
+              <Label>What are you grateful for?</Label>
+              <Input multiline value={gratitude} onChangeText={setGratitude} placeholder="Small counts. Small is usually the point." />
+            </View>
+            <View style={{ gap: space(2) }}>
+              <Label>What are you glad you didn't put off?</Label>
+              <Input multiline value={gladNotPostponed} onChangeText={setGladNotPostponed} placeholder="The thing you almost moved to tomorrow…" />
+            </View>
+            <View style={{ gap: space(2) }}>
+              <Label>Which parts of life was today about?</Label>
+              <View style={s.chipWrap}>
+                {DOMAINS.map((d) => (
+                  <Pressable
+                    key={d}
+                    onPress={() => setTags((t) => t.includes(d) ? t.filter((x) => x !== d) : [...t, d])}
+                    style={[s.chip, tags.includes(d) && s.chipOn]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <DomainDot domain={d} size={7} />
+                      <Text style={[type.faint, tags.includes(d) && { color: colors.amber, fontWeight: '700' }]}>{d}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+              <Text style={type.faint}>
+                This is the one part of the entry the rest of the app reads — tagging a day is how
+                writing about your family shows up as attention paid to them.
+              </Text>
+            </View>
+          </>
+        ) : (
+          <Pressable onPress={() => setMore(true)} hitSlop={8}>
+            <Text style={[type.label, { color: colors.amber }]}>+ gratitude, what you didn't postpone, tags</Text>
+          </Pressable>
+        )}
+
+        <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
         {saved ? (
           <View style={s.savedRow}>
             <Ionicons name="checkmark-circle" size={18} color={colors.green} />
             <Text style={[type.dim, { color: colors.green }]}>Saved — +10 XP</Text>
           </View>
         ) : (
-          <Button title="Save entry" onPress={() => save.mutate()} disabled={!whatMattered && !whatIAvoided} />
+          <Button
+            title={save.isPending ? 'Saving…' : 'Save entry'}
+            onPress={() => save.mutate()}
+            disabled={empty || save.isPending}
+          />
         )}
       </Card>
 
-      {data && data.length > 0 && <Label>Earlier</Label>}
-      {data?.map((e) => (
+      <ErrorNote error={remove.error} onRetry={() => remove.reset()} />
+      {loaded.length > 3 ? (
+        <View style={{ gap: space(1) }}>
+          <Input
+            placeholder="Search what you've written…"
+            value={query}
+            onChangeText={setQuery}
+            autoCapitalize="none"
+          />
+          {needle ? (
+            <Text style={type.faint}>
+              {entries.length} of {loaded.length} loaded {loaded.length === 1 ? 'entry' : 'entries'}
+              {' '}— load older ones below to search further back.
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+      {entries.length > 0 && <Label>{needle ? 'Found' : 'Earlier'}</Label>}
+      {entries.map((e) => (
         <Card key={e.id} style={{ backgroundColor: colors.surfaceSunken, gap: space(2) }}>
-          <Text style={type.faint}>{fmtDate(e.createdAt)}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={[type.faint, { flex: 1 }]}>{fmtDate(e.createdAt)}</Text>
+            {e.mood ? (
+              <Ionicons
+                name={(MOODS.find(([v]) => v === e.mood)?.[1] ?? 'ellipse-outline') as never}
+                size={15}
+                color={colors.textFaint}
+              />
+            ) : null}
+            {(e.domainTags ?? []).slice(0, 4).map((d: string) => <DomainDot key={d} domain={d} size={7} />)}
+          </View>
           {e.whatMattered ? <Text style={type.serif}>{e.whatMattered}</Text> : null}
           {e.whatIAvoided ? (
             <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -126,8 +304,37 @@ function Reflect() {
               <Text style={[type.dim, { flex: 1 }]}>{e.whatIAvoided}</Text>
             </View>
           ) : null}
+          {e.gratitude ? (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Ionicons name="leaf-outline" size={14} color={colors.green} style={{ marginTop: 3 }} />
+              <Text style={[type.dim, { flex: 1 }]}>{e.gratitude}</Text>
+            </View>
+          ) : null}
+          {e.gladNotPostponed ? (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Ionicons name="checkmark-done-outline" size={14} color={colors.amber} style={{ marginTop: 3 }} />
+              <Text style={[type.dim, { flex: 1 }]}>{e.gladNotPostponed}</Text>
+            </View>
+          ) : null}
+          {/* A private journal you cannot take something back out of is not
+              private in the way people mean the word. */}
+          <View style={{ alignSelf: 'flex-start' }}>
+            <DangerConfirm
+              label="Delete"
+              confirmLabel="Delete this entry"
+              pending={remove.isPending && remove.variables === e.id}
+              onConfirm={() => remove.mutate(e.id)}
+            />
+          </View>
         </Card>
       ))}
+      {loaded.length >= 30 && (
+        <Button
+          title="Show older entries"
+          kind="ghost"
+          onPress={() => setPages((p) => [...p, loaded[loaded.length - 1].createdAt])}
+        />
+      )}
     </>
   );
 }
@@ -159,10 +366,20 @@ function Memories() {
 
   const [title, setTitle] = useState(draft?.title ?? '');
   const [memoryType, setMemoryType] = useState('relationship');
-  const [people, setPeople] = useState<string[]>(draft?.personName ? [draft.personName] : []);
+  /**
+   * People are held by id, not by name.
+   *
+   * `peoplePresent` is a list of names and `relationshipId` is the actual
+   * link — and this form only ever set the names, so a memory about Amma
+   * written here was not attached to Amma. It never reached her page, and the
+   * reach-out line that is supposed to be built from your last moment
+   * together could not see it.
+   */
+  const [personIds, setPersonIds] = useState<string[]>([]);
   const [countKey, setCountKey] = useState<string>('');
   const [reflection, setReflection] = useState('');
   const [justSaved, setJustSaved] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   /**
    * When it happened, not when it was typed.
    *
@@ -177,9 +394,17 @@ function Memories() {
   useEffect(() => {
     if (draft) {
       setTitle(draft.title);
-      if (draft.personName) setPeople([draft.personName]);
+      if (draft.relationshipId) setPersonIds([draft.relationshipId]);
     }
   }, [draft]);
+
+  const people = relationships ?? [];
+  const nameOf = (id: string) => people.find((p: any) => p.id === id)?.name ?? '';
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['memories'] });
+    invalidateLifeRecord(qc);
+  };
 
   const save = useMutation({
     mutationFn: () =>
@@ -188,11 +413,13 @@ function Memories() {
         body: {
           title: title.trim(),
           memoryType,
-          peoplePresent: people,
+          peoplePresent: personIds.map(nameOf).filter(Boolean),
+          // One person named is an unambiguous link; several is a gathering,
+          // and the row can only point at one.
+          relationshipId: personIds.length === 1 ? personIds[0] : draft?.relationshipId,
           countKey: countKey || undefined,
           reflection: reflection.trim() || undefined,
           missionId: draft?.missionId,
-          relationshipId: draft?.relationshipId,
           domainType: draft?.domainType,
           // Noon UTC, so a date never lands on the previous day in a western
           // timezone once it comes back as a timestamp.
@@ -200,17 +427,21 @@ function Memories() {
         },
       }),
     onSuccess: () => {
-      setTitle(''); setReflection(''); setPeople([]); setCountKey(''); setOccurredOn('');
+      setTitle(''); setReflection(''); setPersonIds([]); setCountKey(''); setOccurredOn('');
       clear();
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2500);
-      qc.invalidateQueries({ queryKey: ['memories'] });
-      qc.invalidateQueries({ queryKey: ['memories-otd'] });
+      invalidate();
     },
   });
 
-  const togglePerson = (name: string) =>
-    setPeople((p) => (p.includes(name) ? p.filter((x) => x !== name) : [...p, name]));
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/memories/${id}`, { method: 'DELETE' }),
+    onSuccess: invalidate,
+  });
+
+  const togglePerson = (id: string) =>
+    setPersonIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -268,16 +499,19 @@ function Memories() {
             </Text>
           </View>
         </View>
-        {relationships && relationships.length > 0 && (
+        {people.length > 0 && (
           <View style={{ gap: space(1) }}>
             <Text style={type.faint}>Who was there?</Text>
             <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-              {relationships.map((r) => (
-                <Pressable key={r.id} onPress={() => togglePerson(r.name)} style={[s.chip, people.includes(r.name) && s.chipOn]}>
-                  <Text style={[type.faint, people.includes(r.name) && { color: colors.amber, fontWeight: '700' }]}>{r.name}</Text>
+              {people.map((r: any) => (
+                <Pressable key={r.id} onPress={() => togglePerson(r.id)} style={[s.chip, personIds.includes(r.id) && s.chipOn]}>
+                  <Text style={[type.faint, personIds.includes(r.id) && { color: colors.amber, fontWeight: '700' }]}>{r.name}</Text>
                 </Pressable>
               ))}
             </View>
+            {personIds.length === 1 ? (
+              <Text style={type.faint}>This will be kept on {nameOf(personIds[0])}'s page too.</Text>
+            ) : null}
           </View>
         )}
         {counts.length > 0 && (
@@ -302,6 +536,7 @@ function Memories() {
           value={reflection}
           onChangeText={setReflection}
         />
+        <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
         {justSaved ? (
           <View style={s.savedRow}>
             <Ionicons name="checkmark-circle" size={18} color={colors.green} />
@@ -309,26 +544,42 @@ function Memories() {
           </View>
         ) : (
           <Button
-            title="Keep this moment"
+            title={save.isPending ? 'Keeping…' : 'Keep this moment'}
             onPress={() => save.mutate()}
             disabled={!title.trim() || !dateValid || save.isPending}
           />
         )}
       </Card>
 
+      <ErrorNote error={remove.error} onRetry={() => remove.reset()} />
       {memories && memories.length > 0 && <Label>The archive</Label>}
       {memories?.map((m) => (
-        <Card key={m.id} style={{ backgroundColor: colors.surfaceSunken, gap: space(1) }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {m.domainType ? <DomainDot domain={m.domainType} /> : null}
-            <Text style={[type.heading, { flex: 1 }]}>{m.title}</Text>
-            <Text style={type.faint}>{fmtDate(m.occurredAt)}</Text>
-          </View>
-          {(m.peoplePresent ?? []).length > 0 && (
-            <Text style={type.faint}>With {(m.peoplePresent as string[]).join(', ')}</Text>
-          )}
-          {m.reflection ? <Text style={type.serif}>{m.reflection}</Text> : null}
-        </Card>
+        editing === m.id ? (
+          <EditMemory key={m.id} memory={m} onClose={() => setEditing(null)} onSaved={invalidate} />
+        ) : (
+          <Card key={m.id} style={{ backgroundColor: colors.surfaceSunken, gap: space(1) }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {m.domainType ? <DomainDot domain={m.domainType} /> : null}
+              <Text style={[type.heading, { flex: 1 }]}>{m.title}</Text>
+              <Text style={type.faint}>{fmtDate(m.occurredAt)}</Text>
+              <Pressable onPress={() => setEditing(m.id)} hitSlop={8}>
+                <Ionicons name="create-outline" size={15} color={colors.textFaint} />
+              </Pressable>
+            </View>
+            {(m.peoplePresent ?? []).length > 0 && (
+              <Text style={type.faint}>With {(m.peoplePresent as string[]).join(', ')}</Text>
+            )}
+            {m.reflection ? <Text style={type.serif}>{m.reflection}</Text> : null}
+            <View style={{ alignSelf: 'flex-start', marginTop: space(1) }}>
+              <DangerConfirm
+                label="Delete"
+                confirmLabel="Delete this moment"
+                pending={remove.isPending && remove.variables === m.id}
+                onConfirm={() => remove.mutate(m.id)}
+              />
+            </View>
+          </Card>
+        )
       ))}
       {memories && memories.length === 0 && (
         <EmptyState
@@ -341,6 +592,61 @@ function Memories() {
   );
 }
 
+/** Mostly this exists to fix a date — the thing that puts a moment on the wrong year. */
+function EditMemory({ memory, onClose, onSaved }: {
+  memory: any; onClose: () => void; onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(memory.title ?? '');
+  const [reflection, setReflection] = useState(memory.reflection ?? '');
+  const [occurredOn, setOccurredOn] = useState(
+    memory.occurredAt ? new Date(memory.occurredAt).toISOString().slice(0, 10) : '',
+  );
+  const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(occurredOn);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/memories/${memory.id}`, {
+        method: 'PATCH',
+        body: {
+          title: title.trim(),
+          reflection: reflection.trim() || null,
+          occurredAt: `${occurredOn}T12:00:00.000Z`,
+        },
+      }),
+    onSuccess: () => { onSaved(); onClose(); },
+  });
+
+  return (
+    <Card style={{ gap: space(3) }}>
+      <Label>Fix this moment</Label>
+      <Input value={title} onChangeText={setTitle} placeholder="What happened?" />
+      <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
+        <Input
+          value={occurredOn}
+          onChangeText={(v) => setOccurredOn(v.replace(/[^0-9-]/g, '').slice(0, 10))}
+          autoCapitalize="none"
+          style={{ maxWidth: 150 }}
+        />
+        <Text style={[type.faint, !dateValid && { color: colors.rose }]}>
+          {dateValid ? 'Lands on that year' : 'Needs to look like 2009-06-14'}
+        </Text>
+      </View>
+      <Input multiline value={reflection} onChangeText={setReflection} placeholder="What will you remember?" />
+      <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
+      <View style={{ flexDirection: 'row', gap: space(2) }}>
+        <View style={{ flex: 1 }}>
+          <Button
+            title={save.isPending ? 'Saving…' : 'Save'}
+            onPress={() => save.mutate()}
+            disabled={!title.trim() || !dateValid || save.isPending}
+          />
+        </View>
+        <Button title="Cancel" kind="ghost" onPress={onClose} />
+      </View>
+    </Card>
+  );
+}
+
 const s = StyleSheet.create({
   wrap: { padding: space(5), paddingTop: space(14), gap: space(3), paddingBottom: space(10), maxWidth: 560, width: '100%', alignSelf: 'center' },
   segmentRow: { flexDirection: 'row', gap: space(2), marginTop: space(2) },
@@ -350,9 +656,16 @@ const s = StyleSheet.create({
   },
   segmentOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
   savedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 },
+  chipWrap: { flexDirection: 'row', gap: space(2), flexWrap: 'wrap' },
   chip: {
     borderWidth: 1, borderColor: colors.line, borderRadius: 16,
     paddingVertical: 6, paddingHorizontal: 12, backgroundColor: colors.surface,
   },
   chipOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
+  mood: {
+    flex: 1, alignItems: 'center', gap: 3, paddingVertical: 9,
+    borderWidth: 1, borderColor: colors.line, borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  moodOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
 });

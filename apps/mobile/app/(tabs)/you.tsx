@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { useRefresh } from '@/hooks/useRefresh';
 import { useAuth } from '@/store/auth';
 import { Button, Card, Chip, Input, Label, XpBar } from '@/components/ui';
 import {
@@ -68,9 +69,16 @@ export default function You() {
   const lvl = profile ? levelProgress(profile.totalXp ?? 0) : null;
   const badges: any[] = profile?.badges ?? [];
   const unread = (notifications ?? []).filter((n) => !n.readAt);
+  const { refreshing, onRefresh } = useRefresh();
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={s.wrap}>
+    <ScrollView
+        style={{ flex: 1, backgroundColor: colors.bg }}
+        contentContainerStyle={s.wrap}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.amber} />
+        }
+      >
       <View style={{ gap: 4 }}>
         <Text style={type.display}>{me?.fullName ?? 'You'}</Text>
         {lvl && (
@@ -203,7 +211,12 @@ export default function You() {
           <View key={inv.id} style={s.partnerRow}>
             <Ionicons name="mail-unread-outline" size={18} color={colors.amber} />
             <Text style={[type.body, { flex: 1 }]}>{inv.owner?.fullName ?? 'Someone'} invited you</Text>
-            <Button title="Accept" small onPress={() => accept.mutate(inv.id)} />
+            <Button
+              title={accept.isPending ? 'Accepting…' : 'Accept'}
+              small
+              onPress={() => accept.mutate(inv.id)}
+              disabled={accept.isPending}
+            />
           </View>
         ))}
 

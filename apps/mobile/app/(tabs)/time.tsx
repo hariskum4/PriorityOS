@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -22,6 +22,7 @@ import {
   PLANNING_HORIZON_AGE,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
+import { useRefresh } from '@/hooks/useRefresh';
 import { Button, Card, Chip, DomainDot, Input, Label } from '@/components/ui';
 import { YearGrid } from '@/components/YearGrid';
 import { colors, type, space, domainColor, alpha } from '@/theme';
@@ -36,6 +37,50 @@ function ageFromDob(dob?: string | null): number | null {
   if (!dob) return null;
   const years = (Date.now() - new Date(dob).getTime()) / (365.25 * 86_400_000);
   return years > 5 && years < 110 ? Math.floor(years) : null;
+}
+
+/**
+ * A foldable section of the tab.
+ *
+ * This screen holds a dozen lenses on the same finite life, and open all at
+ * once it scrolls for minutes — which means the one thing that matters most,
+ * the life grid, is followed by so much arithmetic that nobody reaches the end
+ * of it. So everything below the grid folds, closed by default.
+ *
+ * The header keeps its number even when shut. A collapsed row that says only
+ * "Health and energy" hides the answer; one that says "~41 able years" is still
+ * doing the work, and opening it is for the reasoning behind the figure.
+ */
+function Section({
+  icon, title, preview, children,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  title: string;
+  preview?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ gap: open ? space(3) : 0 }}>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        style={({ pressed }) => [s.sectionHead, pressed && { opacity: 0.6 }]}
+      >
+        <Ionicons name={icon} size={14} color={open ? colors.amber : colors.textDim} />
+        <Label color={open ? colors.amber : undefined}>{title}</Label>
+        <View style={{ flex: 1 }} />
+        {!open && preview ? (
+          <Text style={type.faint} numberOfLines={1}>{preview}</Text>
+        ) : null}
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={14}
+          color={colors.textFaint}
+        />
+      </Pressable>
+      {open ? children : null}
+    </View>
+  );
 }
 
 function Big({ value, unit, caption }: { value: string; unit: string; caption: string }) {
@@ -75,10 +120,19 @@ export default function TimeReality() {
     staleTime: 10 * 60_000,
   });
   const activeYears = activeYearsData?.years ?? [];
-  const { data: yearData } = useQuery({
+  const {
+    data: yearData,
+    isError: yearFailed,
+    isPaused: yearWaitingForNetwork,
+    refetch: refetchYear,
+  } = useQuery({
     queryKey: ['timeline', openYear],
     queryFn: () => api<any>(`/life-os/timeline/${openYear}`),
     enabled: openYear != null,
+    // One retry, not the default three. A year that will not load should say
+    // so in a couple of seconds; the alternative is a spinner that reads as
+    // "still working" long after the request has given up.
+    retry: 1,
   });
 
   const [ageDraft, setAgeDraft] = useState('');
@@ -133,6 +187,8 @@ export default function TimeReality() {
       qc.invalidateQueries({ queryKey: ['onboarding-answers'] });
     },
   });
+
+  const { refreshing, onRefresh } = useRefresh();
 
   const age = ageFromDob(me?.dob);
   const birthYear = me?.dob ? new Date(me.dob).getUTCFullYear() : null;
@@ -204,7 +260,13 @@ export default function TimeReality() {
   const energy = energyBudget(age, moreYears);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={s.wrap}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={s.wrap}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.amber} />
+      }
+    >
       <View style={{ gap: 4 }}>
         <Text style={type.display}>Time Reality</Text>
         <Text style={type.dim}>
@@ -283,35 +345,70 @@ export default function TimeReality() {
             yearData && yearData.year === openYear ? (
               <YearGrid data={yearData} onClose={() => setOpenYear(null)} />
             ) : (
-              <Card><Label>{openYear}</Label><Text style={type.dim}>Reading that year…</Text></Card>
+              /**
+               * Loading is a state, not the only state. This used to render
+               * "Reading that year…" unconditionally, so a request that failed
+               * — or one paused because the phone is offline, which is the
+               * normal case for an offline-first app — sat there reading as if
+               * it were still working, forever. A year that will not open has
+               * to say why and offer the way back.
+               */
+              <Card style={{ gap: space(3) }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Label>{openYear}</Label>
+                  <View style={{ flex: 1 }} />
+                  <Pressable onPress={() => setOpenYear(null)} hitSlop={10}>
+                    <Text style={[type.label, { color: colors.textDim }]}>Close</Text>
+                  </Pressable>
+                </View>
+                {yearWaitingForNetwork || yearFailed ? (
+                  <>
+                    <Text style={type.body}>
+                      {yearWaitingForNetwork
+                        ? 'This year lives on the server, and you are offline right now. It will open the moment you are back.'
+                        : 'That year would not load. Nothing is lost — the days are still recorded.'}
+                    </Text>
+                    <Button title="Try again" small kind="ghost" onPress={() => refetchYear()} />
+                  </>
+                ) : (
+                  <Text style={type.dim}>Reading that year…</Text>
+                )}
+              </Card>
             )
           ) : null}
 
-          <Card accent={colors.amberSoft} style={{ gap: space(4), paddingVertical: space(5) }}>
-            <View style={{ flexDirection: 'row' }}>
-              <Big
-                value={String(windows.freeTime.freeHoursPerWeek)}
-                unit="free hours / week"
-                caption="after sleep, work, and life admin"
-              />
-              <Big
-                value={`~${windows.weekendsRemaining.toLocaleString()}`}
-                unit="weekends ahead"
-                caption={`on a ${PLANNING_HORIZON_AGE}-year horizon`}
-              />
-            </View>
-            <Text style={[type.faint, { textAlign: 'center' }]}>{windows.freeTime.detail}</Text>
-          </Card>
+          <Section
+            icon="hourglass-outline"
+            title="The week you actually have"
+            preview={`${windows.freeTime.freeHoursPerWeek} h · ~${windows.weekendsRemaining.toLocaleString()} weekends`}
+          >
+            <Card accent={colors.amberSoft} style={{ gap: space(4), paddingVertical: space(5) }}>
+              <View style={{ flexDirection: 'row' }}>
+                <Big
+                  value={String(windows.freeTime.freeHoursPerWeek)}
+                  unit="free hours / week"
+                  caption="after sleep, work, and life admin"
+                />
+                <Big
+                  value={`~${windows.weekendsRemaining.toLocaleString()}`}
+                  unit="weekends ahead"
+                  caption={`on a ${PLANNING_HORIZON_AGE}-year horizon`}
+                />
+              </View>
+              <Text style={[type.faint, { textAlign: 'center' }]}>{windows.freeTime.detail}</Text>
+            </Card>
+          </Section>
 
           {/* FIT IT ALL IN — the synthesis: how to serve every domain in limited hours */}
           {activeDomains.length > 0 && (
-            <>
-              <View style={{ gap: 4, marginTop: space(2) }}>
-                <Text style={type.title}>Fit it all in</Text>
-                <Text style={type.dim}>
-                  You can't buy separate hours for eight lives. You steal them — one hour, two domains — and you don't fire everything at once.
-                </Text>
-              </View>
+            <Section
+              icon="git-merge-outline"
+              title="Fit it all in"
+              preview={`${stacks.length} moves · ${stackReach.length} domains`}
+            >
+              <Text style={type.dim}>
+                You can't buy separate hours for eight lives. You steal them — one hour, two domains — and you don't fire everything at once.
+              </Text>
 
               {/* 1. Time-stacking */}
               <Card style={{ gap: space(3) }}>
@@ -375,9 +472,14 @@ export default function TimeReality() {
                   onPress={() => router.push(`/domain/${season.focusDomain}`)}
                 />
               </Card>
-            </>
+            </Section>
           )}
 
+          <Section
+            icon="pulse-outline"
+            title="Health and energy"
+            preview={`~${hs.healthyYearsLeft} able years · ~${energy.peakHoursPerWeek} sharp h/wk`}
+          >
           {/* Healthspan — the years that actually matter */}
           <Card style={{ gap: space(3) }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -416,11 +518,17 @@ export default function TimeReality() {
             <Text style={type.serif}>{energy.framingText}</Text>
             <Text style={type.faint}>{energy.assumptions[1]}.</Text>
           </Card>
+          </Section>
 
+          <Section
+            icon="library-outline"
+            title="The countable life"
+            preview={`~${books.remaining} books · ~${trips.remaining} trips`}
+          >
           <Card style={{ gap: space(3) }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="library-outline" size={14} color={colors.textDim} />
-              <Label>The countable life</Label>
+              <Label>Books, trips, and what else is countable</Label>
             </View>
             <Text style={type.dim}>Books a year:</Text>
             <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
@@ -520,11 +628,17 @@ export default function TimeReality() {
               />
             </View>
           </Card>
+          </Section>
 
+          <Section
+            icon="briefcase-outline"
+            title="Your working window"
+            preview={`~${windows.career.workingWeeksLeft} working weeks`}
+          >
           <Card style={{ gap: space(3) }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="briefcase-outline" size={14} color={colors.textDim} />
-              <Label>Your working window</Label>
+              <Label>How long you plan to work</Label>
             </View>
             <Text style={type.dim}>How many more years do you want to work?</Text>
             <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
@@ -546,12 +660,14 @@ export default function TimeReality() {
               <Chip label={`then ~${windows.career.postCareerYears} free years`} color={colors.green} />
             </View>
           </Card>
+          </Section>
 
+          <Section
+            icon="fitness-outline"
+            title="Windows open right now"
+            preview={`${windows.body.length} still open`}
+          >
           <Card style={{ gap: space(2) }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="fitness-outline" size={14} color={colors.textDim} />
-              <Label>Windows open right now</Label>
-            </View>
             {windows.body.map((w) => (
               <View key={w.key} style={s.windowRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -565,9 +681,17 @@ export default function TimeReality() {
               </View>
             ))}
           </Card>
+          </Section>
         </>
       )}
 
+      {/* Money and craft stay outside the horizon block on purpose: they are
+          the two calculators that still work when finite-time framing is off. */}
+      <Section
+        icon="trending-up-outline"
+        title="Money and craft"
+        preview={`~${money.corpusStartingNow.toLocaleString()} · ${minutes} min/day`}
+      >
       <Card style={{ gap: space(3) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Ionicons name="trending-up-outline" size={14} color={colors.textDim} />
@@ -606,13 +730,15 @@ export default function TimeReality() {
         </View>
         <Text style={type.serif}>{creative.framingText}</Text>
       </Card>
+      </Section>
 
       {!intensityOff && peopleInsights.length > 0 && (
+        <Section
+          icon="people-outline"
+          title="Your people, in numbers"
+          preview={`${peopleInsights.length} counted`}
+        >
         <Card style={{ gap: space(3) }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Ionicons name="people-outline" size={14} color={colors.textDim} />
-            <Label>Your people, in numbers</Label>
-          </View>
           {peopleInsights.slice(0, 4).map((i) => (
             <View key={i.id} style={s.windowRow}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
@@ -623,6 +749,7 @@ export default function TimeReality() {
             </View>
           ))}
         </Card>
+        </Section>
       )}
 
       <Text style={[type.faint, { textAlign: 'center', paddingHorizontal: space(4) }]}>
@@ -639,6 +766,13 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.surface,
   },
   chipOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
+  /** A closed section is a single tappable line, not a card — the cards
+      inside are the content, and nesting one in another reads as clutter. */
+  sectionHead: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: space(3), paddingHorizontal: space(2),
+    borderBottomWidth: 1, borderBottomColor: colors.lineSoft,
+  },
   windowRow: {
     gap: 4, borderTopWidth: 1, borderTopColor: colors.lineSoft, paddingTop: space(2),
   },

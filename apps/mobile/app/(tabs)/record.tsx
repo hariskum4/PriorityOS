@@ -149,12 +149,32 @@ function Rendered({ blocks }: { blocks: Block[] }) {
 /* ── screen ──────────────────────────────────────────────────────────── */
 
 export default function Record() {
-  const { data, refetch, isRefetching, isLoading } = useQuery({
+  const {
+    data, refetch, isRefetching, isLoading, isError, isPaused, dataUpdatedAt,
+  } = useQuery({
     queryKey: ['life-document'],
     queryFn: () => api<any>('/life-os/document'),
     // Always current: this document's whole promise is that it reflects now.
     staleTime: 0,
+    retry: 1,
   });
+
+  /**
+   * When what you are reading was actually read.
+   *
+   * The document says of itself that it "cannot drift out of date" — and then
+   * the offline cache hands you yesterday's copy, under that sentence, with
+   * nothing to say so. Either the claim is true or it is labelled. An hour is
+   * the threshold: inside it the wording is honest enough; past it the page
+   * has to admit what it is showing.
+   */
+  const ageMs = dataUpdatedAt ? Date.now() - dataUpdatedAt : 0;
+  const stale = !!data && ageMs > 60 * 60 * 1000;
+  const asOf = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
+    : null;
 
   const blocks = React.useMemo(() => parse(data?.markdown ?? ''), [data?.markdown]);
   const sum = data?.summary;
@@ -210,8 +230,36 @@ export default function Record() {
           <Text style={[type.label, { color: colors.amber }]}>Export as markdown</Text>
         </Pressable>
 
+        {stale || isPaused ? (
+          <View style={s.staleNote}>
+            <Ionicons name="cloud-offline-outline" size={15} color={colors.textDim} />
+            <Text style={[type.faint, { flex: 1 }]}>
+              Showing the copy stored on this device{asOf ? `, read ${asOf}` : ''}. Anything you have
+              changed since is not in it yet.
+            </Text>
+            <Pressable onPress={() => refetch()} hitSlop={8}>
+              <Text style={[type.label, { color: colors.amber }]}>
+                {isRefetching ? 'Reading…' : 'Refresh'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {isLoading ? (
           <Text style={[type.dim, { marginTop: space(6) }]}>Reading your data…</Text>
+        ) : isError && !data ? (
+          <View style={{ marginTop: space(6), gap: space(3), alignItems: 'flex-start' }}>
+            <Text style={type.body}>
+              Your record could not be read just now. Nothing is lost — this page is generated from
+              your data every time it opens, so it will be here when the connection is.
+            </Text>
+            <Pressable onPress={() => refetch()} style={({ pressed }) => [s.export, pressed && { opacity: 0.7 }]}>
+              <Ionicons name="refresh-outline" size={15} color={colors.amber} />
+              <Text style={[type.label, { color: colors.amber }]}>
+                {isRefetching ? 'Trying…' : 'Try again'}
+              </Text>
+            </Pressable>
+          </View>
         ) : (
           <Rendered blocks={blocks} />
         )}
@@ -231,6 +279,12 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start',
     borderWidth: 1, borderColor: alpha(colors.amber, 0.35), borderRadius: 999,
     paddingVertical: 7, paddingHorizontal: 13,
+  },
+  staleNote: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderColor: colors.line, borderRadius: 13,
+    paddingVertical: 10, paddingHorizontal: 13,
+    backgroundColor: colors.surfaceSunken,
   },
 
   h1: {

@@ -191,6 +191,72 @@ function Row({ label, value, color }: { label: string; value: number; color: str
   );
 }
 
+/**
+ * Something did not work, said out loud.
+ *
+ * The app is offline-first, so a failed write is normal and survivable — but
+ * it has to be visible. Silently swallowing it is how a person taps Complete,
+ * sees nothing change, and stops trusting the whole screen.
+ */
+export function ErrorNote({ error, onRetry, retrying }: {
+  error: unknown; onRetry?: () => void; retrying?: boolean;
+}) {
+  if (!error) return null;
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const status = (error as { status?: number })?.status;
+  const message = offline
+    ? "You're offline — this will need a connection."
+    : status === 401
+      ? 'Your session expired. Sign in again to save this.'
+      : (error as { message?: string })?.message || "That didn't save.";
+  return (
+    <View style={s.errorNote}>
+      <Text style={[type.faint, { color: colors.rose, flex: 1 }]}>{message}</Text>
+      {onRetry ? (
+        <Pressable onPress={onRetry} disabled={retrying} hitSlop={8}>
+          <Text style={[type.label, { color: colors.rose }]}>
+            {retrying ? 'Trying…' : 'Try again'}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * A destructive action that asks first, in the page.
+ *
+ * Not `Alert.alert` — that is a no-op on react-native-web, so on the web build
+ * the confirmation step would vanish and the first tap would delete. Two taps
+ * in the same place, always, on every platform.
+ */
+export function DangerConfirm({ label, confirmLabel = 'Really delete', onConfirm, pending }: {
+  label: string; confirmLabel?: string; onConfirm: () => void; pending?: boolean;
+}) {
+  const [armed, setArmed] = React.useState(false);
+  React.useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  if (!armed) {
+    return <Button title={label} kind="danger" small onPress={() => setArmed(true)} />;
+  }
+  return (
+    <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
+      <Button
+        title={pending ? 'Deleting…' : confirmLabel}
+        kind="danger"
+        small
+        disabled={pending}
+        onPress={onConfirm}
+      />
+      <Button title="Keep it" kind="ghost" small onPress={() => setArmed(false)} />
+    </View>
+  );
+}
+
 /** Friendly empty state — an invitation, never an apology. */
 export function EmptyState({ icon, headline, body }: {
   icon?: React.ReactNode; headline: string; body?: string;
@@ -232,9 +298,16 @@ const s = StyleSheet.create({
     borderColor: alpha(colors.rose, 0.4),
   },
   btnDisabled: {
+    // Dimming brass just makes mud, so a disabled control drops the fill and
+    // reads as an outline waiting to be earned. The opacity is what separates
+    // it from an enabled ghost button — without it a disabled primary and a
+    // live secondary are the same shape in the same colours, and people tap
+    // the dead one.
     backgroundColor: 'transparent',
     borderWidth: 1,
+    borderStyle: 'dashed',
     borderColor: colors.lineSoft,
+    opacity: 0.65,
   },
   btnText: { color: colors.ink, fontWeight: '700', fontSize: 15 },
   chip: {
@@ -277,5 +350,11 @@ const s = StyleSheet.create({
     gap: space(3),
     paddingVertical: space(10),
     paddingHorizontal: space(6),
+  },
+  errorNote: {
+    flexDirection: 'row', alignItems: 'center', gap: space(3),
+    backgroundColor: alpha(colors.rose, 0.08),
+    borderWidth: 1, borderColor: alpha(colors.rose, 0.3),
+    borderRadius: 12, paddingVertical: 9, paddingHorizontal: 12,
   },
 });

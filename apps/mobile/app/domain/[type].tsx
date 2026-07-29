@@ -9,8 +9,10 @@ import {
   estimateCreativeCompounding,
   tripsRemaining,
   costOfDelay,
+  nextDomainAction,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
+import { invalidateLifeRecord } from '@/services/invalidate';
 import { Button, Card, Chip, DomainDot, EmptyState, GapBar, Label } from '@/components/ui';
 import { colors, type, space, domainColor, isLight, alpha } from '@/theme';
 
@@ -44,6 +46,15 @@ export default function DomainDetail() {
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api<any>('/me') });
   const { data: goals } = useQuery({ queryKey: ['goals'], queryFn: () => api<any[]>('/goals') });
   const { data: missions } = useQuery({ queryKey: ['missions'], queryFn: () => api<any[]>('/missions?status=pending') });
+  /**
+   * What has already been done here. Without this the screen could only see
+   * pending missions, so completing the one starter action made it look
+   * untaken again and the identical suggestion came straight back.
+   */
+  const { data: doneMissions } = useQuery({
+    queryKey: ['missions-completed'],
+    queryFn: () => api<any[]>('/missions?status=completed'),
+  });
   const { data: relationships } = useQuery({ queryKey: ['relationships'], queryFn: () => api<any[]>('/relationships') });
 
   const complete = useMutation({
@@ -51,17 +62,32 @@ export default function DomainDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['missions'] });
       qc.invalidateQueries({ queryKey: ['missions-completed'] });
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      invalidateLifeRecord(qc);
     },
   });
   const addStarter = useMutation({
-    mutationFn: (title: string) =>
-      api('/missions', { method: 'POST', body: { title, domainType, estimatedMinutes: 15, xpReward: 30 } }),
+    mutationFn: ({ title, minutes }: { title: string; minutes: number }) =>
+      api('/missions', {
+        method: 'POST',
+        body: { title, domainType, estimatedMinutes: minutes, xpReward: 30 },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['missions'] });
+      qc.invalidateQueries({ queryKey: ['missions-completed'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
+
+  /**
+   * Where this domain stands on its ladder — the first action not already
+   * done and not already waiting on the list. When the ladder runs out the
+   * card says so instead of starting again from the top.
+   */
+  const rung = React.useMemo(() => nextDomainAction(
+    domainType,
+    (doneMissions ?? []).filter((m: any) => m.domainType === domainType).map((m: any) => m.title),
+    (missions ?? []).filter((m: any) => m.domainType === domainType).map((m: any) => m.title),
+  ), [domainType, doneMissions, missions]);
 
   const domain = (dashboard?.domains ?? []).find((d: any) => d.domainType === domainType);
   const domainGoals = (goals ?? []).filter((g) => g.domainType === domainType && g.status !== 'done');
@@ -100,8 +126,8 @@ export default function DomainDetail() {
           domainType={domainType}
           age={age}
           color={c}
-          onAdd={(t) => addStarter.mutate(t)}
-          pendingTitles={new Set((missions ?? []).map((m: any) => String(m.title).trim().toLowerCase()))}
+          onAdd={(t, minutes) => addStarter.mutate({ title: t, minutes })}
+          rung={rung}
           busy={addStarter.isPending}
         />
 
@@ -121,13 +147,21 @@ export default function DomainDetail() {
             {domainPeople.length === 0 ? (
               <Card><Text style={type.dim}>No one added to {label.toLowerCase()} yet. Add them on the People tab.</Text></Card>
             ) : domainPeople.map((r) => (
-              <Card key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: `${c}26`, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: c, fontWeight: '700' }}>{r.name[0]}</Text>
-                </View>
-                <Text style={[type.heading, { flex: 1 }]}>{r.name}</Text>
-                <Text style={[type.faint, { textTransform: 'capitalize' }]}>{r.relationType}</Text>
-              </Card>
+              /* A name that does nothing when you press it reads as broken.
+                 This opens the person — their history, the moments kept with
+                 them, and the place to correct or remove them. */
+              <Pressable key={r.id} onPress={() => router.push(`/person/${r.id}`)}>
+                {({ pressed }) => (
+                  <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: pressed ? 0.6 : 1 }}>
+                    <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: `${c}26`, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: c, fontWeight: '700' }}>{r.name[0]}</Text>
+                    </View>
+                    <Text style={[type.heading, { flex: 1 }]}>{r.name}</Text>
+                    <Text style={[type.faint, { textTransform: 'capitalize' }]}>{r.relationType}</Text>
+                    <Ionicons name="chevron-forward" size={15} color={colors.textFaint} />
+                  </Card>
+                )}
+              </Pressable>
             ))}
           </View>
         )}
@@ -168,23 +202,52 @@ export default function DomainDetail() {
  * finally with a home. Everything is estimate-framed and offers one
  * concrete action.
  */
-function SignatureFeature({ domainType, age, color, onAdd, pendingTitles, busy }: {
-  domainType: string; age: number | null; color: string; onAdd: (title: string) => void;
-  pendingTitles: Set<string>; busy: boolean;
+function SignatureFeature({ domainType, age, color, onAdd, rung, busy }: {
+  domainType: string; age: number | null; color: string;
+  onAdd: (title: string, minutes: number) => void;
+  rung: ReturnType<typeof nextDomainAction>;
+  busy: boolean;
 }) {
   const [monthly, setMonthly] = React.useState('10000');
   const [minutes, setMinutes] = React.useState(30);
-  // One tap adds it, then the button says so — no silent duplicate stacking.
-  const starter = (label: string, missionTitle: string) => {
-    const added = pendingTitles.has(missionTitle.trim().toLowerCase());
+
+  /**
+   * The next thing this domain is asking for.
+   *
+   * The literal starter titles that used to be hard-coded at each call site
+   * are now the first rung of each ladder, so nothing changes for a new user —
+   * but once they do it, the next tap offers the next thing instead of the
+   * same thing. The argument is ignored; it survives only so the callers below
+   * read the way they did.
+   */
+  const starter = (_label?: string, _title?: string) => {
+    if (rung.finished) {
+      return (
+        <View style={{ gap: 4 }}>
+          <Text style={[type.faint, { color: colors.green }]}>
+            You have done everything this area knows to suggest — {rung.total} of {rung.total}.
+          </Text>
+          <Text style={type.faint}>
+            What comes next here is yours to name, not ours. The Missions tab takes your own.
+          </Text>
+        </View>
+      );
+    }
     return (
-      <Button
-        title={added ? 'Added — in your list' : label}
-        small
-        kind="ghost"
-        disabled={added || busy}
-        onPress={() => onAdd(missionTitle)}
-      />
+      <View style={{ gap: 6 }}>
+        <Button
+          title={busy ? 'Adding…' : rung.next!.label}
+          small
+          kind="ghost"
+          disabled={busy}
+          onPress={() => onAdd(rung.next!.title, rung.next!.minutes)}
+        />
+        {rung.taken > 0 ? (
+          <Text style={type.faint}>
+            {rung.taken} of {rung.total} done here. This is the next one.
+          </Text>
+        ) : null}
+      </View>
     );
   };
 

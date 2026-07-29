@@ -15,12 +15,15 @@ import {
   View, Text, ScrollView, RefreshControl, Pressable, StyleSheet, Animated, Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Path, Circle as SvgCircle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
-import { tinyStep } from '@priority/scoring-engine';
+import { tinyStep, lifeAlignment } from '@priority/scoring-engine';
 import { useRouter } from 'expo-router';
 import { useMemoryDraft } from '@/store/memoryDraft';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
+import { invalidateLifeRecord } from '@/services/invalidate';
 import { levelProgress } from '@/theme';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
@@ -40,17 +43,15 @@ function relativeDays(iso: string | Date): string {
   return months === 1 ? 'a month ago' : `${months} months ago`;
 }
 
-/** Overall alignment: 100 minus the importance-weighted say/do gap. */
-function alignmentScore(domains: any[]): number {
-  const active = domains.filter((d) => d.importance > 0);
-  if (!active.length) return 0;
-  const totalWeight = active.reduce((sum, d) => sum + d.importance, 0);
-  const weightedGap = active.reduce(
-    (sum, d) => sum + Math.max(0, d.importance - d.attention) * d.importance,
-    0,
-  );
-  return 100 - (weightedGap / totalWeight);
-}
+/**
+ * Alignment now comes from the kernel.
+ *
+ * The version that lived here subtracted an importance-weighted average gap
+ * from 100 and returned 98.8 for a life with `purpose` declared 12 and lived
+ * 0 — it weighted the gap by the very number that is smallest where neglect
+ * is worst, and scored over-attention as perfect. `lifeAlignment` compares
+ * shares instead. See packages/scoring-engine/src/alignment.ts.
+ */
 
 /** Rises and settles on a spring. The screen's only entrance motion. */
 function Rise({ delay = 0, children }: { delay?: number; children: React.ReactNode }) {
@@ -94,6 +95,32 @@ function PulseDot({ color }: { color: string }) {
     <Animated.View
       style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: color, opacity: v }}
     />
+  );
+}
+
+/**
+ * Twelve weeks of one domain, as a line.
+ *
+ * The read-out says where a domain stands; this says where it has been. Drawn
+ * without axes or numbers on purpose — the shape is the whole message, and a
+ * gridded chart on this screen would turn a life into a dashboard.
+ */
+function Trail({ points, color, width = 96, height = 22 }: {
+  points: number[]; color: string; width?: number; height?: number;
+}) {
+  if (points.length < 3) return null;
+  const lo = Math.min(...points);
+  const hi = Math.max(...points);
+  const span = Math.max(6, hi - lo);          // a flat line stays flat, not jagged
+  const stepX = width / (points.length - 1);
+  const y = (v: number) => height - ((v - lo) / span) * height;
+  const d = points.map((v, i) => `${i ? 'L' : 'M'}${(i * stepX).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const rising = points[points.length - 1] >= points[0];
+  return (
+    <Svg width={width} height={height}>
+      <Path d={d} stroke={color} strokeWidth={1.2} fill="none" opacity={rising ? 0.9 : 0.5} />
+      <SvgCircle cx={width} cy={y(points[points.length - 1])} r={1.8} fill={color} />
+    </Svg>
   );
 }
 
@@ -212,6 +239,41 @@ export default function Today() {
     staleTime: 5 * 60_000,
   });
 
+  /**
+   * Twelve weeks of sky, so the picture can show direction instead of only
+   * position. Cheap, cached, and the screen is fully usable without it.
+   */
+  const { data: drift } = useQuery({
+    queryKey: ['life-drift'],
+    queryFn: () => api<any>('/life-os/drift?weeks=12'),
+    staleTime: 30 * 60_000,
+  });
+  /** A moment from this day in an earlier year. The best thing the app owns. */
+  const { data: onThisDay } = useQuery({
+    queryKey: ['memories-otd'],
+    queryFn: () => api<any[]>('/memories/on-this-day'),
+    staleTime: 30 * 60_000,
+  });
+  const [lastOpened, setLastOpened] = useState<string | null>(null);
+  useEffect(() => {
+    /**
+     * Continuity. Read the previous visit, then stamp this one — so the line
+     * describes the gap the person just came back across, not this instant.
+     */
+    let alive = true;
+    AsyncStorage.getItem('priority.lastOpenedAt').then((prev) => {
+      if (alive) setLastOpened(prev);
+      AsyncStorage.setItem('priority.lastOpenedAt', new Date().toISOString());
+    });
+    return () => { alive = false; };
+  }, []);
+  const { data: since } = useQuery({
+    queryKey: ['life-since', lastOpened],
+    queryFn: () => api<any>(`/life-os/since?at=${encodeURIComponent(lastOpened!)}`),
+    enabled: !!lastOpened,
+    staleTime: 60 * 60_000,
+  });
+
   const [justCompleted, setJustCompleted] = useState<any | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
 
@@ -228,9 +290,11 @@ export default function Today() {
     !hasAnswer('futureSelf') && !hasAnswer('currentReality');
 
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['dashboard'] });
     qc.invalidateQueries({ queryKey: ['missions'] });
     qc.invalidateQueries({ queryKey: ['missions-completed'] });
+    // The year grid, the drift behind the sky, the Record — all derived from
+    // the act just written, and none of them refreshed before this.
+    invalidateLifeRecord(qc);
   };
   const complete = useMutation({
     mutationFn: (m: any) => api<any>(`/missions/${m.id}/complete`, { method: 'POST' }),
@@ -362,7 +426,31 @@ export default function Today() {
 
   const m = data.todayMission;
   const liveDomains = allDomains.filter((d: any) => d.importance > 0);
-  const score = alignmentScore(liveDomains);
+  const reading = lifeAlignment(liveDomains);
+  const score = reading.score;
+
+  /**
+   * The sky as it stood twelve weeks ago — the oldest sample held for each
+   * domain. Absent history simply means no ghosts, never a broken picture.
+   */
+  const pastDomains = useMemo(() => {
+    const series = drift?.series as Record<string, any[]> | undefined;
+    if (!series) return undefined;
+    const out = Object.entries(series)
+      .map(([domainType, points]) => points?.length ? {
+        domainType,
+        importance: points[0].importance,
+        attention: points[0].attention,
+      } : null)
+      .filter(Boolean) as any[];
+    return out.length ? out : undefined;
+  }, [drift]);
+
+  /** The selected star's own twelve weeks, for the trail under the read-out. */
+  const activeSeries: number[] = useMemo(() => {
+    const points = (drift?.series as Record<string, any[]> | undefined)?.[activeKey ?? ''] ?? [];
+    return points.map((p) => Math.max(0, Math.min(100, p.attention)));
+  }, [drift, activeKey]);
   const gam = data.gamification;
   const lvl = gam ? levelProgress(gam.totalXp ?? 0) : null;
   const dateLine = new Date().toLocaleDateString(undefined, {
@@ -380,6 +468,11 @@ export default function Today() {
   }).length;
   const habitsTotal = (data.todayHabits ?? []).length;
   const habitsDone = (data.todayHabits ?? []).filter((h: any) => h.doneToday).length;
+
+  /** How much of this year is left — the Today screen's one tie to the Time tab. */
+  const weeksLeftThisYear = Math.max(0, Math.round(
+    (Date.UTC(new Date().getUTCFullYear() + 1, 0, 1) - Date.now()) / (7 * 86_400_000),
+  ));
 
   const activeColor = active ? obsDomain(active.domainType) : obs.brass;
   const activeDrift = active ? driftOf(active) : 0;
@@ -447,11 +540,37 @@ export default function Today() {
           </View>
         </Rise>
 
+        {/* ── what happened while you were gone ────────────────────── */}
+        {since && since.days >= 1
+          && (since.missionsCompleted > 0 || since.momentsKept > 0
+              || since.entriesWritten > 0 || since.slipped.length > 0) ? (
+          <Rise delay={60}>
+            <View style={s.sinceRow}>
+              <Tick>
+                {since.days === 1 ? 'Since yesterday' : `In the ${since.days} days since you looked`}
+              </Tick>
+              <Text style={[obsType.dim, { marginTop: 4 }]}>
+                {[
+                  since.missionsCompleted > 0
+                    ? `${since.missionsCompleted} thing${since.missionsCompleted === 1 ? '' : 's'} done`
+                    : null,
+                  since.momentsKept > 0 ? `${since.momentsKept} moment${since.momentsKept === 1 ? '' : 's'} kept` : null,
+                  since.entriesWritten > 0 ? `${since.entriesWritten} written` : null,
+                ].filter(Boolean).join(' · ') || 'Nothing logged — which is also a week.'}
+                {since.slipped.length
+                  ? `. ${since.slipped.map((p: any) => p.name).join(' and ')} slipped past ${since.slipped.length === 1 ? 'their' : 'their'} usual.`
+                  : ''}
+              </Text>
+            </View>
+          </Rise>
+        ) : null}
+
         {/* ── the sky ──────────────────────────────────────────────── */}
         <Rise delay={90}>
           <View style={{ marginTop: 10 }}>
             <Constellation
               domains={allDomains}
+              past={pastDomains}
               selected={activeKey ?? undefined}
               onSelect={(k) => setPicked(k)}
               size={300}
@@ -468,7 +587,11 @@ export default function Today() {
                 <View style={s.lensClear}><Tick>Show all</Tick></View>
               </Pressable>
             ) : (
-              <Tick>Outward = neglected · tap a star</Tick>
+              <Tick>
+                {pastDomains
+                  ? 'Outward = neglected · rings show 12 weeks ago · tap a star'
+                  : 'Outward = neglected · tap a star'}
+              </Tick>
             )}
           </View>
         </Rise>
@@ -489,6 +612,8 @@ export default function Today() {
                     : `you say ${Math.round(active.importance)} · you do ${Math.round(active.attention)}`}
                 </Tick>
               </View>
+              {/* Where it has been, beside where it is. */}
+              <Trail points={activeSeries} color={activeColor} />
               <View style={{ alignItems: 'flex-end', gap: 3 }}>
                 <Text style={[obsType.stat, { fontSize: 21, color: activeColor }]}>
                   {Math.round((1 - activeDrift) * 100)}
@@ -595,15 +720,27 @@ export default function Today() {
               ) : null}
 
               <View style={s.btnRow}>
+                {/* Guarded: two taps used to mean two completions and double
+                    XP, with nothing on screen to say the first one had landed. */}
                 <Pressable
+                  disabled={complete.isPending || snooze.isPending}
                   onPress={() => complete.mutate(m)}
-                  style={({ pressed }) => [s.btn, s.btnGo, pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] }]}
+                  style={({ pressed }) => [
+                    s.btn, s.btnGo,
+                    (complete.isPending || snooze.isPending) && { opacity: 0.55 },
+                    pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] },
+                  ]}
                 >
-                  <Text style={s.btnGoText}>Done</Text>
+                  <Text style={s.btnGoText}>{complete.isPending ? 'Saving…' : 'Done'}</Text>
                 </Pressable>
                 <Pressable
+                  disabled={complete.isPending || snooze.isPending}
                   onPress={() => snooze.mutate(m.id)}
-                  style={({ pressed }) => [s.btn, s.btnGhost, pressed && { opacity: 0.7 }]}
+                  style={({ pressed }) => [
+                    s.btn, s.btnGhost,
+                    (complete.isPending || snooze.isPending) && { opacity: 0.55 },
+                    pressed && { opacity: 0.7 },
+                  ]}
                 >
                   <Text style={s.btnGhostText}>Not today</Text>
                 </Pressable>
@@ -656,14 +793,24 @@ export default function Today() {
               <Text style={[obsType.dim, { marginTop: 8 }]}>{heroProposal.because}</Text>
               <View style={s.btnRow}>
                 <Pressable
+                  disabled={acceptProposal.isPending || dismissProposal.isPending}
                   onPress={() => acceptProposal.mutate(heroProposal)}
-                  style={({ pressed }) => [s.btn, s.btnGo, pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] }]}
+                  style={({ pressed }) => [
+                    s.btn, s.btnGo,
+                    (acceptProposal.isPending || dismissProposal.isPending) && { opacity: 0.55 },
+                    pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] },
+                  ]}
                 >
-                  <Text style={s.btnGoText}>I'll do it</Text>
+                  <Text style={s.btnGoText}>{acceptProposal.isPending ? 'Saving…' : "I'll do it"}</Text>
                 </Pressable>
                 <Pressable
+                  disabled={acceptProposal.isPending || dismissProposal.isPending}
                   onPress={() => dismissProposal.mutate({ p: heroProposal })}
-                  style={({ pressed }) => [s.btn, s.btnGhost, pressed && { opacity: 0.7 }]}
+                  style={({ pressed }) => [
+                    s.btn, s.btnGhost,
+                    (acceptProposal.isPending || dismissProposal.isPending) && { opacity: 0.55 },
+                    pressed && { opacity: 0.7 },
+                  ]}
                 >
                   <Text style={s.btnGhostText}>Not this</Text>
                 </Pressable>
@@ -717,12 +864,20 @@ export default function Today() {
               <Text style={[obsType.stat, { color: obs.brass }]}>{Math.round(score)}</Text>
               <Tick>alignment</Tick>
             </View>
-            <Pressable style={s.tile} onPress={() => router.push('/(tabs)/people')}>
-              <Text style={[obsType.stat, { color: peopleWaiting > 0 ? obsDomain('partner') : obs.ink }]}>
-                {peopleWaiting}
-              </Text>
-              <Tick>waiting</Tick>
-            </Pressable>
+            {/* `waiting` sat at 0 most days, holding a third of the fold to say
+                nothing. It appears when there is someone in it and gives the
+                space back when there is not. */}
+            {peopleWaiting > 0 ? (
+              <Pressable style={s.tile} onPress={() => router.push('/(tabs)/people')}>
+                <Text style={[obsType.stat, { color: obsDomain('partner') }]}>{peopleWaiting}</Text>
+                <Tick>waiting</Tick>
+              </Pressable>
+            ) : (
+              <Pressable style={s.tile} onPress={() => router.push('/(tabs)/time')}>
+                <Text style={[obsType.stat, { color: obs.ink }]}>{weeksLeftThisYear}</Text>
+                <Tick>weeks left in {new Date().getFullYear()}</Tick>
+              </Pressable>
+            )}
             <View style={s.tile}>
               <Text style={[obsType.stat, { color: obs.ink }]}>
                 {habitsTotal > 0 ? `${habitsDone}/${habitsTotal}` : (gam?.dailyStreak ?? 0)}
@@ -730,6 +885,38 @@ export default function Today() {
               <Tick>{habitsTotal > 0 ? 'habits today' : 'day streak'}</Tick>
             </View>
           </View>
+          {/* One sentence saying what the number above is actually about.
+              A bare 75 is trivia; "friends is the one paying for it" is not. */}
+          {reading.starved && reading.worstGapPoints >= 3 ? (
+            <Pressable
+              onPress={() => setPicked(reading.starved!.domainType)}
+              style={({ pressed }) => [s.alignNote, pressed && { opacity: 0.7 }]}
+            >
+              <View style={[s.orb, { backgroundColor: obsDomain(reading.starved.domainType), marginTop: 0 }]} />
+              <Text style={[obsType.dim, { flex: 1 }]}>
+                <Text style={{ textTransform: 'capitalize' }}>{reading.starved.domainType}</Text>
+                {' '}is getting the least of what you said it was worth
+                {reading.fed ? `, and ${reading.fed.domainType} the most` : ''}.
+              </Text>
+            </Pressable>
+          ) : null}
+
+          {/* ── this day, in an earlier year ───────────────────────── */}
+          {onThisDay && onThisDay.length > 0 ? (
+            <Pressable
+              onPress={() => router.push('/(tabs)/journal')}
+              style={({ pressed }) => [s.onThisDay, pressed && { opacity: 0.75 }]}
+            >
+              <Tick color={obs.brass}>On this day</Tick>
+              <Text style={[obsType.said, { marginTop: 5, fontSize: 15.5 }]}>
+                “{onThisDay[0].title}”
+              </Text>
+              <Text style={[obsType.dim, { marginTop: 3 }]}>
+                {new Date(onThisDay[0].occurredAt).getFullYear()}
+                {onThisDay.length > 1 ? ` · and ${onThisDay.length - 1} more` : ''}
+              </Text>
+            </Pressable>
+          ) : null}
           {gam && lvl ? (
             <View style={s.levelRow}>
               <Tick>Level {lvl.level}</Tick>
@@ -889,6 +1076,19 @@ const s = StyleSheet.create({
   },
 
   glance: { flexDirection: 'row', gap: 10 },
+  sinceRow: {
+    borderLeftWidth: 2, borderLeftColor: obs.ruleSoft,
+    paddingLeft: 12, paddingVertical: 2, marginTop: 14,
+  },
+  alignNote: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    marginTop: 10, paddingHorizontal: 2,
+  },
+  onThisDay: {
+    marginTop: 14, padding: 15, borderRadius: 16,
+    borderWidth: 1, borderColor: alpha(obs.brass, 0.28),
+    backgroundColor: obs.sunken,
+  },
   tile: {
     flex: 1, alignItems: 'center', gap: 5, paddingVertical: 16,
     borderWidth: 1, borderColor: obs.ruleSoft, borderRadius: 16,

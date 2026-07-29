@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { invalidateLifeRecord } from '@/services/invalidate';
+import { useRefresh } from '@/hooks/useRefresh';
 import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
 import { colors, type, space, domainColor, alpha } from '@/theme';
 
@@ -59,7 +61,7 @@ export default function Review() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['missions'] });
       qc.invalidateQueries({ queryKey: ['missions-completed'] });
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      invalidateLifeRecord(qc);
     },
   });
   const submit = useMutation({
@@ -115,12 +117,20 @@ export default function Review() {
   const togglePick = (t: string) =>
     setPicked((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t].slice(0, 7)));
 
+  const { refreshing, onRefresh } = useRefresh();
+
   const sessionDone = review?.sessionCompletedAt || done;
 
   // ------------------------------------------------------------------ intro
   if (!inSession) {
     return (
-      <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={s.wrap}>
+      <ScrollView
+        style={{ flex: 1, backgroundColor: colors.bg }}
+        contentContainerStyle={s.wrap}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.amber} />
+        }
+      >
         <View style={{ gap: 4 }}>
           <Text style={type.display}>The Sunday Session</Text>
           <Text style={type.dim}>Fifteen minutes to step back, look at your life, and choose what comes next.</Text>
@@ -209,7 +219,13 @@ export default function Review() {
 
   // ------------------------------------------------------------------ steps
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={s.wrap}>
+    <ScrollView
+        style={{ flex: 1, backgroundColor: colors.bg }}
+        contentContainerStyle={s.wrap}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.amber} />
+        }
+      >
       <View style={s.progressHeader}>
         <Pressable onPress={() => (step > 1 ? setStep(step - 1) : setInSession(false))} hitSlop={12}>
           <Ionicons name="chevron-back" size={22} color={colors.textDim} />
@@ -239,8 +255,13 @@ export default function Review() {
               {pendingMissions.slice(0, 5).map((m) => (
                 <Pressable
                   key={m.id}
+                  disabled={completeMission.isPending}
                   onPress={() => completeMission.mutate(m.id)}
-                  style={({ pressed }) => [s.missionRow, pressed && { opacity: 0.6 }]}
+                  style={({ pressed }) => [
+                    s.missionRow,
+                    completeMission.isPending && { opacity: 0.5 },
+                    pressed && { opacity: 0.6 },
+                  ]}
                 >
                   <Ionicons name="ellipse-outline" size={18} color={colors.textFaint} />
                   <Text style={[type.body, { flex: 1 }]}>{m.title}</Text>

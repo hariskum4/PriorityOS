@@ -12,7 +12,8 @@
  * person wants is in the words directly below.
  */
 import React from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
+import { View, Text, ActivityIndicator, Pressable, StyleSheet, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as Svg from 'react-native-svg';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/services/api';
@@ -42,15 +43,42 @@ function Drawn({ xml, size }: { xml: string; size: number }) {
 }
 
 export function Organism({ size = 300 }: { size?: number }) {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isPaused, refetch, isFetching } = useQuery({
     queryKey: ['life-organism', themeMode],
     queryFn: () => api<{ svg: string }>(`/life-os/organism?sky=${themeMode}`),
     // The render costs a few seconds of CPU and the shape of a life does not
     // move minute to minute; the server caches it too.
     staleTime: 10 * 60 * 1000,
+    retry: 1,
   });
 
-  if (isError) return null;
+  /**
+   * A failure that says so.
+   *
+   * This used to `return null`, so when the drawing could not be fetched it
+   * simply was not there — and the caption underneath it on the Record ("every
+   * limb is a domain, every tip an act") was left describing an empty gap. An
+   * image that vanishes silently is worse than one that admits it is missing.
+   */
+  if (isError || isPaused) {
+    return (
+      <View style={[s.frame, { height: size }]}>
+        <View style={s.waiting}>
+          <Ionicons name="leaf-outline" size={26} color={colors.textFaint} />
+          <Text style={[type.faint, { marginTop: space(2), textAlign: 'center' }]}>
+            {isPaused
+              ? 'The drawing needs a connection — it will grow back when you have one.'
+              : 'The drawing could not be grown just now.'}
+          </Text>
+          <Pressable onPress={() => refetch()} hitSlop={10} style={{ marginTop: space(2) }}>
+            <Text style={[type.label, { color: colors.amber }]}>
+              {isFetching ? 'Growing…' : 'Try again'}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[s.frame, { height: size }]}>

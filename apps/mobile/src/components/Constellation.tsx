@@ -95,9 +95,20 @@ export function mostAdrift(domains: DomainDatum[]): DomainDatum | null {
 }
 
 export function Constellation({
-  domains, selected, onSelect, size = 300,
+  domains, past, selected, onSelect, size = 300,
 }: {
   domains: DomainDatum[];
+  /**
+   * The same domains as they stood some weeks ago. Given these, each star
+   * gets a ghost at its old position and a hairline to where it is now.
+   *
+   * This is the difference between a portrait and a story. The live sky is
+   * honest and completely mute about direction — someone looking at it cannot
+   * tell whether they are climbing out of a hole or sliding into one, which is
+   * the only question they actually came with. The samples to answer it have
+   * been written weekly since the account existed and were read by nothing.
+   */
+  past?: DomainDatum[];
   selected?: string;
   onSelect?: (domainType: string) => void;
   size?: number;
@@ -106,7 +117,7 @@ export function Constellation({
   const rInner = size * 0.115;
   const rOuter = size * 0.435;
 
-  const stars = useMemo(() => domains.map((d) => {
+  const place = React.useCallback((d: DomainDatum) => {
     const drift = driftOf(d);
     const dormant = d.importance <= 0;
     const theta = ((ANGLE[d.domainType] ?? fallbackAngle(d.domainType)) * Math.PI) / 180;
@@ -121,9 +132,33 @@ export function Constellation({
       glow: dormant ? 0.12 : 0.28 + (1 - drift) * 0.5,
       core: dormant ? 0.22 : 0.42 + (1 - drift) * 0.58,
       angle: ANGLE[d.domainType] ?? fallbackAngle(d.domainType),
+      drift,
       dormant,
     };
-  }), [domains, c, rInner, rOuter]);
+  }, [c, rInner, rOuter]);
+
+  const stars = useMemo(() => domains.map(place), [domains, place]);
+
+  /**
+   * Ghosts, drawn only where the star has actually moved.
+   *
+   * A trail one pixel long is noise pretending to be information, so anything
+   * under ~2% of the field is treated as standing still.
+   */
+  const ghosts = useMemo(() => {
+    if (!past?.length) return [];
+    const then = new Map(past.map((d) => [d.domainType, d]));
+    return stars.flatMap((s) => {
+      const was = then.get(s.key);
+      if (!was || s.dormant) return [];
+      const old = place(was);
+      const moved = Math.hypot(old.x - s.x, old.y - s.y);
+      if (moved < size * 0.02) return [];
+      // Inward is recovery, outward is loss — the one colour judgement the
+      // sky makes, and it is about direction, never about the person.
+      return [{ ...old, now: s, inward: old.drift > s.drift }];
+    });
+  }, [past, stars, place, size]);
 
   /** Figure lines, drawn only where both ends are lit. */
   const byKey = useMemo(() => {
@@ -206,6 +241,22 @@ export function Constellation({
             x1={a.x} y1={a.y} x2={b.x} y2={b.y}
             stroke={alpha(obs.ink, 0.18)} strokeWidth={0.6}
           />
+        ))}
+
+        {/* Where each star stood, and the path it took to here. Under the
+            live stars on purpose — the past should never be the brighter of
+            the two. */}
+        {ghosts.map((g) => (
+          <G key={`ghost-${g.key}`}>
+            <Line
+              x1={g.x} y1={g.y} x2={g.now.x} y2={g.now.y}
+              stroke={g.color} strokeWidth={0.8}
+              strokeDasharray="2 3"
+              opacity={0.34}
+            />
+            <Circle cx={g.x} cy={g.y} r={g.radius * 0.75} fill="none"
+              stroke={g.color} strokeWidth={0.7} opacity={0.32} />
+          </G>
         ))}
 
         {/* centre — the self */}
