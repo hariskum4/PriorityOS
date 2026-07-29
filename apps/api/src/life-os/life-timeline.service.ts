@@ -27,6 +27,7 @@
 import { Injectable } from '@nestjs/common';
 import { DomainType, domainForRelationType } from '@priority/types';
 import { PrismaService } from '../prisma/prisma.service';
+import { dayKeyIn } from '../common/time';
 
 /** One thing that happened, once we have flattened every source. */
 interface DatedAct {
@@ -72,18 +73,46 @@ export interface TimelineYear {
   sample: Record<string, Array<{ label: string; domain: string | null; kind: string }>>;
 }
 
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
+/**
+ * Which day an act belongs to — the person's day, not the server's.
+ *
+ * This used UTC, and UTC is nobody's calendar. Caught in use from Bengaluru at
+ * 01:20 on a Thursday: a dozen missions completed that minute were filed under
+ * Wednesday, because 01:20 IST is 19:50 UTC the day before. Every night
+ * between midnight and 05:30 local landed on the wrong square. Going the other
+ * way it is worse — from New York, everything after 7pm files under tomorrow,
+ * which is most of the hours anyone actually logs a day in.
+ *
+ * `dayKeyIn` already existed for exactly this; the timeline simply never
+ * called it. Worth stating plainly why it matters here more than elsewhere:
+ * this record is meant to be read in forty years, so a misfiled act is not a
+ * glitch that clears on refresh. It is a permanent error in someone's history,
+ * and there is no way to tell later that it was wrong.
+ */
+const dayOf = (d: Date, tz: string | null | undefined) => dayKeyIn(tz, d);
+
+/** A day either side, so a local year is fully covered by a UTC fetch window. */
+const DAY_MS = 86_400_000;
 
 @Injectable()
 export class LifeTimelineService {
   constructor(private prisma: PrismaService) {}
 
+  /** The zone this person's days are measured in. */
+  private async zoneOf(userId: string): Promise<string> {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    return u?.timezone ?? 'UTC';
+  }
+
   /** Which calendar years hold anything at all — marks the life-in-years grid. */
   async yearsWithActivity(userId: string): Promise<number[]> {
-    const acts = await this.gather(userId);
-    return [...new Set(acts.map((a) => a.at.getUTCFullYear()))].sort();
+    const [acts, tz] = await Promise.all([this.gather(userId), this.zoneOf(userId)]);
+    // Local years, for the same reason as local days: an act logged late on
+    // New Year's Eve belongs to the year the person was living in.
+    return [...new Set(acts.map((a) => Number(dayOf(a.at, tz).slice(0, 4))))].sort();
   }
 
   /**
@@ -214,9 +243,18 @@ export class LifeTimelineService {
   }
 
   async year(userId: string, year: number): Promise<TimelineYear> {
-    const from = new Date(Date.UTC(year, 0, 1));
-    const to = new Date(Date.UTC(year + 1, 0, 1));
-    const acts = (await this.gather(userId, from, to));
+    const tz = await this.zoneOf(userId);
+    // A local year is not a UTC year. Fetch a day wider at each end — every
+    // zone on earth sits within ±14 hours — and then let the local day key
+    // decide what actually belongs to this year.
+    const from = new Date(Date.UTC(year, 0, 1) - DAY_MS);
+    const to = new Date(Date.UTC(year + 1, 0, 1) + DAY_MS);
+    const spill = await this.gather(userId, from, to);
+
+    const dated = spill
+      .map((a) => ({ act: a, key: dayOf(a.at, tz) }))
+      .filter((e) => e.key.startsWith(`${year}-`));
+    const acts = dated.map((e) => e.act);
 
     // Year-wide domain totals first: the tie-break needs to know what is rare.
     const byDomain: Record<string, number> = {};
@@ -225,17 +263,23 @@ export class LifeTimelineService {
     }
 
     const buckets = new Map<string, DatedAct[]>();
-    for (const a of acts) {
-      const key = ymd(a.at);
-      buckets.set(key, [...(buckets.get(key) ?? []), a]);
+    for (const { act, key } of dated) {
+      buckets.set(key, [...(buckets.get(key) ?? []), act]);
     }
 
     // Every day of the year, present or not — the grid is a calendar, and a
     // sparse array would silently reflow it.
     const days: TimelineDay[] = [];
     const sample: TimelineYear['sample'] = {};
-    for (let d = new Date(from); d < to; d.setUTCDate(d.getUTCDate() + 1)) {
-      const key = ymd(d);
+    // Jan 1 to Dec 31 of the requested year, independent of the fetch window,
+    // which is now a day wider at each end. UTC is used here purely as
+    // calendar arithmetic for enumerating dates — never as a zone.
+    for (
+      let d = new Date(Date.UTC(year, 0, 1));
+      d.getUTCFullYear() === year;
+      d.setUTCDate(d.getUTCDate() + 1)
+    ) {
+      const key = d.toISOString().slice(0, 10);
       const dayActs = buckets.get(key) ?? [];
 
       const dayDomains: Record<string, number> = {};
