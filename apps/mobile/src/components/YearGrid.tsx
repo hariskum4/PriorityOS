@@ -53,6 +53,15 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+/** Monday-first, the way a diary reads. */
+const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+/** Monday-first weekday index. */
+function weekdayIndex(d: Date): number {
+  return (d.getUTCDay() + 6) % 7;
+}
 
 /** "Tuesday, 14 July 2026" — a day someone lived, not a database key. */
 function longDate(ymd: string): string {
@@ -62,26 +71,238 @@ function longDate(ymd: string): string {
   });
 }
 
+/**
+ * A month, as a calendar.
+ *
+ * Cells here are large enough to say more than one thing: the date, and up to
+ * three dots for the parts of life that day belonged to. That is what makes
+ * this a zoom level rather than a magnifying glass — the year can only ever
+ * show a day its single dominant colour.
+ */
+function MonthGrid({ year, month, byDate, width, focus, picked, litColour, onPick }: {
+  year: number; month: number; byDate: Map<string, TimelineDay>; width: number;
+  focus: string | null; picked: TimelineDay | null;
+  litColour: (d: TimelineDay) => string | null;
+  onPick: (d: TimelineDay) => void;
+}) {
+  const GAP = 6;
+  const cell = width > 0 ? Math.max(30, Math.min(64, (width - GAP * 6) / 7)) : 40;
+
+  const weeks = useMemo(() => {
+    const first = new Date(Date.UTC(year, month, 1));
+    const lead = weekdayIndex(first);
+    const daysIn = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const slots: Array<string | null> = [
+      ...new Array(lead).fill(null),
+      ...Array.from({ length: daysIn }, (_, i) =>
+        `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`),
+    ];
+    while (slots.length % 7) slots.push(null);
+    const out: Array<Array<string | null>> = [];
+    for (let i = 0; i < slots.length; i += 7) out.push(slots.slice(i, i + 7));
+    return out;
+  }, [year, month]);
+
+  return (
+    <View>
+      <View style={{ flexDirection: 'row', gap: GAP, marginBottom: 4 }}>
+        {WEEKDAYS.map((w, i) => (
+          <Text key={i} style={[s.axis, { width: cell, textAlign: 'center' }]}>{w}</Text>
+        ))}
+      </View>
+      {weeks.map((week, wi) => (
+        <View key={wi} style={{ flexDirection: 'row', gap: GAP, marginBottom: GAP }}>
+          {week.map((date, di) => {
+            if (!date) return <View key={di} style={{ width: cell, height: cell }} />;
+            const day = byDate.get(date);
+            const c = day ? litColour(day) : null;
+            const isPicked = picked?.date === date;
+            const dots = day
+              ? (focus
+                  ? (day.byDomain[focus] ? [focus] : [])
+                  : Object.entries(day.byDomain).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k))
+              : [];
+            return (
+              <Pressable
+                key={di}
+                onPress={() => day && onPick(day)}
+                style={[
+                  s.monthCell,
+                  { width: cell, height: cell },
+                  c ? { backgroundColor: alpha(c, 0.18), borderColor: alpha(c, 0.5) } : null,
+                  isPicked && { borderColor: colors.text, borderWidth: 1.5 },
+                ]}
+              >
+                <Text style={[s.monthDate, c ? { color: colors.text } : null]}>{Number(date.slice(8, 10))}</Text>
+                <View style={{ flexDirection: 'row', gap: 3, marginTop: 'auto' }}>
+                  {dots.map((d) => (
+                    <View key={d} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: domainColor(d) }} />
+                  ))}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * The whole year, in the contribution-graph orientation: a column per week, a
+ * row per weekday. Down means weekday and across means time, so the weekly
+ * pulse of a life is visible in the shape rather than only in the numbers.
+ *
+ * Cells are sized to whatever width we are given rather than fixed, so a year
+ * never scrolls sideways inside a tab that scrolls down — the gesture conflict
+ * that made this view unusable. It can afford to be small because it no longer
+ * has to be tapped precisely: the month view exists for that, and this one is
+ * for the shape.
+ */
+function YearHeat({ days, width, picked, litColour, onPick, onMonth }: {
+  days: TimelineDay[]; width: number; picked: TimelineDay | null;
+  litColour: (d: TimelineDay) => string | null;
+  onPick: (d: TimelineDay) => void;
+  onMonth: (m: number) => void;
+}) {
+  const GAP = 1.5;
+  const AXIS = 12;
+
+  const columns = useMemo(() => {
+    const cols: Array<Array<TimelineDay | null>> = [];
+    let current: Array<TimelineDay | null> = new Array(7).fill(null);
+    let started = false;
+    for (const day of days) {
+      const wd = weekdayIndex(new Date(`${day.date}T00:00:00Z`));
+      if (!started) started = true;
+      else if (wd === 0) { cols.push(current); current = new Array(7).fill(null); }
+      current[wd] = day;
+    }
+    if (started) cols.push(current);
+    return cols;
+  }, [days]);
+
+  const cell = width > 0
+    ? Math.max(3.5, Math.min(11, (width - AXIS - columns.length * GAP) / columns.length))
+    : 6;
+
+  /** Which column each month begins in, for the axis — and for jumping in. */
+  const monthMarks = useMemo(() => {
+    const marks: Array<{ month: number; col: number }> = [];
+    columns.forEach((col, i) => {
+      const first = col.find((d) => d !== null);
+      if (!first) return;
+      const m = Number(first.date.slice(5, 7)) - 1;
+      if (!marks.length || marks[marks.length - 1].month !== m) marks.push({ month: m, col: i });
+    });
+    return marks;
+  }, [columns]);
+
+  return (
+    <View>
+      {/* Month labels are also the way in: tapping one opens that month. */}
+      <View style={{ height: 14, marginLeft: AXIS }}>
+        {monthMarks.map((mark) => (
+          <Pressable
+            key={mark.month}
+            onPress={() => onMonth(mark.month)}
+            hitSlop={6}
+            style={{ position: 'absolute', left: mark.col * (cell + GAP), top: 0 }}
+          >
+            <Text style={s.axis}>{MONTHS[mark.month]}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <View style={{ flexDirection: 'row' }}>
+        <View style={{ width: AXIS }}>
+          {['M', '', 'W', '', 'F', '', 'S'].map((w, i) => (
+            <View key={i} style={{ height: cell + GAP, justifyContent: 'center' }}>
+              <Text style={s.axis}>{w}</Text>
+            </View>
+          ))}
+        </View>
+        {columns.map((col, ci) => (
+          <View key={ci}>
+            {col.map((day, ri) => {
+              if (!day) return <View key={ri} style={{ width: cell, height: cell, marginBottom: GAP, marginRight: GAP }} />;
+              const c = litColour(day);
+              const isPicked = picked?.date === day.date;
+              return (
+                <Pressable
+                  key={ri}
+                  onPress={() => onPick(day)}
+                  hitSlop={3}
+                  style={[
+                    s.cell,
+                    { width: cell, height: cell, marginBottom: GAP, marginRight: GAP },
+                    // Rest days are the faintest possible mark — present, but
+                    // never reading as an accusation.
+                    c ? { backgroundColor: c, borderColor: c } : { borderColor: colors.lineSoft },
+                    isPicked && s.cellPicked,
+                  ]}
+                />
+              );
+            })}
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: () => void }) {
+  /**
+   * Two zooms, because they answer different questions.
+   *
+   * A year is for shape — *where did my life actually go* — and needs the whole
+   * 365 in one picture, which is exactly what makes a single lit week in April
+   * legible as mostly-nothing. A month is for detail, and a month rendered in
+   * the year's own orientation is a five-column sliver: awkward, and no more
+   * informative than the year already was.
+   *
+   * Transposed, a month is simply a calendar — the shape everyone can already
+   * read — and its cells are large enough to carry a date and more than one
+   * colour, which is what earns the extra level rather than just magnifying it.
+   *
+   * The year keeps the contribution-graph orientation, where both axes mean
+   * something: down is weekday, across is time. An earlier attempt rotated the
+   * year to months-as-rows and lost that — every position still had a coordinate
+   * but no vertical or diagonal pattern meant anything, so it read as a lookup
+   * table rather than a picture of a life.
+   */
+  const isThisYear = data.year === new Date().getUTCFullYear();
+  const [mode, setMode] = useState<'month' | 'year'>(isThisYear ? 'month' : 'year');
+  // Opening the current year lands on the month you are living in. Opening 2009
+  // lands on the whole of 2009 — there is no "this month" in a year you are
+  // visiting, and what you came for is its shape.
+  const [month, setMonth] = useState(isThisYear ? new Date().getUTCMonth() : 0);
+
   const [picked, setPicked] = useState<TimelineDay | null>(null);
   /**
-   * One domain, isolated.
+   * One domain, isolated — and isolated at every zoom.
    *
-   * Tapping `impact 7` in the legend lights only the days that held something
-   * for impact and lets the rest fall back to the rest-day hairline. It turns
-   * the grid from a picture into a question — *show me every day I gave
-   * something* — which is the one query a year of your own life is worth
-   * running. Tap it again to get the whole year back.
+   * The filter survives moving between the year and a month, because it is one
+   * question ("show me family") that both views are capable of answering. The
+   * cost is that you can land in a month showing three lit days and read it as
+   * an empty month, so a filtered view always says so in words.
    */
   const [focus, setFocus] = useState<string | null>(null);
 
+  const [gridWidth, setGridWidth] = useState(0);
+
+  /** Every day of the year, by date, for direct lookup. */
+  const byDate = useMemo(() => {
+    const m = new Map<string, TimelineDay>();
+    for (const d of data.days) m.set(d.date, d);
+    return m;
+  }, [data.days]);
+
   /**
-   * The days worth stepping through, in order.
-   *
-   * Arrows walk *this* list rather than the calendar, because stepping one
-   * calendar day at a time through a life means landing on rest days over and
-   * over to find the next thing that happened. With a domain in focus it walks
-   * only that domain's days, so the arrows become "the next time I did this".
+   * The days worth stepping through, in order — filtered, and across the whole
+   * year rather than the visible month: the next thing that happened does not
+   * stop at a month boundary, so neither do the arrows. Landing on a day
+   * outside the open month brings the month with it.
    */
   const walk = useMemo(
     () => data.days.filter((d) => (focus ? (d.byDomain[focus] ?? 0) > 0 : d.total > 0)),
@@ -89,16 +310,11 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
   );
   const walkIndex = picked ? walk.findIndex((d) => d.date === picked.date) : -1;
 
-  /**
-   * The day the arrow would land on, or null when there is none that way.
-   *
-   * A picked day is often *outside* the walk — focus impact while sitting on a
-   * day that held none, and it belongs to no position in the list. Stepping
-   * from there has an obvious meaning ("the next day with impact after this
-   * one") and an easy wrong answer: treating it as no position at all, which
-   * greys out both arrows and strands the person on a day the filter has
-   * already excluded.
-   */
+  const pick = (day: TimelineDay | null) => {
+    setPicked(day);
+    if (day) setMonth(Number(day.date.slice(5, 7)) - 1);
+  };
+
   const target = (delta: number): TimelineDay | null => {
     if (!walk.length) return null;
     if (!picked) return delta > 0 ? walk[0] : walk[walk.length - 1];
@@ -109,62 +325,73 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
   };
   const step = (delta: number) => {
     const next = target(delta);
-    if (next) setPicked(next);
+    if (next) pick(next);
   };
   const canBack = !!target(-1);
   const canFwd = !!target(1);
 
-  /**
-   * Twelve rows of thirty-one, indexed by calendar position rather than by
-   * running order — so a month is a row and a date is a column, and neither
-   * has to be counted out.
-   */
-  const byMonth = useMemo(() => {
-    const grid: Array<Array<TimelineDay | null>> = Array.from({ length: 12 }, () => new Array(31).fill(null));
-    for (const day of data.days) {
-      const mo = Number(day.date.slice(5, 7)) - 1;
-      const dd = Number(day.date.slice(8, 10)) - 1;
-      if (grid[mo]) grid[mo][dd] = day;
-    }
-    return grid;
-  }, [data.days]);
+  const present = Object.entries(data.byDomain).sort((a, b) => b[1] - a[1]);
 
-  /**
-   * Cells sized to whatever width we are given, so the year never scrolls
-   * sideways — the whole reason for the rotation. Measured rather than
-   * assumed: this sits in a card that is 560 wide on a tablet and about 320
-   * on a phone, and a fixed cell size would either overflow one or waste the
-   * other.
-   */
-  const [gridWidth, setGridWidth] = useState(0);
-  const cell = gridWidth > 0
-    ? Math.max(5, Math.min(18, (gridWidth - LABEL_W - 31 * GAP) / 31))
-    : 9;
-
-  const present = Object.entries(data.byDomain)
-    .sort((a, b) => b[1] - a[1]);
+  /** Days in the open month holding the focused domain — what is on screen. */
+  const monthFocusDays = useMemo(() => {
+    if (!focus) return 0;
+    const prefix = `${data.year}-${String(month + 1).padStart(2, '0')}-`;
+    return data.days.filter((d) => d.date.startsWith(prefix) && (d.byDomain[focus] ?? 0) > 0).length;
+  }, [data.days, data.year, month, focus]);
 
   /** Everything recorded on the open day, and the part of it in focus. */
   const daySample = (picked && data.sample[picked.date]) || [];
   const dayActs = focus ? daySample.filter((a) => a.domain === focus) : daySample;
-  /** The day's true count for the focused domain — exact, unlike the sample. */
   const focusTotal = (focus && picked && (picked.byDomain[focus] ?? 0)) || 0;
+
+  /** Whether a day lights, and in which colour — the one rule both views share. */
+  const litColour = (day: TimelineDay): string | null => {
+    if (focus) return (day.byDomain[focus] ?? 0) > 0 ? domainColor(focus) : null;
+    return day.total > 0 && day.dominant ? domainColor(day.dominant) : null;
+  };
 
   return (
     <View style={s.wrap}>
       <View style={s.head}>
         <View style={{ flex: 1 }}>
-          <Text style={s.year}>{data.year}</Text>
-          {/* Framed as rest, deliberately. These are not missing days. */}
-          {/* States a fact. It used to end "— tap it again for the whole
-              year", which is the header explaining a control that is now
-              visible two lines below it; `Everything` says that better than a
-              sentence can, and colouring this line in the domain's hue made
-              it compete with the pill that is already showing the same state. */}
+          {/* The title is the zoom control, the way a calendar's is — no
+              segmented control, no extra chrome to hold a state the heading
+              can hold by itself. */}
+          {mode === 'month' ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Pressable onPress={() => setMode('year')} hitSlop={8}>
+                <Text style={s.year}>{MONTHS_LONG[month]} {data.year}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setMonth((m) => Math.max(0, m - 1))}
+                disabled={month === 0}
+                hitSlop={10}
+                style={({ pressed }) => [s.stepper, month === 0 && { opacity: 0.25 }, pressed && { opacity: 0.5 }]}
+              >
+                <Text style={s.stepperGlyph}>‹</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setMonth((m) => Math.min(11, m + 1))}
+                disabled={month === 11}
+                hitSlop={10}
+                style={({ pressed }) => [s.stepper, month === 11 && { opacity: 0.25 }, pressed && { opacity: 0.5 }]}
+              >
+                <Text style={s.stepperGlyph}>›</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Text style={s.year}>{data.year}</Text>
+          )}
+
+          {/* A filtered month can show three lit days and read as an empty
+              month. Scoping the sentence to what is actually on screen is the
+              whole cost of letting the filter survive the zoom, so it is paid
+              here rather than left for the person to work out. */}
           {focus ? (
             <Text style={type.faint}>
-              {data.byDomain[focus] ?? 0} for {focus} · {walk.length}
-              {' '}day{walk.length === 1 ? '' : 's'} of {data.activeDays}
+              {mode === 'month'
+                ? `${monthFocusDays} ${focus} day${monthFocusDays === 1 ? '' : 's'} in ${MONTHS_LONG[month]} · ${data.byDomain[focus] ?? 0} this year`
+                : `${data.byDomain[focus] ?? 0} for ${focus} · ${walk.length} day${walk.length === 1 ? '' : 's'} of ${data.activeDays}`}
             </Text>
           ) : (
             /* Framed as rest, deliberately. These are not missing days. */
@@ -181,73 +408,28 @@ export function YearGrid({ data, onClose }: { data: TimelineYearData; onClose?: 
         ) : null}
       </View>
 
-      {/*
-        A year as twelve rows of days.
-
-        This was a contributions heatmap: week-columns, weekday-rows, and 53
-        columns of it scrolling *horizontally* inside a tab that scrolls
-        vertically. That gesture conflict was the real defect — finding a date
-        meant fighting the page, and even then July 14 had to be counted out
-        column by column rather than read.
-
-        Rotated, it fits any phone without scrolling at all, and a date is
-        legible again: down to the month, across to the day. What it costs is
-        weekday alignment — "I only ever call on Sundays" is no longer visible
-        in the shape. That is a real loss, taken deliberately: the day panel
-        states the weekday in words, and a grid you cannot navigate is worth
-        less than a pattern you can rarely use.
-
-        What it keeps is the point of the thing. A year is still one picture,
-        so 14 lit days out of 365 still reads as mostly empty — and a domain in
-        focus still collapses the whole year to the few days that held it.
-      */}
       <View style={{ marginTop: space(3) }} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
-        {/* Day-number ticks, placed at absolute offsets: a per-column
-            container is under twelve pixels wide and would wrap or clip. */}
-        <View style={{ height: 12, marginLeft: LABEL_W }}>
-          {[1, 5, 10, 15, 20, 25, 30].map((d) => (
-            <Text key={d} style={[s.axis, { position: 'absolute', left: (d - 1) * (cell + GAP), top: 0 }]}>
-              {d}
-            </Text>
-          ))}
-        </View>
-
-        {byMonth.map((days, mo) => (
-          <View key={mo} style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={[s.axis, { width: LABEL_W }]}>{MONTHS[mo]}</Text>
-            {days.map((day, di) => {
-              // February has no 30th. An absent day is a gap, not a rest day.
-              if (!day) return <View key={di} style={{ width: cell, height: cell, marginRight: GAP }} />;
-              /* With a domain in focus, a day lights only if it held that
-                 domain — and in that domain's colour, not the day's own
-                 dominant one, so the answer reads in a single hue. */
-              const lit = focus
-                ? (day.byDomain[focus] ?? 0) > 0
-                : day.total > 0 && !!day.dominant;
-              const c = lit ? domainColor(focus ?? (day.dominant as string)) : null;
-              const isPicked = picked?.date === day.date;
-              return (
-                <Pressable
-                  key={di}
-                  onPress={() => setPicked(isPicked ? null : day)}
-                  hitSlop={{ top: 5, bottom: 5, left: 1, right: 1 }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${MONTHS[mo]} ${di + 1}, ${day.total} recorded`}
-                  style={[
-                    s.cell,
-                    { width: cell, height: cell, marginRight: GAP },
-                    // Rest days are the faintest possible mark — present, but
-                    // never reading as an accusation.
-                    lit
-                      ? { backgroundColor: c as string, borderColor: c as string }
-                      : { borderColor: colors.lineSoft },
-                    isPicked && s.cellPicked,
-                  ]}
-                />
-              );
-            })}
-          </View>
-        ))}
+        {mode === 'month' ? (
+          <MonthGrid
+            year={data.year}
+            month={month}
+            byDate={byDate}
+            width={gridWidth}
+            focus={focus}
+            picked={picked}
+            litColour={litColour}
+            onPick={pick}
+          />
+        ) : (
+          <YearHeat
+            days={data.days}
+            width={gridWidth}
+            picked={picked}
+            litColour={litColour}
+            onPick={(d) => { pick(d); }}
+            onMonth={(m) => { setMonth(m); setMode('month'); }}
+          />
+        )}
       </View>
 
       {/* ── the filter ─────────────────────────────────────────────
@@ -464,6 +646,16 @@ const s = StyleSheet.create({
     marginTop: space(3), gap: 1.5, backgroundColor: colors.lineSoft,
   },
 
+  /* A month's cell carries a date and up to three domains, which is what
+     earns the zoom rather than merely magnifying the year's single hue. */
+  monthCell: {
+    borderRadius: 9, borderWidth: 1, borderColor: colors.lineSoft,
+    padding: 5, backgroundColor: 'transparent',
+  },
+  monthDate: {
+    fontFamily: type.label.fontFamily, fontSize: 11, color: colors.textFaint,
+    fontVariant: type.stat.fontVariant,
+  },
   dot: { width: 7, height: 7, borderRadius: 4, marginTop: 6 },
   dayTitle: { fontSize: 16, color: colors.text, letterSpacing: -0.2, fontWeight: '600' },
   actRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
