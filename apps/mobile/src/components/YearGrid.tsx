@@ -311,7 +311,19 @@ export function YearGrid({
   // tapping a month label, which sets it explicitly — this is the fallback.
   const [month, setMonth] = useState(isThisYear ? new Date().getUTCMonth() : 0);
 
-  const [picked, setPicked] = useState<TimelineDay | null>(null);
+  /**
+   * The open day, held as a date rather than as the day itself.
+   *
+   * It used to hold the whole `TimelineDay`, which made it a photograph: the
+   * moment you completed a mission the year above updated — 141 things became
+   * 142 — while the open day underneath still read "35 things" and did not
+   * list what you had just done. The record had it, the grid had it, and the
+   * one panel actually being looked at was a snapshot taken on tap.
+   *
+   * A date is a reference. Everything about the day is looked up from whatever
+   * data is current, so a refetch reaches the open panel too.
+   */
+  const [pickedDate, setPickedDate] = useState<string | null>(null);
   /**
    * One domain, isolated — and isolated at every zoom.
    *
@@ -337,7 +349,7 @@ export function YearGrid({
   const [shownYear, setShownYear] = useState(year);
   if (shownYear !== year) {
     setShownYear(year);
-    setPicked(null);
+    setPickedDate(null);
   }
 
   const days = data?.days ?? [];
@@ -348,6 +360,10 @@ export function YearGrid({
     for (const d of days) m.set(d.date, d);
     return m;
   }, [days]);
+
+  /** The open day as it stands now, not as it stood when it was tapped. */
+  const picked: TimelineDay | null = pickedDate ? byDate.get(pickedDate) ?? null : null;
+  const setPicked = (d: TimelineDay | null) => setPickedDate(d?.date ?? null);
 
   /**
    * The neighbouring year that holds something, in a direction.
@@ -720,7 +736,7 @@ export function YearGrid({
                   </Text>
                 ) : picked.total > daySample.length ? (
                   <Text style={[type.faint, { marginTop: 2 }]}>
-                    + {picked.total - daySample.length} more
+                    + {picked.total - daySample.length} earlier that day
                   </Text>
                 ) : null}
               </View>

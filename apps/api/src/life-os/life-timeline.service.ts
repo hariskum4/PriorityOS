@@ -474,12 +474,21 @@ export class LifeTimelineService {
 
       days.push({ date: key, total: dayActs.length, byDomain: dayDomains, dominant, kinds });
       if (dayActs.length) {
-        // The cap exists only to bound a year's payload — 365 uncapped days of
-        // a busy life is megabytes over the wire. Day totals and per-domain
-        // counts are always exact (`total`, `byDomain`), so the client can
-        // state honestly what it is not showing rather than guessing from the
-        // length of this list.
-        sample[key] = dayActs.slice(0, 24).map((a) => ({
+        /**
+         * The cap exists only to bound a year's payload — 365 uncapped days of
+         * a busy life is megabytes over the wire. Day totals and per-domain
+         * counts are always exact (`total`, `byDomain`), so the client can
+         * state honestly what it is not showing rather than guessing from the
+         * length of this list.
+         *
+         * It keeps the *end* of the day, newest first, and that is the whole
+         * point. Keeping the first twenty-four was keeping the wrong end: on a
+         * day with thirty-seven things the count said thirty-seven, the list
+         * showed the morning, and the thing someone had just finished — the
+         * only reason they opened the day at all — was never in it. Whatever
+         * was done most recently is now the first line.
+         */
+        sample[key] = dayActs.slice(-24).reverse().map((a) => ({
           label: a.label,
           domain: a.domain,
           kind: a.kind,

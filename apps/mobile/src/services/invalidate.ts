@@ -25,6 +25,7 @@ const DERIVED_KEYS = [
   ['life-drift'],      // twelve weeks behind the constellation
   ['life-document'],   // the Record
   ['life-organism'],   // the drawing, which is grown from the same acts
+  ['life-rhythm'],     // how often each domain is touched, and what it holds
   ['dashboard'],
   ['memories-otd'],
   // Steal the time is ranked from attention shares and filtered by what is

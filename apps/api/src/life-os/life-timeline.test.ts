@@ -127,3 +127,58 @@ describe('timeline day bucketing', () => {
       .toEqual(['2026-07-29']);
   });
 });
+
+/**
+ * Which end of a busy day survives the cap.
+ *
+ * A year of days has to be bounded or the payload is megabytes, so each day
+ * sends a sample rather than everything. It used to send the first twenty-four
+ * — the wrong end. Someone finishes something, opens the day to see it, and
+ * finds the count agrees (thirty-seven things) while the list shows the
+ * morning and the thing they just did is nowhere in it. Reported as "it isn't
+ * getting logged"; it was logged, and then hidden behind the cap.
+ *
+ * The exact totals are what the screen counts with, so they must stay exact
+ * however much the sample drops.
+ */
+describe('what a busy day shows', () => {
+  const busy = (n: number) => Array.from({ length: n }, (_, i) => mission(
+    // 06:00 onwards in Kolkata, one every ten minutes, oldest first.
+    new Date(Date.UTC(2026, 6, 30, 0, 30 + i * 10)).toISOString(),
+    'health',
+    `Thing ${i}`,
+  ));
+
+  it('keeps what was done most recently, not what was done first', async () => {
+    const svc = service(fakePrisma({ timezone: 'Asia/Kolkata', missions: busy(37) }));
+    const { sample } = await svc.year('u1', 2026);
+    const labels = sample['2026-07-30'].map((a) => a.label);
+
+    expect(labels).toHaveLength(24);
+    expect(labels[0]).toBe('Thing 36');        // the newest is the first line
+    expect(labels).not.toContain('Thing 0');   // the morning is what gets dropped
+  });
+
+  it('reads newest first, so the thing just finished is at the top', async () => {
+    const svc = service(fakePrisma({ timezone: 'Asia/Kolkata', missions: busy(5) }));
+    const { sample } = await svc.year('u1', 2026);
+    expect(sample['2026-07-30'].map((a) => a.label))
+      .toEqual(['Thing 4', 'Thing 3', 'Thing 2', 'Thing 1', 'Thing 0']);
+  });
+
+  it('still counts the whole day, however much the sample drops', async () => {
+    const svc = service(fakePrisma({ timezone: 'Asia/Kolkata', missions: busy(37) }));
+    const { days, sample } = await svc.year('u1', 2026);
+    const day = days.find((d) => d.date === '2026-07-30')!;
+
+    expect(day.total).toBe(37);              // exact, so "+13 earlier" is right
+    expect(day.byDomain.health).toBe(37);    // exact per domain too
+    expect(sample['2026-07-30']).toHaveLength(24);
+  });
+
+  it('sends a short day whole', async () => {
+    const svc = service(fakePrisma({ timezone: 'Asia/Kolkata', missions: busy(3) }));
+    const { sample } = await svc.year('u1', 2026);
+    expect(sample['2026-07-30']).toHaveLength(3);
+  });
+});
