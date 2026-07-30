@@ -251,9 +251,20 @@ export class LifeTimelineService {
     missionsCompleted: number;
     momentsKept: number;
     entriesWritten: number;
+    /**
+     * Which parts of the life actually grew while they were away, in the same
+     * weighted currency the Organism is drawn from — heaviest first.
+     *
+     * This is the return moment the product is allowed to have. A strategy
+     * game pulls people back by threatening what they will lose; the honest
+     * version of that pull is showing what they built and cannot lose. It is
+     * deliberately about domains rather than counts: "family grew" is a fact
+     * about a life, "3 tasks done" is a fact about a list.
+     */
+    grew: Array<{ domain: string; weight: number }>;
     slipped: Array<{ name: string; days: number; wanted: string | null }>;
   }> {
-    const [missionsCompleted, momentsKept, entriesWritten, people] = await Promise.all([
+    const [missionsCompleted, momentsKept, entriesWritten, people, acts] = await Promise.all([
       this.prisma.mission.count({ where: { userId, status: 'completed', completedAt: { gte: since } } }),
       this.prisma.memory.count({ where: { userId, createdAt: { gte: since } } }),
       this.prisma.journalEntry.count({ where: { userId, createdAt: { gte: since } } }),
@@ -261,7 +272,18 @@ export class LifeTimelineService {
         where: { userId },
         select: { name: true, lastContactAt: true, desiredCallFrequency: true },
       }),
+      // Everything dated in the gap, so growth is measured the same way the
+      // drawing measures it rather than by counting rows in three tables.
+      this.gather(userId, since, new Date(Date.now() + 60_000)),
     ]);
+
+    const grewBy: Record<string, number> = {};
+    for (const a of acts) {
+      if (a.domain) grewBy[a.domain] = (grewBy[a.domain] ?? 0) + ACT_WEIGHT[a.kind];
+    }
+    const grew = Object.entries(grewBy)
+      .map(([domain, weight]) => ({ domain, weight: Math.round(weight * 10) / 10 }))
+      .sort((a, b) => b.weight - a.weight);
 
     /**
      * People who crossed their own cadence while you were away — the ones who
@@ -300,6 +322,7 @@ export class LifeTimelineService {
       missionsCompleted,
       momentsKept,
       entriesWritten,
+      grew,
       slipped,
     };
   }

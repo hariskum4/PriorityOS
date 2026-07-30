@@ -561,7 +561,8 @@ export default function Today() {
         {/* ── what happened while you were gone ────────────────────── */}
         {since && since.days >= 1
           && (since.missionsCompleted > 0 || since.momentsKept > 0
-              || since.entriesWritten > 0 || since.slipped.length > 0) ? (
+              || since.entriesWritten > 0 || since.slipped.length > 0
+              || (since.grew?.length ?? 0) > 0) ? (
           <Rise delay={60}>
             <View style={s.sinceRow}>
               <Tick>
@@ -579,6 +580,41 @@ export default function Today() {
                   ? `. ${since.slipped.map((p: any) => p.name).join(' and ')} slipped past ${since.slipped.length === 1 ? 'their' : 'their'} usual.`
                   : ''}
               </Text>
+
+              {/**
+                * What grew while they were away.
+                *
+                * The one return-pull this product is allowed. A strategy game
+                * brings people back by threatening what they will lose; the
+                * honest version shows what they built and cannot lose. Said in
+                * domains rather than counts on purpose — "family grew" is a
+                * fact about a life, "3 tasks done" is a fact about a list —
+                * and it names the drawing so the pull leads somewhere real.
+                */}
+              {since.grew?.length ? (
+                <Pressable
+                  onPress={() => router.push('/record')}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel="See your record"
+                  style={({ pressed }) => [s.grewRow, pressed && { opacity: 0.6 }]}
+                >
+                  {since.grew.slice(0, 4).map((g: any) => (
+                    <View key={g.domain} style={[s.grewDot, { backgroundColor: obsDomain(g.domain) }]} />
+                  ))}
+                  <Text style={[obsType.dim, { flex: 1 }]}>
+                    {(() => {
+                      const names = since.grew.map((g: any) => g.domain);
+                      const rest = names.length - 2;
+                      const said = names.length === 1 ? names[0]
+                        : names.length === 2 ? `${names[0]} and ${names[1]}`
+                          : `${names[0]}, ${names[1]} and ${rest} more`;
+                      return `${said} grew while you were away`;
+                    })()}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={13} color={obs.inkFaint} />
+                </Pressable>
+              ) : null}
             </View>
           </Rise>
         ) : null}
@@ -1101,6 +1137,10 @@ const s = StyleSheet.create({
     borderLeftWidth: 2, borderLeftColor: obs.ruleSoft,
     paddingLeft: 12, paddingVertical: 2, marginTop: 14,
   },
+  /* The growth line. A row, not a card: it is a sentence with dots, and
+     making it a panel would turn an observation into an announcement. */
+  grewRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  grewDot: { width: 6, height: 6, borderRadius: 3 },
   alignNote: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
     marginTop: 10, paddingHorizontal: 2,
