@@ -38,7 +38,7 @@ export class AiService {
     template: PromptTemplate,
     context: Record<string, unknown>,
     fallback: T,
-    opts?: { cacheKey?: string },
+    opts?: { cacheKey?: string; timeoutMs?: number },
   ): Promise<T> {
     // Day-level cache: hot paths (the dashboard) must not regenerate — or
     // even re-persist — the same narrative on every single request.
@@ -100,8 +100,17 @@ export class AiService {
             { role: 'user', content: redact(template.buildUser(context), pseudonyms) },
           ],
         }),
-        // Free pools sometimes hang instead of failing — never stall a request.
-        signal: AbortSignal.timeout(25_000),
+        /**
+         * Free pools sometimes hang instead of failing — never stall a request.
+         *
+         * 25s suits a caller whose screen is waiting on the answer. It is too
+         * tight for one that asks for several things at once from a model that
+         * emits reasoning tokens before its JSON: `stack_craft` timed out on
+         * every attempt until it could ask for longer. A caller that renders
+         * something useful while this runs can afford to wait, so the budget
+         * belongs to the caller rather than to this method.
+         */
+        signal: AbortSignal.timeout(opts?.timeoutMs ?? 25_000),
       });
       if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text()}`);
       const data = (await res.json()) as any;

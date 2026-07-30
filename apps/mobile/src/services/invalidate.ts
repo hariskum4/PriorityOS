@@ -27,6 +27,9 @@ const DERIVED_KEYS = [
   ['life-organism'],   // the drawing, which is grown from the same acts
   ['dashboard'],
   ['memories-otd'],
+  // Steal the time is ranked from attention shares and filtered by what is
+  // already planned, so every one of these writes changes what it should say.
+  ['life-stacks'],
 ];
 
 /**

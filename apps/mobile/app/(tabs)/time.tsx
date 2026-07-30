@@ -21,6 +21,7 @@ import {
   energyBudget,
   suggestSeason,
   PLANNING_HORIZON_AGE,
+  type StackSuggestion,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { useRefresh } from '@/hooks/useRefresh';
@@ -159,6 +160,21 @@ export default function TimeReality() {
     queryKey: ['missions', 'completed'],
     queryFn: () => api<any[]>('/missions?status=completed'),
   });
+  /**
+   * The server's version of Steal the time: the same ranking, worded for this
+   * life. Kept fresh for a few minutes rather than per render — the wording is
+   * cached server-side for the day anyway, and the ranking only moves when
+   * something is planned or completed, both of which invalidate this key.
+   */
+  const { data: craftedStacks } = useQuery({
+    queryKey: ['life-stacks'],
+    queryFn: () => api<{
+      stacks: StackSuggestion[];
+      helps: string[];
+      source: 'ai' | 'catalog';
+    }>('/life-os/stacks'),
+    staleTime: 5 * 60_000,
+  });
 
   /**
    * The year drill-down.
@@ -251,6 +267,8 @@ export default function TimeReality() {
       setJustPlanned(st.action);
       qc.invalidateQueries({ queryKey: ['missions'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
+      // The set has to re-plan around what was just agreed to.
+      qc.invalidateQueries({ queryKey: ['life-stacks'] });
     },
   });
 
@@ -399,7 +417,20 @@ export default function TimeReality() {
     })),
   );
   const shortDomains = shares.filter((s) => s.shortfall > 0);
-  const stacks = suggestStacks(shares, stackPeople, 3, [
+  /**
+   * The same ranking, run twice, and the server's answer wins.
+   *
+   * The server runs this exact engine and then has a model rewrite the wording
+   * for this particular life — the catalog is 26 fixed sentences and cannot
+   * know that someone cycles to work or has a six-year-old rather than a
+   * sixteen-year-old. What the server cannot do is answer while the phone is
+   * offline, which in an offline-first app is a normal Tuesday.
+   *
+   * So the local engine stays and computes the same slots from cached data.
+   * The ranking is identical either way — only the phrasing differs — so
+   * falling back is never a worse suggestion, just a plainer one.
+   */
+  const localStacks = suggestStacks(shares, stackPeople, 3, [
     ...(pendingMissions ?? []).map((m: any) => m.title),
     ...(doneMissions ?? [])
       .filter((m: any) => {
@@ -408,8 +439,13 @@ export default function TimeReality() {
       })
       .map((m: any) => m.title),
   ]);
+  const stacks: StackSuggestion[] = craftedStacks?.stacks?.length
+    ? craftedStacks.stacks
+    : localStacks;
   /** What these moves would actually feed — not merely touch. */
-  const stackHelps = shortfallsCovered(stacks);
+  const stackHelps = craftedStacks?.stacks?.length
+    ? craftedStacks.helps ?? []
+    : shortfallsCovered(localStacks);
   const allocation = weeklyAllocation(
     windows.freeTime.freeHoursPerWeek,
     activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance })),

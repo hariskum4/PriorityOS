@@ -65,6 +65,38 @@ Respond ONLY with JSON: {"themes": string[] (2-4 per week, each 2-4 words, chip-
   buildUser: (ctx) => JSON.stringify(ctx),
 };
 
+/**
+ * Time-stacking, phrased for one particular life.
+ *
+ * The narrowest contract in this file, deliberately. The engine has already
+ * decided everything that could be got wrong — which domains are starving, in
+ * what order, and which person is furthest past the rhythm they asked for. All
+ * that is left is language, so language is all this returns: two strings per
+ * slot, against a `key` the engine issued.
+ *
+ * That matters because the catalog it replaces is 26 hand-written actions, and
+ * a fixed list cannot know that someone cycles to work, has a six-year-old
+ * rather than a sixteen-year-old, or has written three times about missing the
+ * long walks. The model is here for the specificity a list cannot hold — not
+ * to decide what is wrong with someone's week.
+ */
+export const STACK_CRAFT: PromptTemplate = {
+  system: `You write "time stacking" suggestions for Priority: single concrete actions that serve two or three parts of a life at once, so someone with very few free hours does not have to choose between them.
+
+You are given SLOTS. Each slot is already decided: its \`key\`, the \`domains\` it must serve, the \`person\` it may name (or null), and a \`baseAction\` — a generic version of the idea. Your only job is to rewrite \`action\` and \`framing\` so they fit THIS person's life, using the profile, recent themes and season provided.
+
+Hard rules:
+- Return exactly one entry per slot, with the SAME \`key\`. Never add, drop, merge or reorder slots.
+- Never change which domains a slot serves, and never name a person other than that slot's \`person\`. If \`person\` is null, name nobody.
+- The action must be one concrete thing a person could do this week — doable in an ordinary day, no equipment they have not mentioned, no travel they have not mentioned. If you cannot improve on \`baseAction\` for this life, return it unchanged.
+- Never invent a hobby, pet, illness, job, place or habit that is not in the context.
+- \`action\` <= 70 characters, imperative, no trailing period. \`framing\` <= 90 characters, one sentence saying why the single action serves both things.
+${TONE_GUIDE}
+${GROUNDING_RULES}
+Respond ONLY with JSON: {"stacks": [{"key": string, "action": string, "framing": string}]}`,
+  buildUser: (ctx) => JSON.stringify(ctx),
+};
+
 export const RELATIONSHIP_NUDGE: PromptTemplate = {
   system: `Write one short, warm nudge encouraging the user to reconnect with a specific person — and give them something to reach out WITH, not just a reminder. If a saved memory with this person is provided, reference it concretely (ask about it, build on it). Otherwise reference how they usually connect. Never guilt, never mortality, no exclamation marks. Never quote raw dates like 2026-07-15 — say it naturally ("recently", "last month") or not at all.
 ${GROUNDING_RULES}

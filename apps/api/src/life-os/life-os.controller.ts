@@ -15,6 +15,7 @@ import { LifeOsService } from './life-os.service';
 import { LifeDocumentService } from './life-document.service';
 import { LifeTimelineService } from './life-timeline.service';
 import { LifeOrganismService } from './life-organism.service';
+import { StacksService } from './stacks.service';
 
 @UseGuards(JwtGuard)
 @Controller('life-os')
@@ -24,6 +25,7 @@ export class LifeOsController {
     private document: LifeDocumentService,
     private timeline: LifeTimelineService,
     private organism: LifeOrganismService,
+    private stacks: StacksService,
   ) {}
 
   /**
@@ -114,6 +116,17 @@ export class LifeOsController {
   ) {
     const graph = await this.lifeOs.graphFor(u.userId);
     return graph.propagate(domain, Number(delta ?? 10));
+  }
+
+  /**
+   * Steal the time — stolen hours ranked by what is starving, worded for
+   * this life. Falls back to the catalog wording whenever AI is off or fails,
+   * so the shape of the response never depends on a model being up.
+   */
+  @Get('stacks')
+  stealTheTime(@CurrentUser() u: JwtUser, @Query('limit') limit?: string) {
+    const n = Number(limit);
+    return this.stacks.forUser(u.userId, Number.isFinite(n) ? Math.min(Math.max(n, 1), 6) : 3);
   }
 
   // ---- the timeline ------------------------------------------------------
