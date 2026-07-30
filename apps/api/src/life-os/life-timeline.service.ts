@@ -94,6 +94,34 @@ const dayOf = (d: Date, tz: string | null | undefined) => dayKeyIn(tz, d);
 /** A day either side, so a local year is fully covered by a UTC fetch window. */
 const DAY_MS = 86_400_000;
 
+/**
+ * What an act is worth to the *shape* of a life, as opposed to its record.
+ *
+ * The day grid counts acts one apiece and should — a day is a day. The
+ * organism is different: it is grown from these totals, and whatever visibly
+ * grows is what people will quietly optimise for. Counting every act as one
+ * made that a to-do list. On the profile this was caught with, nine of every
+ * ten acts were completed missions: 89 ticked tasks against 4 kept memories
+ * and 4 written entries. A life of two hundred chores and no people would have
+ * drawn a magnificent organism, which is the wrong thing to tell someone.
+ *
+ * So the weights lean toward what cannot be repeated or rushed. A moment you
+ * chose to keep is worth several errands. Time with a person is worth more
+ * than a box ticked. None of it is worth zero — the errands are real, and a
+ * life is partly made of them.
+ *
+ * These are a starting point and deliberately legible: they encode what this
+ * product thinks a life is made of, so they should be argued with in the open
+ * rather than buried in a scoring config.
+ */
+const ACT_WEIGHT: Record<DatedAct['kind'], number> = {
+  memory: 5,      // a moment kept on purpose, unrepeatable
+  contact: 3,     // real time with a real person
+  reflection: 3,  // sitting with your own life
+  habit: 1.5,     // a rhythm actually sustained
+  mission: 1,     // a thing done
+};
+
 @Injectable()
 export class LifeTimelineService {
   constructor(private prisma: PrismaService) {}
@@ -124,13 +152,25 @@ export class LifeTimelineService {
    * product is built to hold. Same five queries here whether someone has been
    * using it for a week or a lifetime.
    */
-  async actTotalsByDomain(userId: string): Promise<Record<string, number>> {
-    const acts = await this.gather(userId);
+  async actTotalsByDomain(userId: string, upToYear?: number): Promise<Record<string, number>> {
+    const [acts, tz] = await Promise.all([this.gather(userId), this.zoneOf(userId)]);
     const totals: Record<string, number> = {};
     for (const a of acts) {
-      if (a.domain) totals[a.domain] = (totals[a.domain] ?? 0) + 1;
+      if (!a.domain) continue;
+      if (upToYear != null && Number(dayOf(a.at, tz).slice(0, 4)) > upToYear) continue;
+      totals[a.domain] = (totals[a.domain] ?? 0) + ACT_WEIGHT[a.kind];
     }
     return totals;
+  }
+
+  /**
+   * The years this life has on record, oldest first — the frames of its growth.
+   *
+   * One pass, because a person on their sixtieth year of this should not cost
+   * sixty round trips to draw.
+   */
+  async actYears(userId: string): Promise<number[]> {
+    return this.yearsWithActivity(userId);
   }
 
   /**

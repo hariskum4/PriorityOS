@@ -39,14 +39,23 @@ export class LifeOsController {
     @CurrentUser() u: JwtUser,
     @Query('sky') sky?: string,
     @Query('refresh') refresh?: string,
+    @Query('year') year?: string,
   ) {
+    const asOf = Number(year);
     return {
       svg: await this.organism.svg(
         u.userId,
         sky === 'light' ? 'light' : 'dark',
         refresh === '1',
+        Number.isFinite(asOf) && asOf > 1900 ? asOf : undefined,
       ),
     };
+  }
+
+  /** The years this life can be drawn at — the frames of its growth. */
+  @Get('organism/years')
+  async organismYears(@CurrentUser() u: JwtUser) {
+    return { years: await this.timeline.actYears(u.userId) };
   }
 
   /**

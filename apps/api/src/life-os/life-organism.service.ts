@@ -53,8 +53,17 @@ export class LifeOrganismService {
     private timeline: LifeTimelineService,
   ) {}
 
-  async svg(userId: string, sky: Sky = 'dark', force = false): Promise<string> {
-    const key = `${userId}:${sky}`;
+  /**
+   * The organism as it stood at the end of `year`, or as it stands now.
+   *
+   * A portrait told you the shape of a life; it could not tell you that the
+   * shape had been earned. Growing the same drawing from only the acts up to
+   * a given year turns one image into a sequence you can step through — the
+   * point being that a thin early year is not a worse drawing, it is a
+   * younger one.
+   */
+  async svg(userId: string, sky: Sky = 'dark', force = false, year?: number): Promise<string> {
+    const key = `${userId}:${sky}:${year ?? 'now'}`;
     const hit = this.cache.get(key);
     if (!force && hit && Date.now() - hit.at < TTL_MS) return hit.svg;
 
@@ -65,7 +74,7 @@ export class LifeOrganismService {
     // work on someone's sixtieth year of using it.
     const [rows, acts, graph] = await Promise.all([
       this.prisma.lifeDomain.findMany({ where: { userId } }),
-      this.timeline.actTotalsByDomain(userId),
+      this.timeline.actTotalsByDomain(userId, year),
       this.lifeOs.graphFor(userId),
     ]);
 
