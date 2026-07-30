@@ -141,7 +141,8 @@ export class LifeOsController {
   /** Weekly domain history — what the sky looked like before today. */
   @Get('drift')
   drift(@CurrentUser() u: JwtUser, @Query('weeks') weeks?: string) {
-    return this.timeline.drift(u.userId, weeks ? Number(weeks) : 12);
+    // No `weeks` means the whole record, which is the default the sky wants.
+    return this.timeline.drift(u.userId, weeks ? Number(weeks) : null);
   }
 
   /** What changed while they were away. */

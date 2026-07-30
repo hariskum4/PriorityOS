@@ -24,7 +24,10 @@ import {
   DomainType, LifeDomain, DOMAIN_TO_LIFE, LIFE_TO_DOMAIN, domainForRelationType,
 } from '@priority/types';
 import { PrismaService } from '../prisma/prisma.service';
-import { dayKeyIn } from '../common/time';
+import { weekOf } from '../common/time';
+
+/** Re-exported: this module owned it before it found its proper home. */
+export { weekOf };
 
 /** Cadence strings the app stores, as day gaps. */
 const CADENCE_DAYS: Record<string, number> = {
@@ -51,29 +54,6 @@ function toNumber(v: unknown): number {
   return typeof v === 'number' ? v : Number(v.toString());
 }
 
-/**
- * The Monday of the week containing `d`, in the person's own zone.
- *
- * The sample idempotency key, and it used the UTC calendar date — so a
- * snapshot taken at 02:00 on a Monday in Bengaluru was 20:30 on Sunday in UTC,
- * and the whole week landed under the Monday before. A week of a life filed
- * against the wrong week, silently, and then read back as a trend.
- *
- * The returned instant stays UTC midnight rather than local midnight. That is
- * deliberate: it keeps the composite key one value per calendar week, keeps
- * the stored row comparable across a move between countries, and keeps the
- * `toISOString().slice(0, 10)` that every reader uses rendering the Monday it
- * says it is. Only the *choice* of which Monday is local.
- *
- * With no zone it behaves exactly as it always did.
- */
-export function weekOf(d: Date, tz?: string | null): Date {
-  const [y, m, day] = dayKeyIn(tz ?? 'UTC', d).split('-').map(Number);
-  const out = new Date(Date.UTC(y, m - 1, day));
-  const dow = out.getUTCDay(); // 0 = Sunday
-  out.setUTCDate(out.getUTCDate() - ((dow + 6) % 7));
-  return out;
-}
 
 /**
  * Force stored decision options into the shape the engine requires.

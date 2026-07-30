@@ -145,16 +145,29 @@ export class LifeTimelineService {
    * These samples have been written weekly since the account existed and were
    * read by nothing but the prediction engine. Same rows, drawn as a ghost.
    */
-  async drift(userId: string, weeks = 12): Promise<{
+  async drift(userId: string, weeks?: number | null): Promise<{
+    /** How many weeks the returned series actually spans. */
     weeks: number;
     from: string | null;
     series: Record<string, Array<{ weekOf: string; importance: number; attention: number }>>;
   }> {
-    const span = Math.min(Math.max(weeks, 2), 104);
-    const since = new Date(Date.now() - span * 7 * 86_400_000);
+    /**
+     * No window at all, by default.
+     *
+     * This was a fixed twelve weeks, which is the wrong shape for a record
+     * meant to be kept for decades. It is a keyhole for someone four years in,
+     * and for someone four weeks in it is a promise of history that does not
+     * exist yet — the sky captioned "twelve weeks ago" over an account that
+     * has no twelve weeks. Showing everything held is right at both ends: it
+     * starts as small as the account is and grows with it.
+     *
+     * A caller that genuinely wants a recent slice can still ask for one.
+     */
+    const span = weeks == null ? null : Math.min(Math.max(weeks, 2), 520);
+    const since = span == null ? null : new Date(Date.now() - span * 7 * 86_400_000);
 
     const rows = await this.prisma.domainAttentionSample.findMany({
-      where: { userId, weekOf: { gte: since } },
+      where: { userId, ...(since ? { weekOf: { gte: since } } : {}) },
       orderBy: { weekOf: 'asc' },
       select: { domainType: true, weekOf: true, importance: true, attention: true },
     });
@@ -168,9 +181,18 @@ export class LifeTimelineService {
       });
     }
 
+    /**
+     * The span actually covered, not the one asked for. A caption that says
+     * "12 weeks ago" over four weeks of data is the app inventing a past.
+     */
+    const first = rows.length ? rows[0].weekOf : null;
+    const covered = first
+      ? Math.max(1, Math.round((Date.now() - first.getTime()) / (7 * 86_400_000)))
+      : 0;
+
     return {
-      weeks: span,
-      from: rows.length ? rows[0].weekOf.toISOString().slice(0, 10) : null,
+      weeks: covered,
+      from: first ? first.toISOString().slice(0, 10) : null,
       series,
     };
   }

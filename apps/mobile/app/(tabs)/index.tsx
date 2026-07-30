@@ -245,7 +245,9 @@ export default function Today() {
    */
   const { data: drift } = useQuery({
     queryKey: ['life-drift'],
-    queryFn: () => api<any>('/life-os/drift?weeks=12'),
+    // No window: the sky compares against the oldest week on record, so it
+    // starts as small as the account is and widens as a life accumulates.
+    queryFn: () => api<any>('/life-os/drift'),
     staleTime: 30 * 60_000,
   });
   /** A moment from this day in an earlier year. The best thing the app owns. */
@@ -446,7 +448,23 @@ export default function Today() {
     return out.length ? out : undefined;
   }, [drift]);
 
-  /** The selected star's own twelve weeks, for the trail under the read-out. */
+  /**
+   * How far back the ghosts actually reach, said in words rather than a fixed
+   * number of weeks. Under a fortnight it is "where you started", because that
+   * is what it is for a new account and it reads as a beginning rather than as
+   * missing data.
+   */
+  const driftSpan: string | null = useMemo(() => {
+    const w = drift?.weeks ?? 0;
+    if (!w) return null;
+    if (w < 2) return 'where you started';
+    if (w < 8) return `${w} weeks ago`;
+    if (w < 52) return `${Math.round(w / 4.345)} months ago`;
+    const years = w / 52.18;
+    return years < 1.75 ? 'a year ago' : `${Math.round(years)} years ago`;
+  }, [drift]);
+
+  /** The selected star's own history, for the trail under the read-out. */
   const activeSeries: number[] = useMemo(() => {
     const points = (drift?.series as Record<string, any[]> | undefined)?.[activeKey ?? ''] ?? [];
     return points.map((p) => Math.max(0, Math.min(100, p.attention)));
@@ -588,8 +606,11 @@ export default function Today() {
               </Pressable>
             ) : (
               <Tick>
-                {pastDomains
-                  ? 'Outward = neglected · rings show 12 weeks ago · tap a star'
+                {/* The span is stated as it truly is. A caption reading
+                    "12 weeks ago" over an account four weeks old was the app
+                    describing a past that did not happen. */}
+                {pastDomains && driftSpan
+                  ? `Outward = neglected · rings show ${driftSpan} · tap a star`
                   : 'Outward = neglected · tap a star'}
               </Tick>
             )}

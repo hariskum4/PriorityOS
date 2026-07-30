@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { weekOf } from '../common/time';
 import {
   calculateImportanceScore,
   calculateAttentionScore,
@@ -33,6 +34,8 @@ export class ScoringService {
   async recalcUserDomains(userId: string) {
     const cfg = await this.config();
     const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
+    /** What each domain stood at once recomputed — kept as this week's sample. */
+    const standing: Array<{ domainType: string; importance: number; attention: number }> = [];
     const [domains, missions, habits, journal] = await Promise.all([
       this.prisma.lifeDomain.findMany({ where: { userId } }),
       this.prisma.mission.findMany({
@@ -130,6 +133,56 @@ export class ScoringService {
           lastMeaningfulActionAt: lastAction,
         },
       });
+      standing.push({ domainType: domain.domainType, importance, attention });
+    }
+
+    await this.recordThisWeek(userId, standing);
+  }
+
+  /**
+   * Keep this week's standing, every time it changes.
+   *
+   * The history behind the sky was written by a Monday 03:00 cron and nothing
+   * else, which meant a new account had no history at all for up to a week,
+   * one point for the week after that, and — since the trend engines refuse to
+   * speak below six samples — nothing resembling a trend for a month and a
+   * half. Someone joins a tool for living deliberately and it is visibly inert
+   * for six weeks, which is exactly when they are deciding whether to stay.
+   *
+   * The row is unique per (user, domain, week), so writing it on every recompute
+   * costs one upsert and keeps the current week honest as the week is lived
+   * rather than as it looked at 3am on Monday. The cron stays: it catches the
+   * weeks where somebody records nothing at all, which is a true sample too.
+   *
+   * Deliberately after the domain writes, and deliberately not awaited inside
+   * the loop — a failure to keep history must never fail the write that
+   * prompted it.
+   */
+  private async recordThisWeek(
+    userId: string,
+    standing: Array<{ domainType: string; importance: number; attention: number }>,
+  ) {
+    if (!standing.length) return;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
+      });
+      const week = weekOf(new Date(), user?.timezone);
+
+      await Promise.all(standing.map((s) =>
+        this.prisma.domainAttentionSample.upsert({
+          where: {
+            userId_domainType_weekOf: { userId, domainType: s.domainType, weekOf: week },
+          },
+          create: {
+            userId, domainType: s.domainType, weekOf: week,
+            importance: s.importance, attention: s.attention,
+          },
+          update: { importance: s.importance, attention: s.attention },
+        })));
+    } catch {
+      // History is a nice-to-have on this path; the cron will catch up.
     }
   }
 }
