@@ -242,8 +242,23 @@ export default function TimeReality() {
    *
    * The confirmation is the list itself: the moment one is logged it drops out
    * of the suggestions and a fourth takes its place.
+   *
+   * That confirmation cannot wait for the server. Planning something changes
+   * which slots the engine picks, which changes the wording cache key, which
+   * means the very next fetch is a cache miss and goes to the model — and that
+   * call is allowed a full minute. So the row you just agreed to sat there,
+   * unchanged and unacknowledged, for as long as the model took. Every report
+   * of this said the same thing: "Plan it does nothing." It did. It logged the
+   * mission, invalidated the list, and said so a lifetime later.
+   *
+   * So the row leaves on the tap. `planned` holds what has been agreed to but
+   * not yet reflected by the server, and is only ever additive — if the write
+   * fails the action comes back and says why, which is the one case where
+   * silence would be a lie.
    */
   const [justPlanned, setJustPlanned] = useState<string | null>(null);
+  const [planned, setPlanned] = useState<string[]>([]);
+  const [planFailed, setPlanFailed] = useState<string | null>(null);
   const planStack = useMutation({
     mutationFn: (st: any) =>
       api('/missions', {
@@ -263,12 +278,24 @@ export default function TimeReality() {
           sourceType: 'system',
         },
       }),
-    onSuccess: (_res, st: any) => {
+    // The row goes the instant it is pressed, not when the model gets back.
+    onMutate: (st: any) => {
+      setPlanFailed(null);
       setJustPlanned(st.action);
+      setPlanned((p) => (p.includes(st.action) ? p : [...p, st.action]));
+    },
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['missions'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       // The set has to re-plan around what was just agreed to.
       qc.invalidateQueries({ queryKey: ['life-stacks'] });
+    },
+    onError: (_err, st: any) => {
+      // Put it back. An agreement that did not land must not look like one
+      // that did — this is a record, and a phantom entry is worse than none.
+      setPlanned((p) => p.filter((a) => a !== st.action));
+      setJustPlanned(null);
+      setPlanFailed(st.action);
     },
   });
 
@@ -439,9 +466,14 @@ export default function TimeReality() {
       })
       .map((m: any) => m.title),
   ]);
-  const stacks: StackSuggestion[] = craftedStacks?.stacks?.length
+  /* Anything already agreed to is gone from here, whether or not the server
+     has caught up — the list is what is still on offer, never a history. */
+  const offered: StackSuggestion[] = craftedStacks?.stacks?.length
     ? craftedStacks.stacks
     : localStacks;
+  const stacks: StackSuggestion[] = offered.filter(
+    (st: StackSuggestion) => !planned.includes(st.action),
+  );
   /** What these moves would actually feed — not merely touch. */
   const stackHelps = craftedStacks?.stacks?.length
     ? craftedStacks.helps ?? []
@@ -648,13 +680,21 @@ export default function TimeReality() {
                   </View>
                 ))}
 
-                {/* Said once, plainly. The real confirmation is that the row
-                    above is gone and a new one has taken its place. */}
-                {justPlanned && !stacks.some((st) => st.action === justPlanned) ? (
+                {/* Said once, plainly, and on the tap rather than on the
+                    round trip — the row above is already gone. */}
+                {justPlanned ? (
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                     <Ionicons name="checkmark-circle" size={15} color={colors.green} style={{ marginTop: 1 }} />
                     <Text style={[type.faint, { flex: 1, color: colors.green }]}>
                       “{justPlanned}” is on your missions.
+                    </Text>
+                  </View>
+                ) : null}
+                {planFailed ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                    <Ionicons name="alert-circle" size={15} color={colors.rose} style={{ marginTop: 1 }} />
+                    <Text style={[type.faint, { flex: 1, color: colors.rose }]}>
+                      “{planFailed}” did not save. It is still on the list above.
                     </Text>
                   </View>
                 ) : null}
