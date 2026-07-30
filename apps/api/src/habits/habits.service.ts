@@ -5,6 +5,13 @@ import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { advanceStreak } from '@priority/scoring-engine';
 
+/**
+ * How far back a habit's rate is measured. Four weeks: long enough that one
+ * bad week does not read as abandonment, short enough that a rhythm someone
+ * genuinely stopped keeping stops being reported as kept.
+ */
+const RATE_WINDOW_DAYS = 28;
+
 @Injectable()
 export class HabitsService {
   constructor(
@@ -14,16 +21,35 @@ export class HabitsService {
     private clock: UserClock,
   ) {}
 
+  /**
+   * Active habits, with this week's logs and a steadier read behind them.
+   *
+   * `logs` is this week and drives the tick-boxes, which is right for "have I
+   * done it today". It is the wrong window for asking whether a rhythm is
+   * being kept: one quiet week would flip a year-old habit from kept to
+   * failing, and this app grants grace on streaks precisely because a life
+   * does not run on calendar weeks. `perWeek` is the rate over four, which
+   * survives a bad week and still notices a habit that has actually stopped.
+   */
   async list(userId: string) {
-    return this.prisma.habit.findMany({
+    const since = await this.clock.daysAgo(userId, RATE_WINDOW_DAYS);
+    const habits = await this.prisma.habit.findMany({
       where: { userId, isActive: true },
       include: {
         logs: {
           where: { completedAt: { gte: await this.clock.startOfWeek(userId) } },
           orderBy: { completedAt: 'desc' },
         },
+        _count: { select: { logs: { where: { completedAt: { gte: since } } } } },
       },
     });
+
+    return habits.map(({ _count, ...h }) => ({
+      ...h,
+      recentLogs: _count.logs,
+      perWeek: Math.round((_count.logs / (RATE_WINDOW_DAYS / 7)) * 10) / 10,
+      rateWindowDays: RATE_WINDOW_DAYS,
+    }));
   }
 
   create(userId: string, data: any) {

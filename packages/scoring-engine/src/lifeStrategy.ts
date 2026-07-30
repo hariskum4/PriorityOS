@@ -16,34 +16,152 @@ import { yearsToHorizon } from './lifeWindows';
 // ---------------------------------------------------------------------------
 
 const TYPICAL_UNWELL_YEARS = 10; // the frail tail most people experience
-/** Each sustained behavior compresses morbidity — pushes the healthy edge out. */
-const HEALTHSPAN_LEVERS: Array<{ key: string; label: string; yearsGained: number }> = [
+
+export type LeverKey = 'strength' | 'cardio' | 'sleep' | 'social';
+/**
+ * Where someone actually stands on a lever.
+ *
+ *   held     — they set a rhythm and they are keeping it
+ *   slipping — they set one and are not keeping it
+ *   open     — they have not started
+ *
+ * The distinction is the entire point. The card used to offer all four as
+ * hypotheticals to everyone forever, which meant it could not tell someone
+ * doing three of them from someone doing none, and never once credited the
+ * one they were actually keeping.
+ */
+export type LeverState = 'held' | 'slipping' | 'new' | 'open';
+
+/**
+ * How long a rhythm gets before anyone is allowed to grade it.
+ *
+ * Without this, agreeing to strength training twice a week and looking at the
+ * card five seconds later was told the rhythm was slipping — the app calling a
+ * commitment a failure before a single day of it had passed. Nothing on this
+ * card is worth that.
+ */
+const GRACE_DAYS = 7;
+
+/**
+ * Population effects, not predictions about anybody.
+ *
+ * These are the compression-of-morbidity figures and they are the same for
+ * every reader — which is exactly why they must never be summed into a total
+ * that looks personal. What is personal is which of them someone is doing.
+ */
+const HEALTHSPAN_LEVERS: Array<{ key: LeverKey; label: string; yearsGained: number }> = [
   { key: 'strength', label: 'Strength training twice a week', yearsGained: 3 },
   { key: 'cardio', label: 'Zone-2 cardio, 150 min a week', yearsGained: 3 },
   { key: 'sleep', label: 'Protecting 7–8 hours of sleep', yearsGained: 2 },
   { key: 'social', label: 'Staying socially connected', yearsGained: 2 },
 ];
 
+/**
+ * A rhythm someone set, and what they are actually doing against it.
+ * `target` and `actual` are both per week, so they are directly comparable.
+ */
+export interface LeverSignal {
+  key: LeverKey;
+  target: number;
+  actual: number;
+  /** What they called it, so the card can say their own words back to them. */
+  label?: string;
+  /** How long the rhythm has existed. Under a week it is too new to grade. */
+  ageDays?: number;
+}
+
+/**
+ * Which lever a habit is, from what someone called it.
+ *
+ * Keyword matching is crude, and it is what the data supports — a habit has a
+ * title and a domain, not a category. It errs toward `null`: mislabelling
+ * "call Amma" as cardio because it contains "call" would be worse than not
+ * recognising a habit at all, since an unrecognised one simply leaves the
+ * lever open and offers to start one.
+ */
+export function classifyLever(title: string): LeverKey | null {
+  const t = title.toLowerCase();
+  if (/\b(strength|gym|lift|weights?|resistance|push[- ]?ups?|squats?|pull[- ]?ups?)\b/.test(t)) return 'strength';
+  if (/\b(walk|walking|run|running|jog|jogging|cycle|cycling|bike|swim|swimming|cardio|zone[- ]?2|steps|treadmill)\b/.test(t)) return 'cardio';
+  if (/\b(sleep|bed|bedtime|lights out|wind down|screens? off)\b/.test(t)) return 'sleep';
+  return null;
+}
+
+/**
+ * Kept, or not. Deliberately forgiving at four-fifths of target: this app
+ * grants grace on streaks, and a card that calls three walks out of four a
+ * failure is not telling the truth about a life either.
+ */
+const KEPT_AT = 0.8;
+
+export function leverStateOf(signal: LeverSignal | undefined): LeverState {
+  if (!signal || signal.target <= 0) return 'open';
+  // Already keeping it counts immediately; only the failing verdict waits.
+  if (signal.actual >= signal.target * KEPT_AT) return 'held';
+  if (signal.ageDays != null && signal.ageDays < GRACE_DAYS) return 'new';
+  return 'slipping';
+}
+
+export interface HealthspanLever {
+  key: LeverKey;
+  label: string;
+  yearsGained: number;
+  state: LeverState;
+  /** Present when they set a rhythm: what they aimed for and what they did. */
+  target?: number;
+  actual?: number;
+  /** Their own name for it, when there is one. */
+  habitLabel?: string;
+}
+
 export interface Healthspan {
   healthyYearsLeft: number;
   yearsToHorizon: number;
+  /** Population years attached to levers already being kept. */
+  yearsHeld: number;
+  /** Attached to rhythms that were set and are being missed. */
+  yearsSlipping: number;
+  /** Attached to rhythms too new to have a verdict yet. */
+  yearsNew: number;
+  /** Attached to levers not started. */
+  yearsOpen: number;
   potentialYearsGained: number;
-  levers: Array<{ label: string; yearsGained: number }>;
+  levers: HealthspanLever[];
   framingText: string;
 }
 
-export function healthspan(age: number): Healthspan {
+export function healthspan(age: number, signals: LeverSignal[] = []): Healthspan {
   const horizon = yearsToHorizon(age);
   const healthy = Math.max(horizon - TYPICAL_UNWELL_YEARS, 2);
-  const potential = HEALTHSPAN_LEVERS.reduce((s, l) => s + l.yearsGained, 0);
+  const byKey = new Map(signals.map((s) => [s.key, s]));
+
+  const levers: HealthspanLever[] = HEALTHSPAN_LEVERS.map((l) => {
+    const signal = byKey.get(l.key);
+    const state = leverStateOf(signal);
+    return {
+      ...l,
+      state,
+      ...(signal ? { target: signal.target, actual: signal.actual, habitLabel: signal.label } : {}),
+    };
+  });
+
+  const sum = (state: LeverState) => levers
+    .filter((l) => l.state === state)
+    .reduce((s, l) => s + l.yearsGained, 0);
+
   return {
     healthyYearsLeft: healthy,
     yearsToHorizon: horizon,
-    potentialYearsGained: potential,
-    levers: HEALTHSPAN_LEVERS.map(({ label, yearsGained }) => ({ label, yearsGained })),
+    yearsHeld: sum('held'),
+    yearsSlipping: sum('slipping'),
+    yearsNew: sum('new'),
+    yearsOpen: sum('open'),
+    potentialYearsGained: HEALTHSPAN_LEVERS.reduce((s, l) => s + l.yearsGained, 0),
+    levers,
     framingText:
-      `Roughly ${healthy} fully able years ahead — the ones where you can hike, lift, and keep up. ` +
-      `Ageing is not fixed: the habits below can push that edge out by years. You are not counting down a wall; you are widening a window.`,
+      `Roughly ${healthy} years ahead on a 100-year planning horizon, minus the frail tail most ` +
+      `people meet at the end. Ageing is not fixed: the rhythms below are the ones that push that ` +
+      `edge out. You are not counting down a wall; you are widening a window.`,
   };
 }
 

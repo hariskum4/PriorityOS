@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,8 +20,10 @@ import {
   healthspan,
   energyBudget,
   suggestSeason,
+  classifyLever,
   PLANNING_HORIZON_AGE,
   type StackSuggestion,
+  type LeverSignal,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { useRefresh } from '@/hooks/useRefresh';
@@ -177,6 +179,19 @@ export default function TimeReality() {
   });
 
   /**
+   * The rhythms already set, and how they are actually going.
+   *
+   * The healthspan card used to offer four levers to everyone forever, with no
+   * idea that this person had set a walk four times a week and was managing
+   * one. It has the habits now, so it can credit what is held and name what is
+   * slipping instead of pitching all four as hypotheticals.
+   */
+  const { data: habits } = useQuery({
+    queryKey: ['habits'],
+    queryFn: () => api<any[]>('/habits'),
+  });
+
+  /**
    * The year drill-down.
    *
    * `activeYears` marks which squares hold anything, so the life grid shows
@@ -297,6 +312,36 @@ export default function TimeReality() {
       setJustPlanned(null);
       setPlanFailed(st.action);
     },
+  });
+
+  /**
+   * Starting one of the levers.
+   *
+   * A habit rather than a mission, because these are rhythms — "strength
+   * training twice a week" is not a thing you finish. The target comes from
+   * the lever itself, so agreeing to it agrees to a real frequency rather than
+   * a vague intention, and the card can tell next week whether it is being
+   * kept. Same optimistic treatment as Steal the time: the row changes on the
+   * press, not on the round trip.
+   */
+  const [startedLevers, setStartedLevers] = useState<string[]>([]);
+  const startLever = useMutation({
+    mutationFn: (l: { key: string; title: string; target: number }) =>
+      api('/habits', {
+        method: 'POST',
+        body: {
+          title: l.title,
+          domainType: l.key === 'social' ? 'friends' : 'health',
+          targetPerWeek: l.target,
+          sourceType: 'system',
+        },
+      }),
+    onMutate: (l) => setStartedLevers((p) => (p.includes(l.key) ? p : [...p, l.key])),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['habits'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (_e, l) => setStartedLevers((p) => p.filter((k) => k !== l.key)),
   });
 
   const [ageDraft, setAgeDraft] = useState('');
@@ -485,7 +530,57 @@ export default function TimeReality() {
   const season = suggestSeason(
     activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance, neglectRisk: d.neglectRisk })),
   );
-  const hs = healthspan(age);
+  /**
+   * What this life is already doing about its own healthspan.
+   *
+   * Three of the levers are habits and read straight off them. The fourth,
+   * staying socially connected, is not a habit anyone writes down — but the
+   * People tab has been tracking exactly it for months: who someone said they
+   * wanted to keep up with, and whether they have. Using that is the whole
+   * difference between advice and a mirror.
+   */
+  const leverSignals: LeverSignal[] = useMemo(() => {
+    const out: LeverSignal[] = [];
+
+    for (const h of habits ?? []) {
+      const key = classifyLever(h.title ?? '');
+      if (!key || out.some((s) => s.key === key)) continue;
+      out.push({
+        key,
+        target: h.targetPerWeek ?? 3,
+        // The four-week rate, which survives a bad week. Falls back to this
+        // week's ticks only if an older server has not sent one.
+        actual: h.perWeek ?? (h.logs?.length ?? 0),
+        label: h.title,
+        // So a rhythm agreed to this morning is not graded this afternoon.
+        ageDays: h.createdAt
+          ? (Date.now() - new Date(h.createdAt).getTime()) / 86_400_000
+          : undefined,
+      });
+    }
+
+    /* Connected means keeping the cadence you set with the people you named,
+       so the target is "everyone you are tracking" and the actual is how many
+       of them are currently within it. */
+    const tracked = (relationships ?? []).filter((r: any) => r.desiredCallFrequency);
+    if (tracked.length) {
+      const withinCadence = tracked.filter((r: any) => {
+        if (!r.lastContactAt) return false;
+        const days = (Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000;
+        return days <= (CADENCE_DAYS[r.desiredCallFrequency] ?? 30);
+      }).length;
+      out.push({
+        key: 'social',
+        target: tracked.length,
+        actual: withinCadence,
+        label: `${withinCadence} of ${tracked.length} people you track`,
+      });
+    }
+
+    return out;
+  }, [habits, relationships]);
+
+  const hs = healthspan(age, leverSignals);
   const energy = energyBudget(age, moreYears);
 
   return (
@@ -770,20 +865,100 @@ export default function TimeReality() {
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
               <Text style={[type.stat, { fontSize: 30, color: colors.green }]}>~{hs.healthyYearsLeft}</Text>
-              <Text style={type.dim}>fully able years ahead</Text>
+              <Text style={type.dim}>years on the planning horizon</Text>
             </View>
             <Text style={type.serif}>{hs.framingText}</Text>
-            <View style={{ gap: 6 }}>
-              {hs.levers.map((l) => (
-                <View key={l.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="add-circle-outline" size={14} color={colors.green} />
-                  <Text style={[type.dim, { flex: 1 }]}>{l.label}</Text>
-                  <Chip label={`+${l.yearsGained} yrs`} color={colors.green} />
-                </View>
-              ))}
+
+            {/* Four rhythms, each showing where this life actually stands on
+                it — kept, slipping, or not started. The card used to pitch all
+                four as hypotheticals to everyone, which meant it could not
+                tell someone walking four times a week from someone doing
+                nothing, and never credited the one they were keeping. */}
+            <View style={{ gap: 9 }}>
+              {hs.levers.map((l) => {
+                const started = startedLevers.includes(l.key);
+                const state = started ? 'new' : l.state;
+                const tone = state === 'held' ? colors.green
+                  : state === 'slipping' ? colors.amber : colors.textDim;
+                return (
+                  <View key={l.key} style={{ gap: 3 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons
+                        name={state === 'held' ? 'checkmark-circle'
+                          : state === 'slipping' ? 'alert-circle-outline'
+                            : state === 'new' ? 'ellipse-outline' : 'add-circle-outline'}
+                        size={14}
+                        color={tone}
+                      />
+                      {/* Their own name for the rhythm, where they gave it one
+                          — "20-minute walk" is what they will recognise, not
+                          "Zone-2 cardio". Social has no habit behind it, so it
+                          keeps the canonical label and puts its count below. */}
+                      <Text style={[type.dim, { flex: 1, color: state === 'open' ? colors.textDim : colors.text }]}>
+                        {l.habitLabel && state !== 'open' && l.key !== 'social' ? l.habitLabel : l.label}
+                      </Text>
+                      {state === 'open' ? (
+                        <Pressable
+                          onPress={() => startLever.mutate({
+                            key: l.key,
+                            title: l.label,
+                            target: l.key === 'strength' ? 2 : l.key === 'cardio' ? 4 : 5,
+                          })}
+                          disabled={startLever.isPending || l.key === 'social'}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Start it: ${l.label}`}
+                          style={({ pressed }) => [
+                            s.planChip,
+                            (startLever.isPending || l.key === 'social') && { opacity: 0.45 },
+                            pressed && { backgroundColor: colors.surfaceRaised, transform: [{ scale: 0.96 }] },
+                          ]}
+                        >
+                          <Ionicons name="add" size={13} color={colors.amber} />
+                          <Text style={{ color: colors.amber, fontWeight: '600', fontSize: 12 }}>Start it</Text>
+                        </Pressable>
+                      ) : (
+                        <Chip label={`+${l.yearsGained} yrs`} color={tone} />
+                      )}
+                    </View>
+                    {/* Their own numbers, said back plainly. This is the line
+                        the old card had no way to write. */}
+                    {state === 'slipping' && l.target != null ? (
+                      <Text style={[type.faint, { marginLeft: 22, color: colors.amber }]}>
+                        {l.key === 'social'
+                          ? `${l.actual} of ${l.target} are within the cadence you set`
+                          : `You set ${l.target} a week — you are at ${l.actual}`}
+                      </Text>
+                    ) : null}
+                    {state === 'held' && l.key === 'social' ? (
+                      <Text style={[type.faint, { marginLeft: 22 }]}>{l.habitLabel} are current</Text>
+                    ) : null}
+                    {/* A rhythm agreed to this morning is not graded this
+                        afternoon. It says what it is: begun, not yet kept. */}
+                    {state === 'new' ? (
+                      <Text style={[type.faint, { marginLeft: 22, color: colors.green }]}>
+                        {started ? 'Added to your habits — ' : ''}
+                        {l.target != null ? `${l.target} a week, starting now` : 'Just started'}
+                      </Text>
+                    ) : null}
+                  </View>
+                );
+              })}
             </View>
-            <Text style={[type.faint, { color: colors.green }]}>
-              Together, up to ~{hs.potentialYearsGained} more good years — the window widens when you push on it.
+
+            {/* Held first, because what someone is already doing is the truest
+                thing on this card — and the old copy never mentioned it. */}
+            <Text style={[type.faint, { color: hs.yearsHeld > 0 ? colors.green : colors.textDim }]}>
+              {hs.yearsHeld > 0
+                ? `~${hs.yearsHeld} of the ~${hs.potentialYearsGained} are already yours`
+                : `~${hs.potentialYearsGained} good years sit in these four rhythms`}
+              {hs.yearsSlipping > 0 ? ` · ~${hs.yearsSlipping} slipping` : ''}
+              {hs.yearsNew > 0 ? ` · ~${hs.yearsNew} just begun` : ''}
+              {hs.yearsOpen > 0 ? ` · ~${hs.yearsOpen} not started` : ''}.
+            </Text>
+            <Text style={type.faint}>
+              These are population estimates from the research on compressing illness into fewer
+              years — not a prediction about you. What is yours is which ones you keep.
             </Text>
           </Card>
 
