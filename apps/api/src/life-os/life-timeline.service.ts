@@ -122,6 +122,32 @@ const ACT_WEIGHT: Record<DatedAct['kind'], number> = {
   mission: 1,     // a thing done
 };
 
+/**
+ * How far back a rhythm is measured. Long enough that a quiet fortnight does
+ * not reclassify a monthly domain as abandoned; short enough that a cadence
+ * someone dropped six months ago stops being reported as current.
+ */
+const RHYTHM_WINDOW_DAYS = 120;
+/** Nothing in a life is honestly faster than daily or slower than half a year. */
+const MIN_PERIOD_DAYS = 1;
+const MAX_PERIOD_DAYS = 180;
+/** Per kind, per domain. The sky shows a shape; the list underneath shows all. */
+const RHYTHM_ITEMS_PER_KIND = 6;
+
+export interface DomainRhythm {
+  /** Days per act, over the trailing window. Null when there is too little to claim. */
+  period: number | null;
+  total: number;
+  /** Acts inside the window — what the period was computed from. */
+  recent: number;
+  lastAt: string | null;
+  kinds: Array<{
+    kind: DatedAct['kind'];
+    count: number;
+    items: Array<{ label: string; at: string }>;
+  }>;
+}
+
 @Injectable()
 export class LifeTimelineService {
   constructor(private prisma: PrismaService) {}
@@ -171,6 +197,68 @@ export class LifeTimelineService {
    */
   async actYears(userId: string): Promise<number[]> {
     return this.yearsWithActivity(userId);
+  }
+
+  /**
+   * The rhythm of a life, domain by domain: how often each part of it is
+   * actually touched, and what is in it.
+   *
+   * The sky draws a domain's orbit from its period here, so this is the one
+   * number that decides how the Today screen moves. Two things it deliberately
+   * is not:
+   *
+   * It is not the median gap between acts. That is the obvious estimator and
+   * it is wrong on real data — people log in bursts, six things on a Sunday
+   * afternoon, and a median gap reads that as a two-hour rhythm. Rate over a
+   * trailing window asks how many times this actually happens per year, which
+   * survives bursts.
+   *
+   * It is not what someone said they wanted. Declared intent and observed
+   * behaviour disagree precisely in the domains being neglected, which is
+   * exactly where a life record must not flatter its owner. Intent is the
+   * caller's fallback for an account too young to have a rhythm, never a blend.
+   */
+  async rhythm(userId: string): Promise<{
+    window: number;
+    domains: Record<string, DomainRhythm>;
+  }> {
+    const acts = await this.gather(userId);
+    const since = Date.now() - RHYTHM_WINDOW_DAYS * 86_400_000;
+
+    const out: Record<string, DomainRhythm> = {};
+    for (const a of acts) {
+      if (!a.domain) continue;
+      const d = (out[a.domain] ??= { period: null, total: 0, recent: 0, lastAt: null, kinds: [] });
+      d.total += 1;
+      if (a.at.getTime() >= since) d.recent += 1;
+      if (!d.lastAt || a.at > new Date(d.lastAt)) d.lastAt = a.at.toISOString();
+
+      let k = d.kinds.find((x) => x.kind === a.kind);
+      if (!k) { k = { kind: a.kind, count: 0, items: [] }; d.kinds.push(k); }
+      k.count += 1;
+      k.items.push({ label: a.label.slice(0, 80), at: a.at.toISOString() });
+    }
+
+    for (const d of Object.values(out)) {
+      /**
+       * Two acts is the floor for claiming a rhythm at all. One act is an
+       * event; calling it a cadence would have the sky orbiting on a single
+       * data point. Below the floor the period is null and the caller decides
+       * what to do about it.
+       */
+      d.period = d.recent >= 2
+        ? Math.min(MAX_PERIOD_DAYS, Math.max(MIN_PERIOD_DAYS, RHYTHM_WINDOW_DAYS / d.recent))
+        : null;
+
+      /* Newest first, and capped: the sky shows a shape, not a ledger. */
+      for (const k of d.kinds) {
+        k.items.sort((a, b) => b.at.localeCompare(a.at));
+        k.items = k.items.slice(0, RHYTHM_ITEMS_PER_KIND);
+      }
+      d.kinds.sort((a, b) => ACT_WEIGHT[b.kind] - ACT_WEIGHT[a.kind]);
+    }
+
+    return { window: RHYTHM_WINDOW_DAYS, domains: out };
   }
 
   /**

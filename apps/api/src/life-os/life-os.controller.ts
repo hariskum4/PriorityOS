@@ -154,6 +154,18 @@ export class LifeOsController {
     return this.timeline.drift(u.userId, weeks ? Number(weeks) : null);
   }
 
+  /**
+   * How often each part of a life is actually touched, and what is in it.
+   *
+   * One request rather than one per domain: the sky needs every period up
+   * front to place anything at all, and a domain must open the instant it is
+   * tapped. Twelve domains of capped contents is small enough to send whole.
+   */
+  @Get('rhythm')
+  rhythm(@CurrentUser() u: JwtUser) {
+    return this.timeline.rhythm(u.userId);
+  }
+
   /** What changed while they were away. */
   @Get('since')
   since(@CurrentUser() u: JwtUser, @Query('at') at?: string) {

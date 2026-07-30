@@ -54,6 +54,49 @@ function relativeDays(iso: string | Date): string {
  */
 
 /** Rises and settles on a spring. The screen's only entrance motion. */
+interface HeldContents {
+  label: string;
+  groups: Array<{
+    kind: string;
+    heading: string;
+    items: Array<{ label: string; when: string }>;
+    more: number;
+  }>;
+}
+
+/**
+ * The contents of the open domain, in words.
+ *
+ * Ordered by what a life is least able to repeat — the same weighting the
+ * Record's organism is grown from — so a kept moment leads and the errands
+ * come last, however many of them there are. The count on each heading is the
+ * true one; only the rows are capped.
+ *
+ * Plain function rather than a hook: the read-out is computed below the
+ * screen's early returns, where a hook would change the hook order between a
+ * loading render and a loaded one.
+ */
+function heldContents(picked: string | null, rhythm: any): HeldContents | null {
+  const r = picked ? rhythm?.domains?.[picked] : null;
+  if (!r?.kinds?.length) return null;
+  const NOUN: Record<string, string> = {
+    memory: 'kept', contact: 'time with people', reflection: 'written',
+    habit: 'habits held', mission: 'done',
+  };
+  return {
+    label: `${picked} · ${r.total} ${r.total === 1 ? 'thing' : 'things'}`,
+    groups: (r.kinds as any[]).map((k) => ({
+      kind: k.kind,
+      heading: `${k.count} ${NOUN[k.kind] ?? k.kind}`,
+      items: (k.items as any[]).slice(0, 4).map((it) => ({
+        label: it.label,
+        when: relativeDays(it.at),
+      })),
+      more: Math.max(0, k.count - 4),
+    })),
+  };
+}
+
 function Rise({ delay = 0, children }: { delay?: number; children: React.ReactNode }) {
   const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -249,6 +292,19 @@ export default function Today() {
     // starts as small as the account is and widens as a life accumulates.
     queryFn: () => api<any>('/life-os/drift'),
     staleTime: 30 * 60_000,
+  });
+  /**
+   * How fast each part of the life turns, and what is in it.
+   *
+   * Fetched up front rather than on tap: the sky cannot place anything until
+   * it knows the periods, and a domain has to open the instant it is pressed.
+   * Without it the sky still draws — it falls back to declared intent — so
+   * this never blocks the screen.
+   */
+  const { data: rhythm } = useQuery({
+    queryKey: ['life-rhythm'],
+    queryFn: () => api<any>('/life-os/rhythm'),
+    staleTime: 15 * 60_000,
   });
   /** A moment from this day in an earlier year. The best thing the app owns. */
   const { data: onThisDay } = useQuery({
@@ -496,6 +552,8 @@ export default function Today() {
   const activeDrift = active ? driftOf(active) : 0;
   const nowColor = m ? obsDomain(m.domainType) : obs.brass;
 
+  const held = heldContents(picked, rhythm);
+
   /**
    * The lens.
    *
@@ -625,8 +683,13 @@ export default function Today() {
             <Constellation
               domains={allDomains}
               past={pastDomains}
+              rhythm={rhythm?.domains}
               selected={activeKey ?? undefined}
-              onSelect={(k) => setPicked(k)}
+              /* Only an actual tap grows branches. The read-out opens on
+                 whatever is most adrift, and that must not unfurl a whole
+                 domain before anyone has asked for it. */
+              opened={picked}
+              onSelect={(k) => setPicked(picked === k ? null : k)}
               size={300}
             />
             {/* The hint becomes the lens control once a star is tapped, so the
@@ -646,12 +709,43 @@ export default function Today() {
                     "12 weeks ago" over an account four weeks old was the app
                     describing a past that did not happen. */}
                 {pastDomains && driftSpan
-                  ? `Outward = neglected · rings show ${driftSpan} · tap a star`
-                  : 'Outward = neglected · tap a star'}
+                  ? `Outward = neglected · rings show ${driftSpan} · tap a domain`
+                  : 'Outward = neglected · tap a domain'}
               </Tick>
             )}
           </View>
         </Rise>
+
+        {/* ── what the open domain holds ───────────────────────────────
+            The branches draw the shape of a domain — mostly people, mostly
+            errands — and they are a bad list. This is the list. Both, always:
+            without it every tip is an unnamed dot, and there is no hover on a
+            phone to fall back on. */}
+        {held ? (
+          <Rise delay={120}>
+            <View style={s.held}>
+              <View style={s.heldHead}>
+                <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
+                <Tick color={activeColor}>{held.label}</Tick>
+              </View>
+              {held.groups.map((g) => (
+                <View key={g.kind} style={s.heldGroup}>
+                  <Tick color={activeColor}>{g.heading}</Tick>
+                  {g.items.map((it, i) => (
+                    <View key={`${g.kind}-${i}`} style={s.heldRow}>
+                      <View style={[s.heldDot, { backgroundColor: activeColor }]} />
+                      <Text style={s.heldWhat} numberOfLines={1}>{it.label}</Text>
+                      <Text style={s.heldWhen}>{it.when}</Text>
+                    </View>
+                  ))}
+                  {g.more > 0 ? (
+                    <Text style={s.heldMore}>+{g.more} more</Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </Rise>
+        ) : null}
 
         {/* ── the read-out ─────────────────────────────────────────── */}
         {active ? (
@@ -1186,6 +1280,18 @@ const s = StyleSheet.create({
   habitRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8 },
   supportRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 7 },
   dot: { width: 7, height: 7, borderRadius: 4 },
+
+  held: {
+    marginTop: 14, borderWidth: 1, borderColor: obs.rule, borderRadius: 16,
+    backgroundColor: obs.raised, paddingHorizontal: 15, paddingTop: 13, paddingBottom: 6,
+  },
+  heldHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  heldGroup: { marginBottom: 12 },
+  heldRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 3.5 },
+  heldDot: { width: 6, height: 6, borderRadius: 3 },
+  heldWhat: { ...obsType.body, flex: 1, fontSize: 13.5, color: obs.ink },
+  heldWhen: { ...obsType.dim, fontSize: 11.5 },
+  heldMore: { ...obsType.dim, fontSize: 11.5, marginTop: 3, marginLeft: 15 },
 
   closing: { textAlign: 'center', marginTop: 14, fontSize: 12.5 },
 });
