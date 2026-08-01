@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { domainLadder, nextDomainAction } from './domainLadder';
+import { domainLadder, nextDomainAction, rhythmRungFor } from './domainLadder';
 
 const DOMAINS = [
   'career', 'health', 'finance', 'family', 'partner', 'children',
@@ -85,5 +85,99 @@ describe('nextDomainAction', () => {
     const { next } = nextDomainAction('astrology');
     expect(next).toBeTruthy();
     expect(next!.title.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Every ladder was built to end on a standing commitment, and every one of
+ * those was being filed as a mission — ticked once, awarded XP, gone. "Make
+ * the call a standing weekly thing", done on a Tuesday, never seen again.
+ */
+describe('the rungs that are rhythms, not errands', () => {
+  it('gives every domain a way to reach a standing rhythm', () => {
+    for (const domain of DOMAINS) {
+      const recurring = domainLadder(domain).filter((r) => r.recurring);
+      expect(recurring.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('puts the rhythm last, so the ladder still climbs to it', () => {
+    /**
+     * Two ladders place theirs earlier and are right to. A weekly money
+     * review is the cheapest thing finance has and belongs at the bottom;
+     * purpose gives the project a standing hour before it asks anyone to
+     * finish a piece or publish it, which is the honest order for making
+     * something. The marker follows the rung that is genuinely a rhythm — it
+     * does not get moved to satisfy a shape.
+     */
+    for (const domain of DOMAINS.filter((d) => d !== 'finance' && d !== 'purpose')) {
+      const rungs = domainLadder(domain);
+      expect(rungs[rungs.length - 1].recurring).toBeTruthy();
+    }
+  });
+
+  it('asks for a cadence a habit can actually hold', () => {
+    for (const domain of DOMAINS) {
+      for (const r of domainLadder(domain)) {
+        if (!r.recurring) continue;
+        expect(Number.isInteger(r.recurring.perWeek)).toBe(true);
+        expect(r.recurring.perWeek).toBeGreaterThanOrEqual(1);
+        expect(r.recurring.perWeek).toBeLessThanOrEqual(7);
+      }
+    }
+  });
+
+  it('leaves monthly and yearly things as one-off missions', () => {
+    /**
+     * The target is an integer per week, so marking these recurring would ask
+     * four and fifty-two times too often. A rhythm nobody could keep is worse
+     * than no rhythm — those domains got a weekly rung of their own instead.
+     */
+    const monthly = domainLadder('friends')
+      .find((r) => r.title === 'Put a standing monthly catch-up in the calendar');
+    const yearly = domainLadder('experiences')
+      .find((r) => r.title === 'Put one real trip in the calendar every year');
+    expect(monthly?.recurring).toBeUndefined();
+    expect(yearly?.recurring).toBeUndefined();
+  });
+
+  it('keeps the one-off rungs one-off — most of a ladder is not a habit', () => {
+    for (const domain of DOMAINS) {
+      const rungs = domainLadder(domain);
+      expect(rungs.filter((r) => r.recurring).length).toBeLessThan(rungs.length / 2);
+    }
+  });
+
+  it('offers the sky a rhythm for any domain, never an errand', () => {
+    for (const domain of DOMAINS) {
+      const rung = rhythmRungFor(domain);
+      expect(rung).toBeTruthy();
+      expect(rung!.recurring).toBeTruthy();
+    }
+  });
+
+  it('does not offer back a rhythm someone already took up', () => {
+    expect(rhythmRungFor('family')).toBeTruthy();
+    expect(rhythmRungFor('family', ['Make the call a standing weekly thing'])).toBeNull();
+  });
+
+  it('stays quiet rather than inventing one, when the domain has none left', () => {
+    // Retired counts as taken — the caller passes retired titles too, and an
+    // ended rhythm handed back the next morning is the bug this guards.
+    const all = domainLadder('reflection').filter((r) => r.recurring).map((r) => r.title);
+    expect(rhythmRungFor('reflection', all)).toBeNull();
+  });
+
+  it('matches taken titles regardless of case and whitespace', () => {
+    expect(rhythmRungFor('finance', ['  WEEKLY money REVIEW  '])).toBeNull();
+  });
+
+  it('still ends, now that three ladders are longer', () => {
+    for (const domain of DOMAINS) {
+      const all = domainLadder(domain).map((r) => r.title);
+      const position = nextDomainAction(domain, all);
+      expect(position.finished).toBe(true);
+      expect(position.taken).toBe(position.total);
+    }
   });
 });

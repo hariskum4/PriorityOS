@@ -399,6 +399,62 @@ export default function TimeReality() {
 
   const { refreshing, onRefresh } = useRefresh();
 
+  /**
+   * What this life is already doing about its own healthspan.
+   *
+   * Three of the levers are habits and read straight off them. The fourth,
+   * staying socially connected, is not a habit anyone writes down — but the
+   * People tab has been tracking exactly it for months: who someone said they
+   * wanted to keep up with, and whether they have. Using that is the whole
+   * difference between advice and a mirror.
+   *
+   * Sits above the early returns below, and must stay there. It used to sit
+   * under them, which is a rules-of-hooks violation that only bites when the
+   * early path is actually taken first — a cold cache, or anyone who has not
+   * given their age yet. Warm from storage it never fired; the first load on
+   * a new phone crashed the whole tab with "rendered more hooks".
+   */
+  const leverSignals: LeverSignal[] = useMemo(() => {
+    const out: LeverSignal[] = [];
+
+    for (const h of habits ?? []) {
+      const key = classifyLever(h.title ?? '');
+      if (!key || out.some((s) => s.key === key)) continue;
+      out.push({
+        key,
+        target: h.targetPerWeek ?? 3,
+        // The four-week rate, which survives a bad week. Falls back to this
+        // week's ticks only if an older server has not sent one.
+        actual: h.perWeek ?? (h.logs?.length ?? 0),
+        label: h.title,
+        // So a rhythm agreed to this morning is not graded this afternoon.
+        ageDays: h.createdAt
+          ? (Date.now() - new Date(h.createdAt).getTime()) / 86_400_000
+          : undefined,
+      });
+    }
+
+    /* Connected means keeping the cadence you set with the people you named,
+       so the target is "everyone you are tracking" and the actual is how many
+       of them are currently within it. */
+    const tracked = (relationships ?? []).filter((r: any) => r.desiredCallFrequency);
+    if (tracked.length) {
+      const withinCadence = tracked.filter((r: any) => {
+        if (!r.lastContactAt) return false;
+        const days = (Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000;
+        return days <= (CADENCE_DAYS[r.desiredCallFrequency] ?? 30);
+      }).length;
+      out.push({
+        key: 'social',
+        target: tracked.length,
+        actual: withinCadence,
+        label: `${withinCadence} of ${tracked.length} people you track`,
+      });
+    }
+
+    return out;
+  }, [habits, relationships]);
+
   const age = ageFromDob(me?.dob);
   const birthYear = me?.dob ? new Date(me.dob).getUTCFullYear() : null;
   const intensityOff = prefs?.insightIntensity === 'off';
@@ -530,55 +586,6 @@ export default function TimeReality() {
   const season = suggestSeason(
     activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance, neglectRisk: d.neglectRisk })),
   );
-  /**
-   * What this life is already doing about its own healthspan.
-   *
-   * Three of the levers are habits and read straight off them. The fourth,
-   * staying socially connected, is not a habit anyone writes down — but the
-   * People tab has been tracking exactly it for months: who someone said they
-   * wanted to keep up with, and whether they have. Using that is the whole
-   * difference between advice and a mirror.
-   */
-  const leverSignals: LeverSignal[] = useMemo(() => {
-    const out: LeverSignal[] = [];
-
-    for (const h of habits ?? []) {
-      const key = classifyLever(h.title ?? '');
-      if (!key || out.some((s) => s.key === key)) continue;
-      out.push({
-        key,
-        target: h.targetPerWeek ?? 3,
-        // The four-week rate, which survives a bad week. Falls back to this
-        // week's ticks only if an older server has not sent one.
-        actual: h.perWeek ?? (h.logs?.length ?? 0),
-        label: h.title,
-        // So a rhythm agreed to this morning is not graded this afternoon.
-        ageDays: h.createdAt
-          ? (Date.now() - new Date(h.createdAt).getTime()) / 86_400_000
-          : undefined,
-      });
-    }
-
-    /* Connected means keeping the cadence you set with the people you named,
-       so the target is "everyone you are tracking" and the actual is how many
-       of them are currently within it. */
-    const tracked = (relationships ?? []).filter((r: any) => r.desiredCallFrequency);
-    if (tracked.length) {
-      const withinCadence = tracked.filter((r: any) => {
-        if (!r.lastContactAt) return false;
-        const days = (Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000;
-        return days <= (CADENCE_DAYS[r.desiredCallFrequency] ?? 30);
-      }).length;
-      out.push({
-        key: 'social',
-        target: tracked.length,
-        actual: withinCadence,
-        label: `${withinCadence} of ${tracked.length} people you track`,
-      });
-    }
-
-    return out;
-  }, [habits, relationships]);
 
   const hs = healthspan(age, leverSignals);
   /* The sharp-hours number is only worth showing if it is theirs, so it is
@@ -864,7 +871,9 @@ export default function TimeReality() {
           <Section
             icon="pulse-outline"
             title="Health and energy"
-            preview={`~${hs.healthyYearsLeft} able years · ~${energy.peakHoursYours} sharp h/wk yours`}
+            preview={hs.yearsHeld > 0
+              ? `~${hs.yearsHeld}/${hs.potentialYearsGained} yrs held · ~${energy.peakHoursYours} sharp h/wk yours`
+              : `~${hs.healthyYearsLeft} able years · ~${energy.peakHoursYours} sharp h/wk yours`}
           >
           {/* Healthspan — the years that actually matter */}
           <Card style={{ gap: space(3) }}>
@@ -872,10 +881,27 @@ export default function TimeReality() {
               <Ionicons name="pulse-outline" size={14} color={colors.textDim} />
               <Label>Healthy years, not just years</Label>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-              <Text style={[type.stat, { fontSize: 30, color: colors.green }]}>~{hs.healthyYearsLeft}</Text>
-              <Text style={type.dim}>years on the planning horizon</Text>
-            </View>
+            {/* The headline is whichever number is currently the live one.
+                ~55 never moves — it is the frame, and once it has been read
+                once a card that only ever shows it stops being opened. The
+                moment a rhythm is being kept there is a number that responds
+                to what this person does, and that one takes the front. The
+                frame is not lost: the sentence under it still opens with it. */}
+            {hs.yearsHeld > 0 ? (
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                <Text style={[type.stat, { fontSize: 30, color: colors.green }]}>
+                  ~{hs.yearsHeld}
+                </Text>
+                <Text style={type.dim}>
+                  of the ~{hs.potentialYearsGained} rhythm years are yours
+                </Text>
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                <Text style={[type.stat, { fontSize: 30, color: colors.green }]}>~{hs.healthyYearsLeft}</Text>
+                <Text style={type.dim}>years on the planning horizon</Text>
+              </View>
+            )}
             <Text style={type.serif}>{hs.framingText}</Text>
 
             {/* Four rhythms, each showing where this life actually stands on
@@ -955,15 +981,17 @@ export default function TimeReality() {
               })}
             </View>
 
-            {/* Held first, because what someone is already doing is the truest
-                thing on this card — and the old copy never mentioned it. */}
+            {/* The ledger, then the point of it. The ledger alone was the
+                whole close before, and it said the same shape of thing whether
+                someone had started nothing or was keeping all four. */}
             <Text style={[type.faint, { color: hs.yearsHeld > 0 ? colors.green : colors.textDim }]}>
-              {hs.yearsHeld > 0
-                ? `~${hs.yearsHeld} of the ~${hs.potentialYearsGained} are already yours`
-                : `~${hs.potentialYearsGained} good years sit in these four rhythms`}
+              {hs.yearsHeld > 0 ? `~${hs.yearsHeld} yours` : `~${hs.potentialYearsGained} on the table`}
               {hs.yearsSlipping > 0 ? ` · ~${hs.yearsSlipping} slipping` : ''}
               {hs.yearsNew > 0 ? ` · ~${hs.yearsNew} just begun` : ''}
               {hs.yearsOpen > 0 ? ` · ~${hs.yearsOpen} not started` : ''}.
+            </Text>
+            <Text style={[type.serif, hs.mode === 'holding' && { color: colors.text }]}>
+              {hs.summaryText}
             </Text>
             <Text style={type.faint}>
               These are population estimates from the research on compressing illness into fewer

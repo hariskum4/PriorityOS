@@ -31,10 +31,10 @@ export class HabitsService {
    * does not run on calendar weeks. `perWeek` is the rate over four, which
    * survives a bad week and still notices a habit that has actually stopped.
    */
-  async list(userId: string) {
+  async list(userId: string, includeRetired = false) {
     const since = await this.clock.daysAgo(userId, RATE_WINDOW_DAYS);
     const habits = await this.prisma.habit.findMany({
-      where: { userId, isActive: true },
+      where: { userId, ...(includeRetired ? {} : { isActive: true }) },
       include: {
         logs: {
           where: { completedAt: { gte: await this.clock.startOfWeek(userId) } },
@@ -73,6 +73,29 @@ export class HabitsService {
     const xp = await this.game.award(userId, 'habit_completed', habit.domainType, id);
     await this.scoring.recalcUserDomains(userId);
     return { habitId: id, xp };
+  }
+
+  /**
+   * Stop a rhythm without erasing that it happened.
+   *
+   * Deliberately not a delete. Someone who kept a habit for six months and no
+   * longer needs it has not made a mistake to be undone — the streak, the
+   * logs and the XP already awarded all stay, and the rhythm simply stops
+   * being asked for. It also stops being re-offered: the ladder and the
+   * healthspan levers both read retired habits as taken, so ending one does
+   * not make the app suggest it again the next morning.
+   */
+  async retire(userId: string, id: string) {
+    const habit = await this.prisma.habit.findFirst({ where: { id, userId } });
+    if (!habit) throw new NotFoundException('Habit not found');
+    return this.prisma.habit.update({ where: { id }, data: { isActive: false } });
+  }
+
+  /** Picking it back up. The streak resumes from where it was left. */
+  async restore(userId: string, id: string) {
+    const habit = await this.prisma.habit.findFirst({ where: { id, userId } });
+    if (!habit) throw new NotFoundException('Habit not found');
+    return this.prisma.habit.update({ where: { id }, data: { isActive: true } });
   }
 
   /**

@@ -28,6 +28,7 @@ import { levelProgress } from '@/theme';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
+import { rhythmRungFor } from '@priority/scoring-engine';
 
 /** Days each desired cadence represents — for the "people waiting" glance. */
 const CADENCE_DAYS: Record<string, number> = {
@@ -306,6 +307,18 @@ export default function Today() {
     queryFn: () => api<any>('/life-os/rhythm'),
     staleTime: 15 * 60_000,
   });
+  /**
+   * Every rhythm this person keeps, retired ones included.
+   *
+   * The dashboard already sends today's habits, but only the live ones — and
+   * the sky has to know about the ended ones too, or opening a domain offers
+   * back the exact rhythm someone deliberately stopped.
+   */
+  const { data: allHabits } = useQuery({
+    queryKey: ['habits', 'all'],
+    queryFn: () => api<any[]>('/habits?all=1'),
+    staleTime: 5 * 60_000,
+  });
   /** A moment from this day in an earlier year. The best thing the app owns. */
   const { data: onThisDay } = useQuery({
     queryKey: ['memories-otd'],
@@ -373,6 +386,21 @@ export default function Today() {
     mutationFn: (id: string) => api(`/habits/${id}/complete`, { method: 'POST', body: {} }),
     onSuccess: invalidate,
   });
+  /** Giving a domain a rhythm, from the sky, in one tap. */
+  const startRhythm = useMutation({
+    mutationFn: ({ domainType, title, perWeek }: {
+      domainType: string; title: string; perWeek: number;
+    }) => api('/habits', {
+      method: 'POST',
+      body: { title, domainType, targetPerWeek: perWeek, sourceType: 'system' },
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['habits'] });
+      invalidate();
+    },
+  });
+  /** So the row answers the tap immediately, not after a round trip. */
+  const [startedHere, setStartedHere] = useState<string[]>([]);
 
   /** Taking a door. Optimistically hidden so the screen gets quieter, not busier. */
   const [actedOn, setActedOn] = useState<string[]>([]);
@@ -441,6 +469,51 @@ export default function Today() {
   const active = allDomains.find((d: any) => d.domainType === activeKey) ?? null;
 
   /**
+   * The sky as it stood twelve weeks ago — the oldest sample held for each
+   * domain. Absent history simply means no ghosts, never a broken picture.
+   *
+   * These three sit above the `!data` return below, and must stay there.
+   * Under it they are a rules-of-hooks violation that only bites when that
+   * path is actually taken first — which is every cold start, and so every
+   * new install. Warm from storage the screen never took it, so the crash
+   * hid until a device arrived without a cache.
+   */
+  const pastDomains = useMemo(() => {
+    const series = drift?.series as Record<string, any[]> | undefined;
+    if (!series) return undefined;
+    const out = Object.entries(series)
+      .map(([domainType, points]) => points?.length ? {
+        domainType,
+        importance: points[0].importance,
+        attention: points[0].attention,
+      } : null)
+      .filter(Boolean) as any[];
+    return out.length ? out : undefined;
+  }, [drift]);
+
+  /**
+   * How far back the ghosts actually reach, said in words rather than a fixed
+   * number of weeks. Under a fortnight it is "where you started", because that
+   * is what it is for a new account and it reads as a beginning rather than as
+   * missing data.
+   */
+  const driftSpan: string | null = useMemo(() => {
+    const w = drift?.weeks ?? 0;
+    if (!w) return null;
+    if (w < 2) return 'where you started';
+    if (w < 8) return `${w} weeks ago`;
+    if (w < 52) return `${Math.round(w / 4.345)} months ago`;
+    const years = w / 52.18;
+    return years < 1.75 ? 'a year ago' : `${Math.round(years)} years ago`;
+  }, [drift]);
+
+  /** The selected star's own history, for the trail under the read-out. */
+  const activeSeries: number[] = useMemo(() => {
+    const points = (drift?.series as Record<string, any[]> | undefined)?.[activeKey ?? ''] ?? [];
+    return points.map((p) => Math.max(0, Math.min(100, p.attention)));
+  }, [drift, activeKey]);
+
+  /**
    * Three ways to have nothing, and they are not the same thing.
    *
    * This used to return an empty View for all of them, so a first launch, a
@@ -487,44 +560,6 @@ export default function Today() {
   const reading = lifeAlignment(liveDomains);
   const score = reading.score;
 
-  /**
-   * The sky as it stood twelve weeks ago — the oldest sample held for each
-   * domain. Absent history simply means no ghosts, never a broken picture.
-   */
-  const pastDomains = useMemo(() => {
-    const series = drift?.series as Record<string, any[]> | undefined;
-    if (!series) return undefined;
-    const out = Object.entries(series)
-      .map(([domainType, points]) => points?.length ? {
-        domainType,
-        importance: points[0].importance,
-        attention: points[0].attention,
-      } : null)
-      .filter(Boolean) as any[];
-    return out.length ? out : undefined;
-  }, [drift]);
-
-  /**
-   * How far back the ghosts actually reach, said in words rather than a fixed
-   * number of weeks. Under a fortnight it is "where you started", because that
-   * is what it is for a new account and it reads as a beginning rather than as
-   * missing data.
-   */
-  const driftSpan: string | null = useMemo(() => {
-    const w = drift?.weeks ?? 0;
-    if (!w) return null;
-    if (w < 2) return 'where you started';
-    if (w < 8) return `${w} weeks ago`;
-    if (w < 52) return `${Math.round(w / 4.345)} months ago`;
-    const years = w / 52.18;
-    return years < 1.75 ? 'a year ago' : `${Math.round(years)} years ago`;
-  }, [drift]);
-
-  /** The selected star's own history, for the trail under the read-out. */
-  const activeSeries: number[] = useMemo(() => {
-    const points = (drift?.series as Record<string, any[]> | undefined)?.[activeKey ?? ''] ?? [];
-    return points.map((p) => Math.max(0, Math.min(100, p.attention)));
-  }, [drift, activeKey]);
   const gam = data.gamification;
   const lvl = gam ? levelProgress(gam.totalXp ?? 0) : null;
   const dateLine = new Date().toLocaleDateString(undefined, {
@@ -553,6 +588,24 @@ export default function Today() {
   const nowColor = m ? obsDomain(m.domainType) : obs.brass;
 
   const held = heldContents(picked, rhythm);
+
+  /**
+   * What the open domain does, week after week — and the one thing that would
+   * give it a rhythm if it has none.
+   *
+   * The four healthspan levers were the only habits this app could ever
+   * create, so eleven of the twelve parts of a life had no way to hold a
+   * standing commitment at all. The sky is where a domain is looked at
+   * directly, so it is where that is offered.
+   */
+  const rhythmHere = (() => {
+    if (!picked) return null;
+    const mine = (allHabits ?? []).filter((h: any) => h.domainType === picked);
+    const active = mine.filter((h: any) => h.isActive !== false);
+    if (active.length) return { kind: 'kept' as const, habits: active };
+    const rung = rhythmRungFor(picked, mine.map((h: any) => h.title));
+    return rung ? { kind: 'offer' as const, rung } : null;
+  })();
 
   /**
    * The lens.
@@ -743,6 +796,58 @@ export default function Today() {
                   ) : null}
                 </View>
               ))}
+            </View>
+          </Rise>
+        ) : null}
+
+        {/* ── what this domain does every week ─────────────────────────
+            Deliberately outside the `held` panel above, which renders only
+            when a domain already holds something. A domain holding nothing
+            is precisely the one that needs a rhythm, and it was the one with
+            nothing on screen to offer it. */}
+        {rhythmHere ? (
+          <Rise delay={130}>
+            <View style={s.held}>
+              <View style={s.heldHead}>
+                <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
+                <Tick color={activeColor}>
+                  {rhythmHere.kind === 'kept' ? 'Rhythm here' : 'No rhythm here yet'}
+                </Tick>
+              </View>
+              {rhythmHere.kind === 'kept' ? (
+                rhythmHere.habits.map((h: any) => (
+                  <View key={h.id} style={s.heldRow}>
+                    <View style={[s.heldDot, { backgroundColor: activeColor }]} />
+                    <Text style={s.heldWhat} numberOfLines={1}>{h.title}</Text>
+                    <Text style={s.heldWhen}>
+                      {h.streakCurrent > 0 ? `${h.streakCurrent}w` : `${h.targetPerWeek}/wk`}
+                    </Text>
+                  </View>
+                ))
+              ) : startedHere.includes(rhythmHere.rung.title) ? (
+                <Text style={[s.heldMore, { color: obs.brass }]}>
+                  Added — {rhythmHere.rung.recurring!.perWeek} a week, starting now.
+                </Text>
+              ) : (
+                <Pressable
+                  disabled={startRhythm.isPending}
+                  onPress={() => {
+                    setStartedHere((p) => [...p, rhythmHere.rung.title]);
+                    startRhythm.mutate({
+                      domainType: picked!,
+                      title: rhythmHere.rung.title,
+                      perWeek: rhythmHere.rung.recurring!.perWeek,
+                    }, {
+                      onError: () => setStartedHere((p) => p.filter((t) => t !== rhythmHere.rung.title)),
+                    });
+                  }}
+                  style={({ pressed }) => [s.rhythmOffer, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name="repeat" size={14} color={obs.brass} />
+                  <Text style={[obsType.body, { flex: 1 }]}>{rhythmHere.rung.label}</Text>
+                  <Tick color={obs.brass}>{rhythmHere.rung.recurring!.perWeek}/wk</Tick>
+                </Pressable>
+              )}
             </View>
           </Rise>
         ) : null}
@@ -1292,6 +1397,13 @@ const s = StyleSheet.create({
   heldWhat: { ...obsType.body, flex: 1, fontSize: 13.5, color: obs.ink },
   heldWhen: { ...obsType.dim, fontSize: 11.5 },
   heldMore: { ...obsType.dim, fontSize: 11.5, marginTop: 3, marginLeft: 15 },
+  /** The one offer a domain with no rhythm gets. Reads as an invitation,
+      not as a row of data — it is the only thing here that is a button. */
+  rhythmOffer: {
+    flexDirection: 'row', alignItems: 'center', gap: 9,
+    borderWidth: 1, borderColor: alpha(obs.brass, 0.35), borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10, marginBottom: 8,
+  },
 
   closing: { textAlign: 'center', marginTop: 14, fontSize: 12.5 },
 });

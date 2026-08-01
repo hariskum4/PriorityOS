@@ -33,6 +33,21 @@ export interface LadderRung {
   label: string;
   /** Roughly what it costs, in minutes. Climbs with the ladder. */
   minutes: number;
+  /**
+   * Set when the rung is a standing rhythm rather than a one-off — then it
+   * becomes a habit, not a mission, and `perWeek` is what it asks for.
+   *
+   * Most of these ladders end on something recurring by design, and every one
+   * of them was being filed as a mission: "make the call a standing weekly
+   * thing" got ticked once on a Tuesday, awarded its XP, and vanished. A
+   * standing commitment marked done after one go is not a small inaccuracy —
+   * it is the app agreeing that the rhythm is finished when it has not begun.
+   *
+   * `perWeek` is an integer because the habit target is, so this marks only
+   * cadences of a week or tighter. See the note on LADDERS for what that
+   * costs and why it is the right cost to pay.
+   */
+  recurring?: { perWeek: number };
 }
 
 /**
@@ -41,6 +56,13 @@ export interface LadderRung {
  * Titles are matched case-insensitively against completed missions, so they
  * have to stay stable — editing one re-offers it to everyone who has done it.
  * Add to the end rather than rewriting.
+ *
+ * The last rung is a standing rhythm wherever the cadence can be told the
+ * truth. A habit's target is an integer per week, so "a standing monthly
+ * catch-up" and "one real trip a year" cannot be marked recurring without
+ * asking four and fifty-two times too often — those stay one-off missions,
+ * and the domains they belong to get a weekly rung of their own at the end
+ * instead. Rather no rhythm than a rhythm nobody could keep.
  */
 const LADDERS: Record<string, LadderRung[]> = {
   career: [
@@ -49,7 +71,7 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Have one honest conversation about your direction', label: 'Talk to someone about direction', minutes: 45 },
     { title: 'Learn one thing that outlasts this role', label: 'Learn something that outlasts the role', minutes: 60 },
     { title: 'Ask for the thing you have been not asking for', label: 'Ask for the thing', minutes: 30 },
-    { title: 'Protect one evening a week from work, every week', label: 'Protect one evening a week', minutes: 15 },
+    { title: 'Protect one evening a week from work, every week', label: 'Protect one evening a week', minutes: 15, recurring: { perWeek: 1 } },
   ],
   health: [
     { title: 'Book the annual health checkup', label: 'Book the annual checkup', minutes: 15 },
@@ -57,10 +79,10 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Put a bedtime in the calendar and keep it once', label: 'Set a bedtime, keep it once', minutes: 10 },
     { title: 'Do one strength session this week', label: 'One strength session', minutes: 40 },
     { title: 'Cook three meals at home this week', label: 'Cook three meals at home', minutes: 90 },
-    { title: 'Move three times a week for a month', label: 'Move three times a week', minutes: 120 },
+    { title: 'Move three times a week for a month', label: 'Move three times a week', minutes: 120, recurring: { perWeek: 3 } },
   ],
   finance: [
-    { title: 'Weekly money review', label: 'Start a weekly money review', minutes: 15 },
+    { title: 'Weekly money review', label: 'Start a weekly money review', minutes: 15, recurring: { perWeek: 1 } },
     { title: 'Write down every recurring payment you have', label: 'List every recurring payment', minutes: 30 },
     { title: 'Set aside one month of expenses', label: 'Start the emergency fund', minutes: 30 },
     { title: 'Automate one monthly investment', label: 'Automate one investment', minutes: 25 },
@@ -73,7 +95,7 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Record one story before it is gone', label: 'Record one story', minutes: 30 },
     { title: 'Plan a visit and put a date on it', label: 'Put a date on a visit', minutes: 20 },
     { title: 'Write down what you would want them to know', label: 'Write what they should know', minutes: 30 },
-    { title: 'Make the call a standing weekly thing', label: 'Make the call weekly', minutes: 15 },
+    { title: 'Make the call a standing weekly thing', label: 'Make the call weekly', minutes: 15, recurring: { perWeek: 1 } },
   ],
   partner: [
     { title: 'Plan a phone-free evening together', label: 'Plan a phone-free evening', minutes: 90 },
@@ -81,7 +103,7 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Take one thing off their plate this week', label: 'Take one thing off their plate', minutes: 30 },
     { title: 'Plan something you both used to do', label: 'Do something you used to do', minutes: 60 },
     { title: 'Say the specific thing you appreciate', label: 'Say the specific thing', minutes: 5 },
-    { title: 'Put a recurring evening in the calendar', label: 'Make the evening recurring', minutes: 15 },
+    { title: 'Put a recurring evening in the calendar', label: 'Make the evening recurring', minutes: 15, recurring: { perWeek: 1 } },
   ],
   children: [
     { title: 'One undivided hour with them this week', label: 'One undivided hour', minutes: 60 },
@@ -89,7 +111,7 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Let them teach you something', label: 'Let them teach you', minutes: 30 },
     { title: 'Write down one thing they said this month', label: 'Write down what they said', minutes: 10 },
     { title: 'Take a day off for no reason but them', label: 'A day off, for them', minutes: 240 },
-    { title: 'Start a thing only the two of you do', label: 'Start a thing that is yours', minutes: 45 },
+    { title: 'Start a thing only the two of you do', label: 'Start a thing that is yours', minutes: 45, recurring: { perWeek: 1 } },
   ],
   friends: [
     { title: 'Message a friend you have been meaning to', label: 'Message the friend', minutes: 10 },
@@ -98,6 +120,7 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Introduce two people who should know each other', label: 'Introduce two people', minutes: 15 },
     { title: 'Host something small', label: 'Host something small', minutes: 120 },
     { title: 'Put a standing monthly catch-up in the calendar', label: 'Make it standing', minutes: 15 },
+    { title: 'Message one friend every week, whoever it is', label: 'One friend a week', minutes: 10, recurring: { perWeek: 1 } },
   ],
   growth: [
     { title: 'Learn for 30 minutes', label: 'Start a learning habit', minutes: 30 },
@@ -105,13 +128,13 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Teach one thing you know to someone', label: 'Teach one thing', minutes: 45 },
     { title: 'Read the book that keeps getting postponed', label: 'Read the postponed book', minutes: 120 },
     { title: 'Take on something you are not qualified for', label: 'Do the unqualified thing', minutes: 90 },
-    { title: 'Learn for thirty minutes a day for a month', label: 'Thirty minutes a day', minutes: 120 },
+    { title: 'Learn for thirty minutes a day for a month', label: 'Thirty minutes a day', minutes: 120, recurring: { perWeek: 7 } },
   ],
   purpose: [
     { title: 'Work on the project for 30 minutes', label: 'Open the project today', minutes: 30 },
     { title: 'Show the work to one person', label: 'Show it to one person', minutes: 20 },
     { title: 'Write down what you want this to become', label: 'Name what it should become', minutes: 30 },
-    { title: 'Give it a standing hour every week', label: 'Give it a standing hour', minutes: 60 },
+    { title: 'Give it a standing hour every week', label: 'Give it a standing hour', minutes: 60, recurring: { perWeek: 1 } },
     { title: 'Finish one piece of it, however small', label: 'Finish one piece', minutes: 120 },
     { title: 'Put it somewhere other people can find it', label: 'Put it where it can be found', minutes: 60 },
   ],
@@ -122,6 +145,7 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Go somewhere you have never been, nearby', label: 'Somewhere new, nearby', minutes: 180 },
     { title: 'Take the trip while the people can still come', label: 'Take the trip', minutes: 240 },
     { title: 'Put one real trip in the calendar every year', label: 'One real trip a year', minutes: 60 },
+    { title: 'Do one new thing a week, however small', label: 'One new thing a week', minutes: 45, recurring: { perWeek: 1 } },
   ],
   reflection: [
     { title: 'Sit quietly for 5 minutes', label: 'Sit quietly for five minutes', minutes: 5 },
@@ -129,7 +153,7 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Name the thing you have been avoiding thinking about', label: 'Name what you avoid', minutes: 20 },
     { title: 'Take a walk with no phone and no podcast', label: 'Walk with nothing on', minutes: 40 },
     { title: 'Write the letter you will not send', label: 'Write the unsent letter', minutes: 45 },
-    { title: 'Keep a weekly hour that belongs to no one else', label: 'An hour that is yours', minutes: 60 },
+    { title: 'Keep a weekly hour that belongs to no one else', label: 'An hour that is yours', minutes: 60, recurring: { perWeek: 1 } },
   ],
   impact: [
     { title: 'Mentor or help one person this month', label: 'Help one person', minutes: 60 },
@@ -138,8 +162,31 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Show up in person for something local', label: 'Show up locally', minutes: 180 },
     { title: 'Bring one other person into it', label: 'Bring someone with you', minutes: 30 },
     { title: 'Make the giving automatic and forget it', label: 'Make it automatic', minutes: 20 },
+    { title: 'Give one hour a week to someone who needs it', label: 'An hour a week for someone', minutes: 60, recurring: { perWeek: 1 } },
   ],
 };
+
+/**
+ * The standing rhythm a domain is still asking for, if it has one to give.
+ *
+ * Separate from `nextDomainAction` on purpose: that walks the ladder in order
+ * and answers "what is the next thing here", which is right on a domain
+ * screen where someone came to work. The sky asks a narrower question — this
+ * part of the life has no rhythm at all, what is the one that would give it
+ * one — and the answer must not be an errand.
+ *
+ * `taken` is habit titles, retired ones included. A rhythm someone ended is
+ * not on offer again; if that was the domain's only one, the honest answer
+ * here is null and the caller says nothing.
+ */
+export function rhythmRungFor(
+  domainType: string,
+  taken: Iterable<string> = [],
+): LadderRung | null {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const takenSet = new Set([...taken].map(norm));
+  return domainLadder(domainType).find((r) => r.recurring && !takenSet.has(norm(r.title))) ?? null;
+}
 
 /** Everything the ladder for a domain contains, in order. */
 export function domainLadder(domainType: string): LadderRung[] {

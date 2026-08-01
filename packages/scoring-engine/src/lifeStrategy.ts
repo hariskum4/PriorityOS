@@ -114,6 +114,26 @@ export interface HealthspanLever {
   habitLabel?: string;
 }
 
+/**
+ * What the card is for at this moment.
+ *
+ *   inviting — something is still unstarted, so the card is a menu
+ *   holding  — all four are begun, so the card is a report
+ *
+ * Without this the card had no second act. Once every lever was started it
+ * kept showing four green "added to your habits" lines forever, which is a
+ * receipt, not a mirror — the question had already moved on from *will you
+ * start* to *is it holding*, and nothing on the card had noticed.
+ */
+export type HealthspanMode = 'inviting' | 'holding';
+
+/**
+ * The order the levers are read in. Not the research order — the order of
+ * what needs a person today: what is falling over, then what has not begun,
+ * then what is too new to judge, then what is being kept.
+ */
+const ATTENTION: Record<LeverState, number> = { slipping: 0, open: 1, new: 2, held: 3 };
+
 export interface Healthspan {
   healthyYearsLeft: number;
   yearsToHorizon: number;
@@ -126,8 +146,12 @@ export interface Healthspan {
   /** Attached to levers not started. */
   yearsOpen: number;
   potentialYearsGained: number;
+  /** Ordered by what needs attention, not by the order of the research. */
   levers: HealthspanLever[];
+  mode: HealthspanMode;
   framingText: string;
+  /** The closing line — it says a different true thing in each mode. */
+  summaryText: string;
 }
 
 export function healthspan(age: number, signals: LeverSignal[] = []): Healthspan {
@@ -135,34 +159,97 @@ export function healthspan(age: number, signals: LeverSignal[] = []): Healthspan
   const healthy = Math.max(horizon - TYPICAL_UNWELL_YEARS, 2);
   const byKey = new Map(signals.map((s) => [s.key, s]));
 
-  const levers: HealthspanLever[] = HEALTHSPAN_LEVERS.map((l) => {
-    const signal = byKey.get(l.key);
-    const state = leverStateOf(signal);
-    return {
-      ...l,
-      state,
-      ...(signal ? { target: signal.target, actual: signal.actual, habitLabel: signal.label } : {}),
-    };
-  });
+  const levers: HealthspanLever[] = HEALTHSPAN_LEVERS
+    .map((l) => {
+      const signal = byKey.get(l.key);
+      const state = leverStateOf(signal);
+      return {
+        ...l,
+        state,
+        ...(signal ? { target: signal.target, actual: signal.actual, habitLabel: signal.label } : {}),
+      };
+    })
+    // Stable within a band, so the four never shuffle for no reason.
+    .sort((a, b) => ATTENTION[a.state] - ATTENTION[b.state]);
 
   const sum = (state: LeverState) => levers
     .filter((l) => l.state === state)
     .reduce((s, l) => s + l.yearsGained, 0);
 
+  const held = sum('held');
+  const slipping = sum('slipping');
+  const potential = HEALTHSPAN_LEVERS.reduce((s, l) => s + l.yearsGained, 0);
+  const mode: HealthspanMode = levers.some((l) => l.state === 'open') ? 'inviting' : 'holding';
+  const slippingLevers = levers.filter((l) => l.state === 'slipping');
+
   return {
     healthyYearsLeft: healthy,
     yearsToHorizon: horizon,
-    yearsHeld: sum('held'),
-    yearsSlipping: sum('slipping'),
+    yearsHeld: held,
+    yearsSlipping: slipping,
     yearsNew: sum('new'),
     yearsOpen: sum('open'),
-    potentialYearsGained: HEALTHSPAN_LEVERS.reduce((s, l) => s + l.yearsGained, 0),
+    potentialYearsGained: potential,
     levers,
+    mode,
     framingText:
       `Roughly ${healthy} years ahead on a 100-year planning horizon, minus the frail tail most ` +
       `people meet at the end. Ageing is not fixed: the rhythms below are the ones that push that ` +
       `edge out. You are not counting down a wall; you are widening a window.`,
+    summaryText: summaryFor({ mode, held, slipping, potential, slippingLevers }),
   };
+}
+
+/**
+ * What to call a lever in a sentence.
+ *
+ * Their own words wherever they gave them — "20-minute walk" is what they
+ * will recognise, not "Zone-2 cardio". Social is the exception: its label
+ * holds a count of people rather than a name, and "4 of 7 people you track is
+ * slipping" is not a sentence anyone wrote on purpose.
+ */
+function nameOf(l: HealthspanLever): string {
+  return l.key === 'social' || !l.habitLabel ? l.label.toLowerCase() : l.habitLabel;
+}
+
+/** These names open sentences, and a lowered label opening one reads as a typo. */
+const sentenceCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * The closing line. Four situations, four different true things — the old
+ * copy had one sentence for all of them and so said nothing about any.
+ */
+function summaryFor(x: {
+  mode: HealthspanMode;
+  held: number;
+  slipping: number;
+  potential: number;
+  slippingLevers: HealthspanLever[];
+}): string {
+  if (x.mode === 'inviting') {
+    return x.held > 0
+      ? `~${x.held} of the ~${x.potential} years in these rhythms are already yours. The unstarted ones are where the rest of it is.`
+      : `~${x.potential} good years sit in these four rhythms. None of them needs to start big — one a week counts.`;
+  }
+
+  // Nothing left to start: the card stops selling and starts reporting.
+  const begun = 'All four are begun, which is the hard part.';
+  const [first, ...rest] = x.slippingLevers;
+
+  if (x.slippingLevers.length === 1) {
+    // The years named must be that lever's own — quoting the slipping total
+    // next to one name credits it with what the others are worth too.
+    return `${begun} ${sentenceCase(nameOf(first))} is the one slipping — worth ~${first.yearsGained} of the ~${x.potential} years, and the only thing here still asking anything of you.`;
+  }
+  if (x.slippingLevers.length > 1) {
+    const names = [x.slippingLevers.slice(0, -1).map(nameOf).join(', '), nameOf(rest[rest.length - 1])]
+      .join(' and ');
+    return `${begun} ${sentenceCase(names)} are slipping — ~${x.slipping} of the ~${x.potential} years between them, and the only things here still asking anything of you.`;
+  }
+  if (x.held >= x.potential) {
+    return `All four are being kept. That is the whole card — the ~${x.potential} years are yours as long as they hold, and there is nothing here left to start.`;
+  }
+  return `All four are begun and none is slipping. ~${x.held} of the ~${x.potential} years are counted so far; the rest arrives by these simply continuing.`;
 }
 
 // ---------------------------------------------------------------------------

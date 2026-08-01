@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { weeklyAllocation } from './allocation';
 import {
-  healthspan, energyBudget, costOfDelay, suggestSeason, classifyLever,
+  healthspan, energyBudget, costOfDelay, suggestSeason, classifyLever, type LeverKey,
 } from './lifeStrategy';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted/i;
@@ -54,6 +54,107 @@ describe('healthspan', () => {
     expect(h.healthyYearsLeft).toBeGreaterThanOrEqual(2);
     expect(h.framingText).not.toMatch(FORBIDDEN);
     expect(h.framingText).toMatch(/widening a window/);
+  });
+});
+
+/**
+ * Once all four levers were started the card kept showing four green "added
+ * to your habits" lines forever. That is a receipt. The question had already
+ * moved from *will you start* to *is it holding*, and nothing on the card had
+ * noticed — so it had no reason to be opened again.
+ */
+describe('what the card is for once everything is started', () => {
+  const sig = (key: LeverKey, kept: boolean, ageDays = 60) =>
+    ({ key, target: 3, actual: kept ? 3 : 0, ageDays });
+  const all = (kept: boolean) =>
+    (['strength', 'cardio', 'sleep', 'social'] as LeverKey[]).map((k) => sig(k, kept));
+
+  it('is a menu while anything is unstarted', () => {
+    expect(healthspan(35, [sig('strength', true)]).mode).toBe('inviting');
+  });
+
+  it('becomes a report once nothing is left to start', () => {
+    expect(healthspan(35, all(true)).mode).toBe('holding');
+    expect(healthspan(35, all(false)).mode).toBe('holding');
+  });
+
+  it('reads slipping first, then unstarted, then new, then kept', () => {
+    const h = healthspan(35, [
+      sig('strength', true),                                  // held
+      { key: 'cardio', target: 3, actual: 0, ageDays: 1 },     // new
+      { key: 'sleep', target: 3, actual: 0, ageDays: 90 },     // slipping
+      // social left out entirely — open
+    ]);
+    expect(h.levers.map((l) => l.state)).toEqual(['slipping', 'open', 'new', 'held']);
+  });
+
+  it('names the one that is slipping when that is all that is left to do', () => {
+    const h = healthspan(35, [
+      sig('strength', true), sig('cardio', true), sig('social', true),
+      { key: 'sleep', target: 5, actual: 0, ageDays: 40, label: 'Lights out by 11' },
+    ]);
+    expect(h.mode).toBe('holding');
+    expect(h.summaryText).toMatch(/Lights out by 11 is the one slipping/);
+    expect(h.summaryText).toMatch(/still asking anything of you/);
+  });
+
+  it('credits a named lever with its own years, not everyone else\'s', () => {
+    /**
+     * Caught live: two levers slipping, and the sentence named one of them
+     * while quoting the combined figure — "the walk is the one slipping,
+     * worth ~5 of the ~10" when the walk is worth 3.
+     */
+    const one = healthspan(35, [
+      sig('strength', true), sig('cardio', true), sig('social', true),
+      { key: 'sleep', target: 5, actual: 0, ageDays: 40 }, // sleep is worth 2
+    ]);
+    expect(one.yearsSlipping).toBe(2);
+    expect(one.summaryText).toMatch(/worth ~2 of the ~10/);
+    // A lowered label opening a sentence reads as a typo, and did.
+    expect(one.summaryText).not.toMatch(/hard part\. [a-z]/);
+  });
+
+  it('says how many are slipping when it is more than one', () => {
+    const h = healthspan(35, [
+      sig('strength', true), sig('sleep', true),
+      { key: 'cardio', target: 4, actual: 0, ageDays: 90, label: '20-minute walk' },
+      { key: 'social', target: 7, actual: 4, ageDays: 90, label: '4 of 7 people you track' },
+    ]);
+    expect(h.yearsSlipping).toBe(5);
+    expect(h.summaryText).toMatch(/20-minute walk and staying socially connected are slipping/);
+    expect(h.summaryText).toMatch(/~5 of the ~10 years between them/);
+  });
+
+  it('never reads a person count back as if it were a habit name', () => {
+    const h = healthspan(35, [
+      sig('strength', true), sig('sleep', true), sig('cardio', true),
+      { key: 'social', target: 7, actual: 1, ageDays: 90, label: '1 of 7 people you track' },
+    ]);
+    expect(h.summaryText).not.toMatch(/1 of 7 people you track is/);
+    expect(h.summaryText).toMatch(/Staying socially connected is the one slipping/);
+  });
+
+  it('stops selling entirely when all four are being kept', () => {
+    const h = healthspan(35, all(true));
+    expect(h.summaryText).toMatch(/nothing here left to start/);
+    expect(h.summaryText).not.toMatch(/Start|start big/);
+  });
+
+  it('credits what is already held while it is still inviting', () => {
+    const h = healthspan(35, [sig('strength', true)]);
+    expect(h.summaryText).toMatch(/~3 of the ~10 years in these rhythms are already yours/);
+  });
+
+  it('opens with an invitation to someone who has started nothing', () => {
+    const h = healthspan(35, []);
+    expect(h.mode).toBe('inviting');
+    expect(h.summaryText).toMatch(/one a week counts/);
+  });
+
+  it('never uses doom vocabulary in any state', () => {
+    for (const signals of [[], all(true), all(false), [sig('strength', true)]]) {
+      expect(healthspan(35, signals).summaryText).not.toMatch(FORBIDDEN);
+    }
   });
 });
 

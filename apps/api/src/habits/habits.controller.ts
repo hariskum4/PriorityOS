@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { HabitsService } from './habits.service';
@@ -8,9 +8,14 @@ import { HabitsService } from './habits.service';
 export class HabitsController {
   constructor(private habits: HabitsService) {}
 
+  /**
+   * Active rhythms by default — that is what the day screen ticks off.
+   * `?all=1` includes retired ones, which the suggestion surfaces need: a
+   * rhythm someone deliberately ended must never be offered back to them.
+   */
   @Get()
-  list(@CurrentUser() u: JwtUser) {
-    return this.habits.list(u.userId);
+  list(@CurrentUser() u: JwtUser, @Query('all') all?: string) {
+    return this.habits.list(u.userId, all === '1' || all === 'true');
   }
 
   @Post()
@@ -21,5 +26,15 @@ export class HabitsController {
   @Post(':id/complete')
   complete(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: { note?: string }) {
     return this.habits.complete(u.userId, id, body?.note);
+  }
+
+  @Post(':id/retire')
+  retire(@CurrentUser() u: JwtUser, @Param('id') id: string) {
+    return this.habits.retire(u.userId, id);
+  }
+
+  @Post(':id/restore')
+  restore(@CurrentUser() u: JwtUser, @Param('id') id: string) {
+    return this.habits.restore(u.userId, id);
   }
 }

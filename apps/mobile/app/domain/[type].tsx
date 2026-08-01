@@ -65,15 +65,73 @@ export default function DomainDetail() {
       invalidateLifeRecord(qc);
     },
   });
+  /**
+   * Every rhythm this person has here, retired ones included.
+   *
+   * Retired ones matter as much as active ones: a rung someone took up and
+   * later ended must not be handed back to them the next morning as though
+   * it had never happened.
+   */
+  const { data: allHabits } = useQuery({
+    queryKey: ['habits', 'all'],
+    queryFn: () => api<any[]>('/habits?all=1'),
+  });
+
+  /**
+   * Ending a rhythm, and picking one back up.
+   *
+   * Not a delete. Someone who kept a rhythm for six months and no longer
+   * needs it has not made a mistake to undo — the streak and everything
+   * logged stay, and the app simply stops asking. Without this there was no
+   * way to stop a habit at all, which was survivable when four existed and
+   * is not now that every domain can offer one.
+   */
+  const retireOpts = {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['habits'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  };
+  const retire = useMutation({
+    mutationFn: (id: string) => api(`/habits/${id}/retire`, { method: 'POST', body: {} }),
+    ...retireOpts,
+  });
+  const restore = useMutation({
+    mutationFn: (id: string) => api(`/habits/${id}/restore`, { method: 'POST', body: {} }),
+    ...retireOpts,
+  });
+
+  /**
+   * Taking the next rung. Most rungs are errands and become missions; the
+   * ones marked recurring are standing commitments and become habits.
+   *
+   * They were all missions before, which meant "make the call a standing
+   * weekly thing" was ticked once on a Tuesday, awarded its XP and never seen
+   * again — the app agreeing the rhythm was finished before it had started.
+   */
   const addStarter = useMutation({
-    mutationFn: ({ title, minutes }: { title: string; minutes: number }) =>
-      api('/missions', {
+    mutationFn: ({ title, minutes, recurring }: {
+      title: string; minutes: number; recurring?: { perWeek: number };
+    }) => (recurring
+      ? api('/habits', {
+        method: 'POST',
+        body: {
+          title,
+          domainType,
+          targetPerWeek: recurring.perWeek,
+          // Marks it as the app's suggestion rather than something they
+          // wrote, which is what the ladder is.
+          sourceType: 'system',
+        },
+      })
+      : api('/missions', {
         method: 'POST',
         body: { title, domainType, estimatedMinutes: minutes, xpReward: 30 },
-      }),
+      })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['missions'] });
       qc.invalidateQueries({ queryKey: ['missions-completed'] });
+      qc.invalidateQueries({ queryKey: ['habits'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
@@ -86,12 +144,22 @@ export default function DomainDetail() {
   const rung = React.useMemo(() => nextDomainAction(
     domainType,
     (doneMissions ?? []).filter((m: any) => m.domainType === domainType).map((m: any) => m.title),
-    (missions ?? []).filter((m: any) => m.domainType === domainType).map((m: any) => m.title),
-  ), [domainType, doneMissions, missions]);
+    [
+      ...(missions ?? []).filter((m: any) => m.domainType === domainType).map((m: any) => m.title),
+      // A rung taken up as a rhythm never lands in missions, so without this
+      // the ladder would offer it again every single time this screen opened.
+      ...(allHabits ?? []).filter((h: any) => h.domainType === domainType).map((h: any) => h.title),
+    ],
+  ), [domainType, doneMissions, missions, allHabits]);
 
   const domain = (dashboard?.domains ?? []).find((d: any) => d.domainType === domainType);
   const domainGoals = (goals ?? []).filter((g) => g.domainType === domainType && g.status !== 'done');
   const domainMissions = (missions ?? []).filter((m) => m.domainType === domainType);
+  /* Active first, then retired — the ended ones stay visible so they can be
+     picked back up, and so the ladder's silence about them makes sense. */
+  const domainHabits = (allHabits ?? [])
+    .filter((h: any) => h.domainType === domainType)
+    .sort((a: any, b: any) => Number(b.isActive) - Number(a.isActive));
   const domainPeople = (relationships ?? []).filter((r) => relDomain[r.relationType] === domainType);
   const age = ageFromDob(me?.dob);
   const label = DOMAIN_LABELS[domainType] ?? domainType;
@@ -126,7 +194,7 @@ export default function DomainDetail() {
           domainType={domainType}
           age={age}
           color={c}
-          onAdd={(t, minutes) => addStarter.mutate({ title: t, minutes })}
+          onAdd={(t, minutes, recurring) => addStarter.mutate({ title: t, minutes, recurring })}
           rung={rung}
           busy={addStarter.isPending}
         />
@@ -180,6 +248,45 @@ export default function DomainDetail() {
           ))}
         </View>
 
+        {/* Standing rhythms here — the thing a ladder climbs toward, and
+            until now the one kind of commitment this screen could create but
+            never show. Without it, taking a recurring rung looked like
+            nothing happened at all. */}
+        {domainHabits.length > 0 && (
+          <View style={{ gap: space(2) }}>
+            <Label>Rhythms here</Label>
+            {domainHabits.map((h: any) => (
+              <Card key={h.id} style={{ gap: space(2) }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons
+                    name={h.isActive ? 'repeat' : 'remove-circle-outline'}
+                    size={14}
+                    color={h.isActive ? c : colors.textFaint}
+                  />
+                  <Text style={[type.body, { flex: 1 }, !h.isActive && { color: colors.textDim }]}>
+                    {h.title}
+                  </Text>
+                  {h.isActive && typeof h.streakCurrent === 'number' && h.streakCurrent > 0 ? (
+                    <Chip label={`${h.streakCurrent}w`} color={colors.green} />
+                  ) : null}
+                </View>
+                <Text style={type.faint}>
+                  {h.isActive
+                    ? `${h.targetPerWeek} a week · ${h.perWeek ?? 0} a week over the last ${h.rateWindowDays ?? 28} days`
+                    : 'Retired. The streak and everything logged stay yours.'}
+                </Text>
+                <Button
+                  title={h.isActive ? 'Retire this rhythm' : 'Pick it back up'}
+                  small
+                  kind="ghost"
+                  disabled={retire.isPending || restore.isPending}
+                  onPress={() => (h.isActive ? retire : restore).mutate(h.id)}
+                />
+              </Card>
+            ))}
+          </View>
+        )}
+
         {/* Open missions */}
         {domainMissions.length > 0 && (
           <View style={{ gap: space(2) }}>
@@ -204,7 +311,7 @@ export default function DomainDetail() {
  */
 function SignatureFeature({ domainType, age, color, onAdd, rung, busy }: {
   domainType: string; age: number | null; color: string;
-  onAdd: (title: string, minutes: number) => void;
+  onAdd: (title: string, minutes: number, recurring?: { perWeek: number }) => void;
   rung: ReturnType<typeof nextDomainAction>;
   busy: boolean;
 }) {
@@ -233,6 +340,7 @@ function SignatureFeature({ domainType, age, color, onAdd, rung, busy }: {
         </View>
       );
     }
+    const recurring = rung.next!.recurring;
     return (
       <View style={{ gap: 6 }}>
         <Button
@@ -240,8 +348,17 @@ function SignatureFeature({ domainType, age, color, onAdd, rung, busy }: {
           small
           kind="ghost"
           disabled={busy}
-          onPress={() => onAdd(rung.next!.title, rung.next!.minutes)}
+          onPress={() => onAdd(rung.next!.title, rung.next!.minutes, recurring)}
         />
+        {/* A standing rhythm and a one-off errand are not the same promise,
+            and the button looked identical for both. This one does not get
+            ticked off and disappear — it stays, every week. Say so first. */}
+        {recurring ? (
+          <Text style={[type.faint, { color: colors.amber }]}>
+            This one becomes a rhythm, not a task — {recurring.perWeek}
+            {recurring.perWeek === 1 ? ' time' : ' times'} a week, and it stays.
+          </Text>
+        ) : null}
         {rung.taken > 0 ? (
           <Text style={type.faint}>
             {rung.taken} of {rung.total} done here. This is the next one.
