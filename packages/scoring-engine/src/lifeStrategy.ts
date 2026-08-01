@@ -169,28 +169,109 @@ export function healthspan(age: number, signals: LeverSignal[] = []): Healthspan
 // Energy — the peak hours are the real budget
 // ---------------------------------------------------------------------------
 
-const PEAK_HOURS_PER_DAY = 3; // broadly, the daily window of sharp focus
+/**
+ * The daily window of genuinely sharp focus — a population figure, the same
+ * for every reader. It is named here and stated on the card rather than
+ * quietly multiplied into a total that looks like a personal measurement.
+ */
+const PEAK_HOURS_PER_DAY = 3;
+
+/**
+ * How much of a working hour is a sharp hour. Roughly one in three — the rest
+ * of a week goes to meetings, coordination, and the inbox.
+ *
+ * This is the only place a real per-user input touches the arithmetic, and it
+ * is the whole point of the change: the card used to tell everyone the same
+ * 21 hours, which told a 20-hour week and a 70-hour week exactly nothing.
+ */
+const SHARP_SHARE_OF_WORK = 1 / 3;
+
+/**
+ * Where the sleep sentence gets its authority.
+ *
+ *   kept / slipping / starting — from a sleep rhythm they actually set
+ *   unknown                    — nothing here knows, and it must say so
+ *
+ * The card previously asserted "sleep is the multiplier, and under-rest is
+ * shrinking this number" to everyone, having never once asked about sleep.
+ */
+export type SleepBasis = 'kept' | 'slipping' | 'starting' | 'unknown';
+
+const SLEEP_BASIS: Record<LeverState, SleepBasis> = {
+  held: 'kept',
+  slipping: 'slipping',
+  new: 'starting',
+  open: 'unknown',
+};
 
 export interface EnergyBudget {
   peakHoursPerWeek: number;
+  /** Of those, the ones the working week already has first claim on. */
+  peakHoursAtWork: number;
+  /** What is left over — where everything they actually chose has to fit. */
+  peakHoursYours: number;
   peakHoursToHorizon: number;
+  sleepBasis: SleepBasis;
   framingText: string;
+  /** The sleep line, honest about what it knows. Never an unbacked claim. */
+  sleepText: string;
   assumptions: string[];
 }
 
-export function energyBudget(age: number, plannedWorkYearsMore = 20): EnergyBudget {
+export interface EnergyInputs {
+  /** Their real working week. 0 is a real answer (not working), not a gap. */
+  workHoursPerWeek?: number;
+  /** How many more years they plan to work — sets the horizon count. */
+  plannedWorkYearsMore?: number;
+  /** Where they stand on a sleep rhythm, from the healthspan lever. */
+  sleep?: LeverState;
+  /** Their own words for that rhythm, so the card can say them back. */
+  sleepLabel?: string;
+}
+
+export function energyBudget(inputs: EnergyInputs = {}): EnergyBudget {
+  const work = Math.max(inputs.workHoursPerWeek ?? 45, 0);
   const perWeek = PEAK_HOURS_PER_DAY * 7;
-  const workingWeeks = Math.max(plannedWorkYearsMore, 1) * 48;
+  const workingWeeks = Math.max(inputs.plannedWorkYearsMore ?? 20, 1) * 48;
+
+  // Work never gets to claim the last one: a card that reports zero sharp
+  // hours has stopped being a planning lens and started being a verdict.
+  const claimed = Math.round(work * SHARP_SHARE_OF_WORK);
+  const atWork = Math.min(claimed, perWeek - 1);
+  const yours = perWeek - atWork;
+
+  const framingText = work === 0
+    ? `About ${perWeek} sharp, high-focus hours a week, and no working week with a claim on them. ` +
+      `That is rarer than it sounds — almost nobody gets to point all of it at what they chose.`
+    : claimed >= perWeek
+      ? `About ${perWeek} sharp, high-focus hours a week — and a ${work}-hour working week has a claim ` +
+        `on effectively all of them. Roughly ${yours} is left over. Nothing you chose fits in that, ` +
+        `which is the finding, not a failure: this number moves when the working week does.`
+      : `About ${perWeek} sharp, high-focus hours a week — the ones where your best work lives. Your ` +
+        `${work}-hour working week has first claim on roughly ${atWork} of them, which leaves about ` +
+        `${yours} for everything you actually chose. That remainder is the whole game.`;
+
+  const sleepBasis = SLEEP_BASIS[inputs.sleep ?? 'open'];
+  const named = inputs.sleepLabel ? `"${inputs.sleepLabel}"` : 'your sleep rhythm';
+
   return {
     peakHoursPerWeek: perWeek,
+    peakHoursAtWork: atWork,
+    peakHoursYours: yours,
     peakHoursToHorizon: Math.round((perWeek * workingWeeks) / 100) * 100,
-    framingText:
-      `About ${perWeek} sharp, high-focus hours a week — the ones where your best work lives. ` +
-      `Most of them get spent on the inbox and other people's urgencies. The single highest-leverage ` +
-      `move in your whole week is pointing those hours at what you actually chose.`,
+    sleepBasis,
+    framingText,
+    sleepText: {
+      kept: `You are keeping ${named}. That is what holds this number where it is — sharp hours are the first thing under-rest takes.`,
+      slipping: `${inputs.sleepLabel ? `${named} is` : 'Your sleep rhythm is'} slipping. Sharp hours are the first thing under-rest takes, so your real number is below this one.`,
+      starting: `You have just started protecting sleep. If it holds, this is the number that grows.`,
+      unknown: `This assumes you are rested. Sleep moves it more than any calendar does — and it is the one thing here that has never been asked about you.`,
+    }[sleepBasis],
     assumptions: [
-      `Assumes ~${PEAK_HOURS_PER_DAY} genuinely sharp hours a day — protected by sleep, spent before noon for most people`,
-      'Sleep is the multiplier: under-rest quietly shrinks this number more than any calendar does',
+      `Assumes ~${PEAK_HOURS_PER_DAY} genuinely sharp hours a day — a population figure, the same for every reader, not a measurement of you`,
+      ...(work > 0
+        ? ['Assumes about one hour in three of a working week is a genuinely sharp one']
+        : []),
     ],
   };
 }

@@ -58,11 +58,102 @@ describe('healthspan', () => {
 });
 
 describe('energy budget', () => {
-  it('reports weekly peak hours and the sleep-multiplier truth', () => {
-    const e = energyBudget(35, 20);
+  it('reports weekly peak hours and a horizon count', () => {
+    const e = energyBudget({ workHoursPerWeek: 45, plannedWorkYearsMore: 20 });
     expect(e.peakHoursPerWeek).toBe(21);
     expect(e.peakHoursToHorizon).toBeGreaterThan(0);
-    expect(e.assumptions.join(' ')).toMatch(/Sleep is the multiplier/);
+  });
+
+  it('labels the daily figure as a population number, not a measurement', () => {
+    const e = energyBudget({ workHoursPerWeek: 45 });
+    expect(e.assumptions[0]).toMatch(/population figure/);
+    expect(e.assumptions[0]).toMatch(/not a measurement of you/);
+  });
+});
+
+/**
+ * The old card told a 20-hour week and a 70-hour week the same 21 hours,
+ * which is the same as telling neither of them anything.
+ */
+describe('sharp hours against a real working week', () => {
+  it('leaves a short week most of its sharp hours', () => {
+    const e = energyBudget({ workHoursPerWeek: 20 });
+    expect(e.peakHoursAtWork).toBe(7);
+    expect(e.peakHoursYours).toBe(14);
+  });
+
+  it('leaves a long week almost none', () => {
+    const e = energyBudget({ workHoursPerWeek: 60 });
+    expect(e.peakHoursAtWork).toBe(20);
+    expect(e.peakHoursYours).toBe(1);
+  });
+
+  it('moves between two people, which was the whole point', () => {
+    const light = energyBudget({ workHoursPerWeek: 25 });
+    const heavy = energyBudget({ workHoursPerWeek: 55 });
+    expect(light.peakHoursYours).toBeGreaterThan(heavy.peakHoursYours);
+  });
+
+  it('never reports zero hours of your own, however long the week', () => {
+    for (const w of [70, 90, 120, 168]) {
+      const e = energyBudget({ workHoursPerWeek: w });
+      expect(e.peakHoursYours).toBeGreaterThanOrEqual(1);
+      expect(e.framingText).not.toMatch(FORBIDDEN);
+    }
+  });
+
+  it('claims nothing when someone is not working', () => {
+    const e = energyBudget({ workHoursPerWeek: 0 });
+    expect(e.peakHoursAtWork).toBe(0);
+    expect(e.peakHoursYours).toBe(21);
+    // The one-in-three assumption is about a working week; with none, it lies.
+    expect(e.assumptions).toHaveLength(1);
+  });
+
+  it('names their actual hours back to them', () => {
+    expect(energyBudget({ workHoursPerWeek: 38 }).framingText).toMatch(/38-hour working week/);
+  });
+
+  it('falls back to a stated 45 rather than inventing a personal number', () => {
+    expect(energyBudget().framingText).toMatch(/45-hour working week/);
+  });
+});
+
+/**
+ * The card used to tell everyone "under-rest is quietly shrinking this
+ * number" having never once asked anybody about sleep.
+ */
+describe('what the card is allowed to say about sleep', () => {
+  it('admits it does not know when no sleep rhythm exists', () => {
+    const e = energyBudget({ workHoursPerWeek: 45 });
+    expect(e.sleepBasis).toBe('unknown');
+    expect(e.sleepText).toMatch(/never been asked about you/);
+    expect(e.sleepText).not.toMatch(/slipping/);
+  });
+
+  it('credits a rhythm being kept, in their own words', () => {
+    const e = energyBudget({ workHoursPerWeek: 45, sleep: 'held', sleepLabel: 'Lights out by 11' });
+    expect(e.sleepBasis).toBe('kept');
+    expect(e.sleepText).toMatch(/Lights out by 11/);
+  });
+
+  it('says the number is optimistic only when a rhythm is actually slipping', () => {
+    const e = energyBudget({ workHoursPerWeek: 45, sleep: 'slipping' });
+    expect(e.sleepBasis).toBe('slipping');
+    expect(e.sleepText).toMatch(/below this one/);
+  });
+
+  it('does not grade a rhythm that just began', () => {
+    const e = energyBudget({ workHoursPerWeek: 45, sleep: 'new' });
+    expect(e.sleepBasis).toBe('starting');
+    expect(e.sleepText).toMatch(/just started/);
+    expect(e.sleepText).not.toMatch(/slipping|below/);
+  });
+
+  it('keeps the number itself out of it — direction is known, size is not', () => {
+    const hours = (sleep: 'held' | 'slipping' | 'new' | 'open') =>
+      energyBudget({ workHoursPerWeek: 45, sleep }).peakHoursYours;
+    expect(new Set([hours('held'), hours('slipping'), hours('new'), hours('open')]).size).toBe(1);
   });
 });
 

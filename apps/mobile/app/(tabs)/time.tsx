@@ -581,7 +581,16 @@ export default function TimeReality() {
   }, [habits, relationships]);
 
   const hs = healthspan(age, leverSignals);
-  const energy = energyBudget(age, moreYears);
+  /* The sharp-hours number is only worth showing if it is theirs, so it is
+     built from the two things actually known about them: the working week
+     they gave at onboarding, and where they stand on protecting sleep. */
+  const sleepLever = hs.levers.find((l) => l.key === 'sleep');
+  const energy = energyBudget({
+    workHoursPerWeek: me.workHoursPerWeek ?? undefined,
+    plannedWorkYearsMore: moreYears,
+    sleep: sleepLever?.state,
+    sleepLabel: sleepLever?.habitLabel,
+  });
 
   return (
     <ScrollView
@@ -855,7 +864,7 @@ export default function TimeReality() {
           <Section
             icon="pulse-outline"
             title="Health and energy"
-            preview={`~${hs.healthyYearsLeft} able years · ~${energy.peakHoursPerWeek} sharp h/wk`}
+            preview={`~${hs.healthyYearsLeft} able years · ~${energy.peakHoursYours} sharp h/wk yours`}
           >
           {/* Healthspan — the years that actually matter */}
           <Card style={{ gap: space(3) }}>
@@ -968,12 +977,50 @@ export default function TimeReality() {
               <Ionicons name="flash-outline" size={14} color={colors.textDim} />
               <Label>Where your sharp hours go</Label>
             </View>
+            {/* The headline is the leftover, not the total. Twenty-one is the
+                same for everyone; what is left after their working week is
+                the only number on this card that belongs to them. */}
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-              <Text style={[type.stat, { fontSize: 28, color: colors.amber }]}>~{energy.peakHoursPerWeek}</Text>
-              <Text style={type.dim}>peak-focus hours a week</Text>
+              <Text style={[type.stat, { fontSize: 28, color: colors.amber }]}>~{energy.peakHoursYours}</Text>
+              <Text style={type.dim}>
+                {energy.peakHoursAtWork > 0
+                  ? `of ~${energy.peakHoursPerWeek} sharp hours a week are yours`
+                  : 'peak-focus hours a week, none of them claimed'}
+              </Text>
             </View>
+            {energy.peakHoursAtWork > 0 ? (
+              <View style={{ gap: 6 }}>
+                <View style={s.energyBar}>
+                  <View
+                    style={[
+                      s.energyBarFill,
+                      { flex: energy.peakHoursAtWork, backgroundColor: alpha(colors.textDim, 0.45) },
+                    ]}
+                  />
+                  <View style={[s.energyBarFill, { flex: energy.peakHoursYours, backgroundColor: colors.amber }]} />
+                </View>
+                <Text style={type.faint}>
+                  ~{energy.peakHoursAtWork} claimed by your {me.workHoursPerWeek ?? 45}-hour week ·
+                  {' '}~{energy.peakHoursYours} for everything you chose
+                </Text>
+              </View>
+            ) : null}
             <Text style={type.serif}>{energy.framingText}</Text>
-            <Text style={type.faint}>{energy.assumptions[1]}.</Text>
+            {/* Sleep moves this number more than anything else, which is
+                exactly why the card is not allowed to claim it knows. */}
+            <Text
+              style={[
+                type.faint,
+                energy.sleepBasis === 'kept' && { color: colors.green },
+                energy.sleepBasis === 'slipping' && { color: colors.rose },
+              ]}
+            >
+              {energy.sleepText}
+            </Text>
+            {energy.sleepBasis === 'unknown' ? (
+              <Text style={type.faint}>Set a sleep rhythm in the card above and this line starts telling you the truth.</Text>
+            ) : null}
+            <Text style={type.faint}>{energy.assumptions.join('. ')}.</Text>
           </Card>
           </Section>
 
@@ -1223,6 +1270,10 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.surface,
   },
   chipOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
+  /** Sharp hours claimed by work against the ones left over — the split is
+      the point, so it is drawn once rather than described twice. */
+  energyBar: { flexDirection: 'row', height: 8, borderRadius: 999, overflow: 'hidden', backgroundColor: colors.lineSoft },
+  energyBarFill: { height: 8 },
   /** A closed section is a single tappable line, not a card — the cards
       inside are the content, and nesting one in another reads as clutter. */
   sectionHead: {
