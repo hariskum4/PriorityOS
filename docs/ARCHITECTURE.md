@@ -271,9 +271,11 @@ missions (
 - POST /missions/:id/snooze
 
 ## Habits
-- GET /habits
+- GET /habits — active only; `?all=1` includes retired
 - POST /habits
 - POST /habits/:id/complete
+- POST /habits/:id/retire
+- POST /habits/:id/restore
 
 ## Journal
 - GET /journal
@@ -307,6 +309,54 @@ Inputs include:
 - journal themes
 - snooze frequency
 - days since last meaningful action
+
+# 9a. Rhythms — where a habit comes from, and how one ends
+
+A habit is the only object in the system that represents a *standing*
+commitment. Missions are errands: done once, +XP, gone. Getting the
+distinction wrong is not cosmetic — a rung reading "make the call a standing
+weekly thing", marked complete on a Tuesday and never seen again, is the app
+agreeing the rhythm is finished before it has begun.
+
+**Where they come from.** Three surfaces, all reading the same two engine
+sources so they cannot drift apart:
+
+| Surface | Source | Currency |
+|---|---|---|
+| Healthspan card (Time tab) | `HEALTHSPAN_LEVERS` in `lifeStrategy.ts` | population years (`+3 yrs`) |
+| Domain screen ladder | `domainLadder.ts` rungs marked `recurring` | the rung itself |
+| Constellation, open domain (Today) | `rhythmRungFor()` | the rung itself |
+
+The years currency **does not travel past the healthspan card**. Those four
+figures are compression-of-morbidity estimates and are the same for every
+reader; there is no research attaching years to a weekly money review. A
+domain outside the four is argued for from the app's own data — importance,
+neglect risk, and the observed cadence from `/life-os/rhythm` — never from a
+borrowed number. See RESEARCH_NOTES §4 for why an invented figure here is
+the specific failure mode this product cannot afford.
+
+**The recurring marker.** `LadderRung.recurring = { perWeek }` promotes a rung
+from mission to habit. `perWeek` is an integer because `Habit.targetPerWeek`
+is, so only cadences of a week or tighter can be marked. Monthly and yearly
+rungs ("a standing monthly catch-up", "one real trip a year") stay missions —
+marking them would ask four and fifty-two times too often — and the three
+domains that ended on one were given a weekly rung of their own instead.
+A rhythm nobody could keep is worse than no rhythm.
+
+**Taken means taken.** Every suggestion surface must pass existing habit
+titles, *including retired ones*, into the taken set (`GET /habits?all=1`).
+Without it a rung taken as a rhythm never lands in missions and is re-offered
+on every render; with only active ones, retiring a rhythm makes the app
+suggest it again the next morning.
+
+**Retiring, not deleting.** `POST /habits/:id/retire` sets `isActive = false`
+and touches nothing else. The streak, the logs and the XP already awarded all
+stay — someone who kept a rhythm for six months and no longer needs it has
+not made a mistake to undo, and erasing the evidence that they did the thing
+is the opposite of what this app is for. `restore` picks it back up with the
+streak intact. This path is a hard prerequisite for suggesting rhythms across
+twelve domains, not a follow-up: a person carrying ten of them needs a way to
+end some, and "delete" is the wrong verb.
 
 # 10. AI Engine
 
@@ -368,6 +418,43 @@ Recommended libraries:
 - React Hook Form
 - Zod
 
+## 12.1 Hooks below an early return — the cold-start trap
+
+**Every hook must sit above every early return in a screen.** This is the
+ordinary rule of hooks, and it is written down here because in this codebase
+breaking it produces a bug that passes review, passes `tsc`, passes every
+test, and works perfectly on the machine of whoever wrote it.
+
+The reason is the persisted query cache. Query results are written to
+`localStorage`/AsyncStorage under `priority-query-cache-v1`, so on any device
+that has opened the app before, `data` and `me` are populated on the very
+first render and the loading branch is never taken. Hook counts match, and
+nothing is ever wrong. On a device *without* that cache — a fresh install,
+cleared storage, a new user — the first render returns early with fewer
+hooks, the second renders with more, and React throws:
+
+```
+Rendered more hooks than during the previous render
+```
+
+The screen dies to an error boundary. It is the first thing a new user sees,
+and it is invisible to everyone who already has the app installed.
+
+Two screens shipped with this — `(tabs)/time.tsx` and `(tabs)/index.tsx`,
+each with `useMemo`s below an `if (!data)` / `if (!me)` return. Both were
+found only by clearing the cache deliberately. Both now carry a comment at
+the moved block saying why it stays where it is.
+
+**Practical rules:**
+- New `useState` / `useMemo` / `useQuery` / `useMutation` goes at the top of
+  the component, never next to the JSX that uses it.
+- Derived values needed *after* an early return and computable *before* it
+  should move up; anything genuinely dependent on loaded data belongs in a
+  module-level plain function taking that data as an argument (see
+  `heldContents()` in `(tabs)/index.tsx`).
+- **Verify cold.** Clearing `priority-query-cache-v1` and reloading is the
+  only way to exercise this path. A warm reload proves nothing.
+
 # 13. Security & Observability
 
 Security:
@@ -393,6 +480,9 @@ Mobile:
 - onboarding flow tests
 - mission completion flow tests
 - dashboard API integration smoke tests
+- **a cold-start pass on every tab** — clear the persisted query cache and
+  load each screen. The warm path hides hook-order crashes entirely (§12.1);
+  a fresh install is the one session where they all fire at once.
 
 # 15. Final Engineering Principle
 

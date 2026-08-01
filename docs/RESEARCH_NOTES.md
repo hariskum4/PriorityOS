@@ -24,6 +24,28 @@ A third theme: nothing "notices when you go quiet" — apps punish absence inste
 - Streaks are **frequency-based per week** with **grace tokens** (`streaks.ts`, `habits.service.ts`, `gamification.service.ts`).
 - Snoozed missions get a gentle rank *boost* rather than shame copy (`rankMissions`), and drift nudges are capped at one per relationship per week.
 
+**Revisited (Aug 2026) — opening rhythms to all twelve domains.** For most of
+the build, `POST /habits` had exactly one caller: four hardcoded health levers
+on the Time tab. Eleven of the twelve parts of a life had no way to hold a
+standing commitment at all. Fixing that walks straight into finding #2 — the
+choice-overload half of the graveyard — so the expansion is deliberately
+rationed:
+
+- **One rhythm offered per domain, ever.** The ladder surfaces its *next*
+  rung, not a menu; the constellation offers one only when the open domain has
+  none. Nobody is shown twelve options.
+- **A rhythm has to be earned.** With one exception per domain the recurring
+  rung is the *last* on a six-rung ladder — the standing commitment is what
+  the ladder climbs toward, not what it opens with.
+- **Retirement shipped in the same change, not after.** Ten rhythms by March
+  is the predicted failure, and the mitigation is a way to stop that keeps the
+  streak and the logs (`POST /habits/:id/retire`). Deleting would punish
+  exactly the person who kept one for six months. See ARCHITECTURE §9a.
+- **No cadence the model cannot hold.** `targetPerWeek` is an integer, so
+  monthly and yearly commitments stay one-off missions rather than becoming
+  habits that report failure every week — the streak-anxiety half of the same
+  finding.
+
 ## 3. The personal-CRM graveyard: manual entry kills family-relationship tools
 
 Conduit (#1 on Product Hunt), Nat, UpHabit and Garden all shut down or pivoted away from personal relationships. Surviving tools (Dex, Clay/Mesh) survived by going professional — and reviewers consistently note they feel "clinical" or "transactional" for family and close friends. The family/parents use case is genuinely underserved, and the documented failure mode is data-entry friction: DIY and manual CRMs get abandoned in ~3 months.
@@ -44,6 +66,25 @@ The PRD's signature "meaningful opportunities remaining" feature sits exactly on
 - Every estimate ships with **explicit assumptions**, an adjustable planning horizon, and no reference to lifespan or death (`opportunity.ts`).
 - Every scarcity estimate has an **agency counterpart**: "adding 2 visits a year → 50 instead of 30."
 - `insightIntensity` preference: `off | gentle | direct`, honored server-side — `off` returns an empty insight list.
+
+**A number that looks personal must be personal.** The same desensitization
+argument applies to any figure the app quotes about someone's life, and the
+Time tab drifted across that line twice before it was caught:
+
+- The healthspan card offered four rhythms with "+3 yrs" attached to each and
+  no idea which ones the reader was actually doing — the same card to a person
+  keeping three of them and a person keeping none. It now reads real habit
+  rates and the People tab's cadence data, and the four population figures are
+  labelled as population figures rather than summed into a personal total.
+- The energy card asserted 21 sharp hours a week to everyone regardless of a
+  working week the profile already knew, and told every reader "under-rest is
+  quietly shrinking this number" having never asked anyone about sleep.
+
+The rule that came out of it: **a figure moves with the reader or it is
+labelled as not being about them.** Where the direction is known but the
+magnitude is not — sleep on peak hours — say the direction and leave the
+number alone. Inventing a coefficient to make a card feel personalised is the
+same failure as a daily mortality reminder, in smaller print.
 
 ## 5. What retains: the weekly ritual + someone noticing
 
