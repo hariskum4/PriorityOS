@@ -69,7 +69,7 @@ The PRD's signature "meaningful opportunities remaining" feature sits exactly on
 
 **A number that looks personal must be personal.** The same desensitization
 argument applies to any figure the app quotes about someone's life, and the
-Time tab drifted across that line three times before it was caught:
+Time tab drifted across that line four times before it was caught:
 
 - The healthspan card offered four rhythms with "+3 yrs" attached to each and
   no idea which ones the reader was actually doing — the same card to a person
@@ -84,21 +84,45 @@ Time tab drifted across that line three times before it was caught:
   all — and offered the same five starter rituals (ocean swims, Diwalis at
   home, concerts…) to every reader, while `meaningfulMomentTypes` sat on each
   relationship holding that person's own answer to exactly that question.
+- The books-and-trips card asked "Books a year?" and "Real trips a year?" and
+  answered with `~900 more books at your pace` — where the pace was
+  `useState(12)`, unpersisted, reset on every tab switch, and drawn with a
+  selection ring around it so the app was telling the reader *you chose this*.
+  Same for two trips a year and five hours of screens. Alongside it,
+  `~75 summers · ~75 birthdays · ~930 full moons` — three figures computed
+  from age alone, two of them the same number printed twice, with no input
+  that moves them and no action after them.
 
 The rule that came out of it: **a figure moves with the reader or it is
 labelled as not being about them.** Where the direction is known but the
-magnitude is not — sleep on peak hours — say the direction and leave the
-number alone. Inventing a coefficient to make a card feel personalised is the
-same failure as a daily mortality reminder, in smaller print.
+magnitude is not — sleep on peak hours, an hour of screen time — say the
+direction and leave the number alone. Inventing a coefficient to make a card
+feel personalised is the same failure as a daily mortality reminder, in
+smaller print.
 
-The three share a shape worth recognising early, because it is cheap to build
+The fourth instance adds a corollary worth stating separately, because it is
+the one that survives review longest: **an unpersisted default rendered as a
+selection is worse than an unlabelled constant.** The other three merely
+failed to be about the reader. This one actively asserted that the reader had
+answered. The tell is a control whose state cannot outlive a re-render.
+
+And a product rule that fell out of it rather than a copy rule: a number with
+no action after it is decoration, and decoration on a surface about a finite
+life is exactly the WeCroak failure mode this section is about. The screen
+card's reclaim line — the one sentence on the tile a person could act on —
+ended in a full stop for the entire life of the feature. It now opens a
+rhythm in the domain furthest behind what they asked of it. The moons line,
+which had no action available to it even in principle, was deleted.
+
+The four share a shape worth recognising early, because it is cheap to build
 and expensive to notice: **a constant sitting in a slot labelled "yours".** It
 survives review because the arithmetic is right, the copy is warm, and it is
 only wrong relative to data held elsewhere in the same app. The tell is a
 number that cannot change no matter what the reader does. Before shipping a
 figure on a personal surface, ask what input would move it — and if the answer
 is "nothing", either wire that input up or say plainly whose number it is.
-Twice now the honest input was already in the database, unread.
+Twice the honest input was already in the database, unread; the fourth time
+there was no input at all, and adding one column was the whole fix.
 
 ## 5. What retains: the weekly ritual + someone noticing
 

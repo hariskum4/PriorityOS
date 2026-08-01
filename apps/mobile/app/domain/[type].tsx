@@ -7,7 +7,8 @@ import {
   bodyWindows,
   estimateCostOfWaiting,
   estimateCreativeCompounding,
-  tripsRemaining,
+  countable,
+  matchRitual,
   costOfDelay,
   nextDomainAction,
 } from '@priority/scoring-engine';
@@ -22,6 +23,22 @@ const DOMAIN_LABELS: Record<string, string> = {
   growth: 'Personal growth', friends: 'Friends', experiences: 'Experiences',
   reflection: 'Inner life', purpose: 'Purpose / Creative work', impact: 'Giving back',
 };
+
+/**
+ * The words that find this person's own ritual for a domain.
+ *
+ * Single tokens on purpose: `matchRitual` needs one side to be a subset of
+ * the other, so probing with a whole phrase ("trips somewhere new") misses
+ * "road trips with Sheetal" while "trips" finds it. Several per domain
+ * because nobody agrees on the noun — one person counts treks, the next
+ * counts trips, and both mean the same window.
+ */
+const DOMAIN_COUNT_PROBES: Record<string, string[]> = {
+  experiences: ['trips', 'travels', 'treks', 'adventures', 'journeys'],
+};
+
+/** A ritual someone chose to count, as stored in their onboarding answers. */
+interface SavedCount { key: string; label: string; perYear: number }
 
 const RELATIONSHIP_DOMAINS = ['family', 'partner', 'children', 'friends'];
 const relDomain: Record<string, string> = {
@@ -75,6 +92,22 @@ export default function DomainDetail() {
   const { data: allHabits } = useQuery({
     queryKey: ['habits', 'all'],
     queryFn: () => api<any[]>('/habits?all=1'),
+  });
+  /**
+   * The rituals this person counts, and how many of each they have lived.
+   *
+   * Here for one reason: the Experiences card quoted "~130 more real trips at
+   * your pace" from a literal `tripsRemaining(age, 2)`, on the same card whose
+   * next line invited the reader to name their own rituals on the Time tab.
+   * Either their number goes there or no number does.
+   */
+  const { data: answers } = useQuery({
+    queryKey: ['onboarding-answers'],
+    queryFn: () => api<any[]>('/onboarding/answers'),
+  });
+  const { data: countsLived } = useQuery({
+    queryKey: ['memories-counts'],
+    queryFn: () => api<Record<string, { count: number; firstAt: string }>>('/memories/counts-summary'),
   });
 
   /**
@@ -164,6 +197,37 @@ export default function DomainDetail() {
   const age = ageFromDob(me?.dob);
   const label = DOMAIN_LABELS[domainType] ?? domainType;
 
+  /**
+   * This person's own count for this domain, if they keep one — their words,
+   * their pace, and the pace the archive proved wherever it can see it.
+   * Null when they count nothing here, and then the card quotes nothing.
+   */
+  const ownCount = (() => {
+    const probes = DOMAIN_COUNT_PROBES[domainType];
+    if (!probes || age === null) return null;
+    const saved: SavedCount[] = (answers ?? [])
+      .filter((a: any) => a.section === 'counts' && a.value?.label)
+      .map((a: any) => ({
+        key: a.key as string,
+        label: a.value.label as string,
+        perYear: a.value.perYear as number,
+      }));
+    const names = saved.map((c: SavedCount) => ({ key: c.key, label: c.label }));
+    /* First probe that lands wins, so the order above is the preference. */
+    const hit = probes.reduce<ReturnType<typeof matchRitual>>(
+      (found, p) => found ?? matchRitual(p, names), null,
+    );
+    const mine = hit ? saved.find((c: SavedCount) => c.key === hit.against.key) : undefined;
+    if (!mine) return null;
+    const lived = countsLived?.[mine.key];
+    return countable({
+      age,
+      label: mine.label,
+      declaredPerYear: mine.perYear,
+      observation: lived ? { count: lived.count, firstAt: lived.firstAt } : undefined,
+    });
+  })();
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -197,6 +261,7 @@ export default function DomainDetail() {
           onAdd={(t, minutes, recurring) => addStarter.mutate({ title: t, minutes, recurring })}
           rung={rung}
           busy={addStarter.isPending}
+          ownCount={ownCount}
         />
 
         {/* Cost of delay — this domain compounds; starting now beats starting later */}
@@ -309,11 +374,13 @@ export default function DomainDetail() {
  * finally with a home. Everything is estimate-framed and offers one
  * concrete action.
  */
-function SignatureFeature({ domainType, age, color, onAdd, rung, busy }: {
+function SignatureFeature({ domainType, age, color, onAdd, rung, busy, ownCount }: {
   domainType: string; age: number | null; color: string;
   onAdd: (title: string, minutes: number, recurring?: { perWeek: number }) => void;
   rung: ReturnType<typeof nextDomainAction>;
   busy: boolean;
+  /** Their own ritual for this domain, or null when they keep none. */
+  ownCount: { label: string; remaining: number; detailText: string } | null;
 }) {
   const [monthly, setMonthly] = React.useState('10000');
   const [minutes, setMinutes] = React.useState(30);
@@ -439,15 +506,31 @@ function SignatureFeature({ domainType, age, color, onAdd, rung, busy }: {
   }
 
   if (domainType === 'experiences' && age !== null) {
-    const trips = tripsRemaining(age, 2);
     return (
       <Card style={{ gap: space(2) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Ionicons name="airplane-outline" size={14} color={colors.textDim} />
           <Label>The experience window</Label>
         </View>
-        <Text style={type.serif}>{trips.framingText}</Text>
-        <Text style={type.faint}>Name your rituals on the Time tab — ocean swims, treks, festivals — and watch them count down as you live them.</Text>
+        {/* Their ritual or none. This line used to say "~130 more real trips
+            at your pace" to everybody, from a hard-coded two a year, directly
+            above an invitation to go and state a pace. */}
+        {ownCount ? (
+          <>
+            <Text style={type.serif}>
+              ~{ownCount.remaining} more {ownCount.label} — and the rough-travel window
+              is shorter than the list.
+            </Text>
+            <Text style={type.faint}>{ownCount.detailText}</Text>
+          </>
+        ) : (
+          <Text style={type.serif}>
+            The rough-travel window is shorter than the list, and nobody can
+            count it for you. Name what travel means to you on the Time tab —
+            treks, ocean swims, festivals — and this becomes a number.
+          </Text>
+        )}
+        <Text style={type.faint}>Counted moments tick down as you live them, on whatever pace you actually keep.</Text>
         {starter('Plan one local adventure', 'Plan one local adventure this month')}
       </Card>
     );

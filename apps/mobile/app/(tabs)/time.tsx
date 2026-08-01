@@ -6,9 +6,6 @@ import { useRouter } from 'expo-router';
 import {
   lifeWindows,
   lifeInWeeks,
-  booksRemaining,
-  tripsRemaining,
-  annualMoments,
   countable,
   countKeyOf,
   dedupeRituals,
@@ -27,6 +24,7 @@ import {
   energyBudget,
   suggestSeason,
   classifyLever,
+  rhythmRungFor,
   PLANNING_HORIZON_AGE,
   type StackSuggestion,
   type LeverSignal,
@@ -380,9 +378,64 @@ export default function TimeReality() {
   const [moreYears, setMoreYears] = useState<number>(10);
   const [monthly, setMonthly] = useState('10000');
   const [minutes, setMinutes] = useState<number>(30);
-  const [booksPerYear, setBooksPerYear] = useState<number>(12);
-  const [tripsPerYear, setTripsPerYear] = useState<number>(2);
-  const [screenHours, setScreenHours] = useState<number>(5);
+
+  /**
+   * The daily screen hours, which are a fact about this person and so live on
+   * the profile rather than in a `useState(5)` that reset on every tab switch
+   * and was quoted back as "at 5h a day" regardless.
+   */
+  const saveScreenHours = useMutation({
+    mutationFn: (hours: number) =>
+      api('/me', { method: 'PATCH', body: { screenHoursPerDay: hours } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+  });
+  /** So the chip answers the tap before the round trip lands. */
+  const [screenDraft, setScreenDraft] = useState<number | null>(null);
+
+  /**
+   * Every rhythm including retired ones, so the reclaim offer never hands back
+   * a commitment someone deliberately stopped. Mirrors the sky's own read.
+   */
+  const { data: allHabits } = useQuery({
+    queryKey: ['habits', 'all'],
+    queryFn: () => api<any[]>('/habits?all=1'),
+    staleTime: 5 * 60_000,
+  });
+
+  /**
+   * Spending the reclaimed hour.
+   *
+   * The screen card ended at "Every year." and stopped — the one sentence on
+   * that tile a person could act on had nothing to press. This is the door:
+   * the hour goes to whichever domain is furthest behind what they asked of
+   * it, as a standing rhythm rather than a one-off good intention.
+   */
+  /**
+   * What was just taken up, held separately from the offer that proposed it.
+   *
+   * Not a boolean against `reclaimOffer`: agreeing to the rhythm gives that
+   * domain a rhythm, so the offer that produced it is correctly gone by the
+   * time the answer renders. Reading the acknowledgement off the offer meant
+   * the row simply disappeared on the tap, which is what a failure looks like.
+   */
+  const [reclaimed, setReclaimed] = useState<{ domainType: string; perWeek: number } | null>(null);
+  const startRhythm = useMutation({
+    mutationFn: (r: { domainType: string; title: string; perWeek: number }) =>
+      api('/habits', {
+        method: 'POST',
+        body: {
+          title: r.title,
+          domainType: r.domainType,
+          targetPerWeek: r.perWeek,
+          sourceType: 'system',
+        },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['habits'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: () => setReclaimed(null),
+  });
 
   // Custom counts — the user's own rituals, persisted as onboarding answers.
   const { data: answers } = useQuery({
@@ -606,10 +659,36 @@ export default function TimeReality() {
   });
   const creative = estimateCreativeCompounding(minutes);
   const weeks = lifeInWeeks(age);
-  const books = booksRemaining(age, booksPerYear);
-  const trips = tripsRemaining(age, tripsPerYear);
-  const moments = annualMoments(age);
+  /* Their answer, or the one they just tapped while it is in flight. Never a
+     house default — `screenTrade` says nothing at all without one. */
+  const screenHours = screenDraft ?? me.screenHoursPerDay ?? null;
   const screens = screenTrade(age, screenHours);
+
+  /**
+   * The section's own line while it is shut.
+   *
+   * It used to read "~900 books · ~150 trips", both computed from chips nobody
+   * had ever touched — the collapsed header was the most-seen surface on the
+   * tab and it was quoting two constants. Now it says what this person counts,
+   * on the pace their archive shows, and says plainly when that is nothing.
+   */
+  const countPreview = dedupeRituals(savedCounts, (c) => countsLived?.[c.key]?.count ?? 0)
+    .slice(0, 2)
+    .map((g) => {
+      const merged = g.keys.map((k) => countsLived?.[k]).filter(Boolean) as CountsLived[];
+      return `~${countable({
+        age,
+        label: g.item.label,
+        declaredPerYear: g.item.perYear,
+        observation: merged.length
+          ? {
+            count: merged.reduce((n, m) => n + m.count, 0),
+            firstAt: merged.map((m) => m.firstAt).sort()[0],
+          }
+          : undefined,
+      }).remaining} ${g.item.label}`;
+    })
+    .join(' · ');
   const peopleInsights = (insights ?? []).filter((i) =>
     ['visits_remaining', 'childhood_windows', 'calls_per_year'].includes(i.kind),
   );
@@ -652,6 +731,26 @@ export default function TimeReality() {
     })),
   );
   const shortDomains = shares.filter((s) => s.shortfall > 0);
+
+  /**
+   * Where the reclaimed hour would go.
+   *
+   * Not a menu and not the app's favourite domain — the one furthest behind
+   * what this person said they wanted from it, which is the same shortfall the
+   * stacks and the alignment score are computed from, so the screen card can
+   * no longer name a different starving domain than the tile above it. Only
+   * offered when the domain has no rhythm yet; a domain already holding one
+   * does not need a second.
+   */
+  const reclaimOffer = (() => {
+    for (const s of [...shortDomains].sort((a, b) => b.shortfall - a.shortfall)) {
+      const mine = (allHabits ?? []).filter((h: any) => h.domainType === s.domainType);
+      if (mine.some((h: any) => h.isActive !== false)) continue;
+      const rung = rhythmRungFor(s.domainType, mine.map((h: any) => h.title));
+      if (rung?.recurring) return { domainType: s.domainType, rung, share: s };
+    }
+    return null;
+  })();
   /**
    * The same ranking, run twice, and the server's answer wins.
    *
@@ -1159,56 +1258,91 @@ export default function TimeReality() {
           </Card>
           </Section>
 
+          {/* The books-and-trips card that used to open this section is gone.
+              It offered two fixed categories on a pace taken from a chip, one
+              card above a tile that counts anything this person names on a
+              pace their archive proves. Books and trips did not disappear with
+              it — they are domain-sourced suggestions in `suggestCountables`
+              now, offered to someone who rates growth or experiences highly
+              and counts nothing in them, which is the only reader they were
+              ever the right answer for. */}
           <Section
             icon="library-outline"
             title="The countable life"
-            preview={`~${books.remaining} books · ~${trips.remaining} trips`}
+            preview={countPreview || 'nothing counted yet'}
           >
-          <Card style={{ gap: space(3) }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="library-outline" size={14} color={colors.textDim} />
-              <Label>Books, trips, and what else is countable</Label>
-            </View>
-            <Text style={type.dim}>Books a year:</Text>
-            <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-              {[6, 12, 26, 52].map((n) => (
-                <Pressable key={n} onPress={() => setBooksPerYear(n)} style={[s.chip, booksPerYear === n && s.chipOn]}>
-                  <Text style={[type.body, booksPerYear === n && { color: colors.amber, fontWeight: '700' }]}>{n}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Text style={type.serif}>{books.framingText}</Text>
-            <Text style={type.dim}>Real trips a year:</Text>
-            <View style={{ flexDirection: 'row', gap: space(2) }}>
-              {[1, 2, 4, 6].map((n) => (
-                <Pressable key={n} onPress={() => setTripsPerYear(n)} style={[s.chip, tripsPerYear === n && s.chipOn]}>
-                  <Text style={[type.body, tripsPerYear === n && { color: colors.amber, fontWeight: '700' }]}>{n}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Text style={type.serif}>{trips.framingText}</Text>
-            <View style={s.momentsRow}>
-              <Text style={type.faint}>
-                Also ahead at this horizon: ~{moments.summers} summers · ~{moments.birthdays} birthdays · ~{moments.fullMoons} full moons.
-              </Text>
-            </View>
-          </Card>
-
           <Card style={{ gap: space(3) }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="phone-portrait-outline" size={14} color={colors.textDim} />
               <Label>The screen trade</Label>
             </View>
             <Text style={type.dim}>Hours on screens a day (outside work):</Text>
+            {/* Nothing is pre-selected. The ring used to sit on 5h for every
+                reader who had never touched this, and the sentence below read
+                it back as theirs. */}
             <View style={{ flexDirection: 'row', gap: space(2) }}>
               {[2, 3, 5, 7].map((n) => (
-                <Pressable key={n} onPress={() => setScreenHours(n)} style={[s.chip, screenHours === n && s.chipOn]}>
+                <Pressable
+                  key={n}
+                  disabled={saveScreenHours.isPending}
+                  onPress={() => {
+                    setScreenDraft(n);
+                    saveScreenHours.mutate(n, { onError: () => setScreenDraft(null) });
+                  }}
+                  style={[s.chip, screenHours === n && s.chipOn]}
+                >
                   <Text style={[type.body, screenHours === n && { color: colors.amber, fontWeight: '700' }]}>{n}h</Text>
                 </Pressable>
               ))}
             </View>
             <Text style={type.serif}>{screens.framingText}</Text>
-            <Text style={type.faint}>{screens.assumptions[1]}.</Text>
+            <Text style={type.faint}>{screens.assumptions.join('. ')}.</Text>
+            {/* The door.
+                The reclaim line was the only sentence on this card anyone
+                could act on, and it ended in a full stop — a price quoted for
+                an hour with nothing to spend it on. An hour handed back is
+                only worth the thing it is handed back to, so the offer names
+                one: a standing rhythm in whichever domain is furthest behind
+                what this person asked of it. */}
+            {reclaimed ? (
+              <Text style={[type.faint, { color: colors.green }]}>
+                The hour has somewhere to go — {reclaimed.perWeek} a week
+                in <Text style={{ textTransform: 'capitalize' }}>{reclaimed.domainType}</Text>, starting now.
+              </Text>
+            ) : reclaimOffer ? (
+                <Pressable
+                  disabled={startRhythm.isPending}
+                  onPress={() => {
+                    setReclaimed({
+                      domainType: reclaimOffer.domainType,
+                      perWeek: reclaimOffer.rung.recurring!.perWeek,
+                    });
+                    startRhythm.mutate({
+                      domainType: reclaimOffer.domainType,
+                      title: reclaimOffer.rung.title,
+                      perWeek: reclaimOffer.rung.recurring!.perWeek,
+                    });
+                  }}
+                  style={({ pressed }) => [s.reclaimRow, pressed && { opacity: 0.7 }]}
+                >
+                  <Ionicons name="arrow-undo-outline" size={14} color={colors.amber} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={[type.body, { color: colors.amber }]}>{reclaimOffer.rung.label}</Text>
+                    {/* Shares, not the raw shortfall. Shortfall is tenths of
+                        a percentage point and rounded to a whole number it
+                        said "the furthest behind — 0 points short", which is
+                        both meaningless and self-contradicting. This is the
+                        sentence `domainShares` exists to make sayable. */}
+                    <Text style={type.faint}>
+                      <Text style={{ textTransform: 'capitalize' }}>{reclaimOffer.domainType}</Text> gets{' '}
+                      {reclaimOffer.share.received}% of your attention against the{' '}
+                      {reclaimOffer.share.claimed}% you asked of it — the widest gap you have,
+                      and no rhythm here yet.
+                    </Text>
+                  </View>
+                  <Chip label={`${reclaimOffer.rung.recurring!.perWeek}/wk`} />
+                </Pressable>
+            ) : null}
           </Card>
 
           <Card style={{ gap: space(3) }}>
@@ -1565,6 +1699,13 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 12,
     paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.surfaceSunken,
   },
+  /** Where the reclaimed hour goes. The only pressable thing on the screen
+      card, so it is drawn as an offer rather than as another line of data. */
+  reclaimRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2,
+    borderWidth: 1, borderColor: alpha(colors.amber, 0.35), borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
   /** The archive offering itself to a count. An invitation, not a notice. */
   foldRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6,
@@ -1617,8 +1758,5 @@ const s = StyleSheet.create({
   lifeCellFill: {
     width: '100%', height: '100%', borderRadius: 3,
     borderWidth: 1, borderColor: colors.line, backgroundColor: 'transparent',
-  },
-  momentsRow: {
-    borderTopWidth: 1, borderTopColor: colors.lineSoft, paddingTop: space(2),
   },
 });

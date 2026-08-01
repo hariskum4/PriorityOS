@@ -12,7 +12,8 @@ export class UsersService {
       select: {
         id: true, email: true, fullName: true, dob: true, timezone: true,
         city: true, country: true, profession: true, workType: true,
-        workHoursPerWeek: true, maritalStatus: true, childrenCount: true,
+        workHoursPerWeek: true, screenHoursPerDay: true,
+        maritalStatus: true, childrenCount: true,
         livesAwayFromParents: true, onboardingCompleted: true,
         motivationStyle: true, createdAt: true,
       },
@@ -22,8 +23,8 @@ export class UsersService {
   update(userId: string, data: Record<string, unknown>) {
     const allowed = [
       'fullName', 'dob', 'timezone', 'city', 'country', 'profession',
-      'workType', 'workHoursPerWeek', 'maritalStatus', 'childrenCount',
-      'livesAwayFromParents', 'motivationStyle',
+      'workType', 'workHoursPerWeek', 'screenHoursPerDay', 'maritalStatus',
+      'childrenCount', 'livesAwayFromParents', 'motivationStyle',
     ];
     const patch = Object.fromEntries(
       Object.entries(data).filter(([k]) => allowed.includes(k)),
@@ -68,7 +69,8 @@ export class UsersService {
         select: {
           id: true, email: true, fullName: true, dob: true, timezone: true,
           city: true, country: true, profession: true, workType: true,
-          workHoursPerWeek: true, maritalStatus: true, childrenCount: true,
+          workHoursPerWeek: true, screenHoursPerDay: true,
+          maritalStatus: true, childrenCount: true,
           livesAwayFromParents: true, onboardingCompleted: true,
           motivationStyle: true, createdAt: true,
         },

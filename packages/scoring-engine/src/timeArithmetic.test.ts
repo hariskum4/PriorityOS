@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  lifeInWeeks,
-  booksRemaining,
-  tripsRemaining,
-  annualMoments,
-  screenTrade,
-} from './timeArithmetic';
+import { lifeInWeeks, screenTrade } from './timeArithmetic';
 
 const FORBIDDEN = /death|die|dying|lifespan|running out|too late|wasted|shame|guilt/i;
 
@@ -25,35 +19,10 @@ describe('life in weeks', () => {
   });
 });
 
-describe('activity counts — the Tail End pattern', () => {
-  it('books: 12/year at 33 → ~800 remaining, uplift ~1610', () => {
-    const r = booksRemaining(33, 12);
-    expect(r.remaining).toBe(800);        // 12*67=804 → nearest 10
-    expect(r.upliftRemaining).toBe(1610); // 24*67=1608 → nearest 10
-    expect(r.framingText).toMatch(/numbered/);
-  });
-
-  it('trips: 2/year at 33 → ~130 remaining with agency uplift', () => {
-    const r = tripsRemaining(33, 2);
-    expect(r.remaining).toBe(130);       // 2*67=134 → nearest 10
-    expect(r.upliftRemaining).toBeGreaterThan(r.remaining);
-  });
-
-  it('a reader of zero books still never sees zero', () => {
-    expect(booksRemaining(70, 0).remaining).toBeGreaterThanOrEqual(1);
-  });
-
-  it('annual moments count summers, birthdays, full moons', () => {
-    const m = annualMoments(33);
-    expect(m.summers).toBe(67);
-    expect(m.birthdays).toBe(67);
-    expect(m.fullMoons).toBe(830); // 67*12.4=830.8 → nearest 10
-  });
-});
-
 describe('screen trade', () => {
   it('5h/day at 33 ≈ 20 waking years to the 100-year horizon', () => {
     const r = screenTrade(33, 5);
+    expect(r.basis).toBe('stated');
     expect(r.wakingYearsOnScreens).toBeGreaterThan(19);
     expect(r.wakingYearsOnScreens).toBeLessThan(21.5);
   });
@@ -70,5 +39,36 @@ describe('screen trade', () => {
     expect(r.framingText).toMatch(/hands you back/);
     expect(r.framingText).not.toMatch(FORBIDDEN);
     expect(r.assumptions.join(' ')).toMatch(/prices the hour/);
+  });
+
+  it('quotes the hours it was actually given, not a house default', () => {
+    expect(screenTrade(33, 2).framingText).toMatch(/At 2h a day/);
+    expect(screenTrade(33, 7).framingText).toMatch(/At 7h a day/);
+    expect(screenTrade(33, 7).wakingYearsOnScreens!)
+      .toBeGreaterThan(screenTrade(33, 2).wakingYearsOnScreens!);
+  });
+
+  /**
+   * The card asserted "at 5h a day" to everyone who had never touched it,
+   * with a selection ring drawn around the 5. Nothing is claimed now until
+   * someone claims it.
+   */
+  it('says nothing about a person who has never set an hour count', () => {
+    for (const missing of [undefined, null, 0]) {
+      const r = screenTrade(33, missing);
+      expect(r.basis).toBe('unknown');
+      expect(r.wakingYearsOnScreens).toBeNull();
+      expect(r.framingText).not.toMatch(/\d+h a day/);
+      expect(r.framingText).not.toMatch(/waking years/);
+      expect(r.framingText).not.toMatch(FORBIDDEN);
+      expect(r.assumptions.join(' ')).toMatch(/until you set one/);
+    }
+  });
+
+  it('still offers the hour it can honestly price, with no basis at all', () => {
+    const r = screenTrade(33, null);
+    // Worth of one hour is arithmetic on the offer, not a claim about them.
+    expect(r.reclaimedDaysPerYear).toBe(22);
+    expect(r.framingText).toMatch(/22 full waking days a year/);
   });
 });

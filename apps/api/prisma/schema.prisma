@@ -26,6 +26,9 @@ model User {
   profession          String?
   workType            String?
   workHoursPerWeek    Int?
+  // Hours a day on screens outside work. Null until they say — the screen
+  // trade quotes no figure without one, rather than assuming a house default.
+  screenHoursPerDay   Int?
   maritalStatus       String?
   childrenCount       Int       @default(0)
   livesAwayFromParents Boolean  @default(false)

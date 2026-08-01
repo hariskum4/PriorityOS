@@ -428,6 +428,57 @@ moments matching a ritual and they are folded in only on a tap. A number
 someone cannot explain is worse than a smaller one they can — the same reason
 the pace is labelled rather than guessed.
 
+**The fixed-category cards this replaced are gone.** `booksRemaining`,
+`tripsRemaining` and `annualMoments` are deleted, and with them the card that
+asked everyone for books-a-year and trips-a-year. They were the same Tail End
+arithmetic one card above `countable()`, minus the archive, minus the people,
+minus persistence — the pace lived in `useState(12)` / `useState(2)` and reset
+on every tab switch while the copy read it back as "at your pace". Books and
+trips survive as domain-sourced entries in `RITUAL_BY_DOMAIN` (`growth` →
+books finished, `experiences` → trips somewhere new), offered only to a reader
+who rates that domain highly and counts nothing in it. The section's collapsed
+preview — the most-seen line on the tab — now renders this person's own top
+two counts, or says "nothing counted yet".
+
+The Experiences domain screen quoted the same fabricated figure from a literal
+`tripsRemaining(age, 2)`, one line above an invitation to go and state a pace.
+It now resolves the reader's own travel ritual through `DOMAIN_COUNT_PROBES`
+(single-token probes — `matchRitual` needs a subset, so "trips" finds "road
+trips with Sheetal" where the full phrase would not; several per domain
+because one person counts treks and the next counts trips) and quotes nothing
+at all when they count nothing.
+
+# 9c. The screen trade — a stated hour, and a door for it
+
+`screenTrade(age, hoursPerDay)` prices an hour a day against the planning
+horizon. Two things were wrong with it and both are structural rather than
+cosmetic:
+
+**The hours are a fact about the person, so they live on `User`.**
+`screenHoursPerDay Int?` — nullable because "unset" is the majority case and
+has to be representable. The function returns `basis: 'stated' | 'unknown'`
+and, on `unknown`, `wakingYearsOnScreens: null` and copy that quotes no figure
+about the reader. This is the sleep rule from §4 of RESEARCH_NOTES applied
+again: where the direction is known and the magnitude is not, say the
+direction. What one hour is worth (~22 waking days a year) is arithmetic on
+the *offer*, not a claim about the reader, so it survives `unknown` — that is
+the line between the two halves.
+
+**An hour handed back is worth the thing it is handed back to.** The reclaim
+sentence was the only actionable line on the tile and it ended in a full stop.
+The offer now names a destination: the domain with the widest `domainShares`
+shortfall that has no active rhythm, via `rhythmRungFor()`. Two details that
+are easy to get wrong —
+
+- It quotes `claimed`/`received` shares, not `shortfall`. Shortfall is tenths
+  of a percentage point; rounded for display it rendered "the furthest behind
+  — 0 points short", which is both meaningless and self-contradicting.
+- The acknowledgement is held in its own state, not derived from the offer.
+  Taking the rhythm gives that domain a rhythm, so the offer that produced it
+  is correctly gone by the time the answer renders — reading the confirmation
+  off the offer made the row silently vanish on tap, which is what a failure
+  looks like.
+
 # 10. AI Engine
 
 Use **hybrid intelligence**:
