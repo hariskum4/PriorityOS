@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ritualTokens, countKeyOf, matchRitual, observedPace, countable, dedupeRituals,
+  suggestCountables,
 } from './countables';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted|before .* gone|last chance/i;
@@ -234,6 +235,139 @@ describe('the arithmetic the old count kept', () => {
   it('never shows zero, even at a tiny pace late in life', () => {
     const c = countable({ age: 78, label: 'treks', declaredPerYear: 0, now: NOW });
     expect(c.remaining).toBeGreaterThanOrEqual(1);
+  });
+});
+
+/**
+ * The card offered the same five starters to everyone — ocean swims, Diwalis
+ * at home, concerts, treks, movie nights with the kids. Nice words, and a
+ * stranger's, while the app was already holding this person's own.
+ */
+describe('starters drawn from this life rather than a list', () => {
+  const amma = {
+    id: 'p1', name: 'Amma', relationType: 'mother', closenessScore: 10,
+    wantsMoreTime: true, desiredCallFrequency: 'weekly',
+    meaningfulMomentTypes: ['home-cooked meals', 'temple visits'],
+  };
+  const arjun = {
+    id: 'p2', name: 'Arjun', relationType: 'friend', closenessScore: 8,
+    wantsMoreTime: true, desiredCallFrequency: 'monthly', meaningfulMomentTypes: [],
+  };
+
+  it('leads with their own words for what matters, bound to the person', () => {
+    const [top] = suggestCountables({ existing: [], people: [amma, arjun] });
+    expect(top.label).toBe('home-cooked meals with Amma');
+    expect(top.peopleIds).toEqual(['p1']);
+    expect(top.source).toBe('moment-type');
+  });
+
+  it('always says why, out of something they told the app', () => {
+    // Raised past the default: with this much personal material a domain
+    // suggestion never reaches the card, which is the correct ordering and
+    // makes it invisible to a test at the default limit.
+    const s = suggestCountables({
+      existing: [], people: [amma, arjun], limit: 12,
+      archiveThemes: [{ label: 'treks', count: 3, people: ['Arjun'] }],
+      domains: [{ domainType: 'experiences', importance: 80 }],
+    });
+    expect(s.every((x) => x.because.length > 0)).toBe(true);
+    expect(s.find((x) => x.source === 'archive')?.because).toMatch(/3 already in your archive/);
+    expect(s.find((x) => x.source === 'domain')?.because).toMatch(/rate experiences 80/);
+  });
+
+  it('offers what the archive keeps holding and nothing counts', () => {
+    const s = suggestCountables({
+      existing: [], archiveThemes: [{ label: 'treks', count: 4, people: ['Arjun'] }],
+      people: [arjun],
+    });
+    const trek = s.find((x) => x.label === 'treks')!;
+    expect(trek.source).toBe('archive');
+    expect(trek.peopleIds).toEqual(['p2']); // bound to who is actually there
+  });
+
+  it('falls back to the shape of the relationship when they named no moments', () => {
+    const s = suggestCountables({ existing: [], people: [arjun] });
+    expect(s.some((x) => x.label === 'catch-ups with Arjun')).toBe(true);
+  });
+
+  it('reaches for a domain only after the people are exhausted', () => {
+    const s = suggestCountables({
+      existing: [], people: [amma], domains: [{ domainType: 'experiences', importance: 90 }],
+    });
+    expect(s[0].source).toBe('moment-type');
+    expect(s[s.length - 1].source).toBe('domain');
+  });
+
+  it('never offers what is already counted, however it was spelled', () => {
+    const s = suggestCountables({
+      existing: [{ key: 'trek', label: 'Went to trek' }],
+      archiveThemes: [{ label: 'treks', count: 5 }],
+      people: [arjun],
+    });
+    expect(s.some((x) => x.label === 'treks')).toBe(false);
+  });
+
+  it('never offers the same ritual twice from two different sources', () => {
+    const s = suggestCountables({
+      existing: [],
+      people: [{ ...arjun, meaningfulMomentTypes: ['catch-ups'] }],
+      limit: 6,
+    });
+    const labels = s.map((x) => countKeyOf(x.label));
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('takes the cadence they already set rather than guessing', () => {
+    const [top] = suggestCountables({ existing: [], people: [amma] });
+    expect(top.perYear).toBe(12); // weekly
+    const [friend] = suggestCountables({ existing: [], people: [arjun] });
+    expect(friend.perYear).toBe(4); // monthly
+  });
+
+  it('spreads across the life rather than filling up on one person', () => {
+    /**
+     * Amma naming two moments she loves would otherwise take two of the
+     * three slots, and a third of a life would be one relationship.
+     */
+    const priya = {
+      id: 'p3', name: 'Priya', relationType: 'spouse', closenessScore: 10,
+      wantsMoreTime: true, desiredCallFrequency: 'daily',
+      meaningfulMomentTypes: ['date nights'],
+    };
+    const s = suggestCountables({ existing: [], people: [amma, priya, arjun], limit: 3 });
+    const owners = s.map((x) => x.peopleIds[0]);
+    expect(new Set(owners).size).toBe(owners.length);
+  });
+
+  it('relaxes that rather than returning a short list for one relationship', () => {
+    /**
+     * Someone tracking one person: her two moments are all the material
+     * there is, and both are offered. The third candidate ("meals with
+     * Amma", from her relation type) is correctly dropped as too close to
+     * "home-cooked meals with Amma" — near-duplicates are worse than a
+     * shorter list.
+     */
+    const s = suggestCountables({ existing: [], people: [amma], limit: 3 });
+    expect(s.map((x) => x.label)).toEqual([
+      'home-cooked meals with Amma', 'temple visits with Amma',
+    ]);
+  });
+
+  it('stays quiet when it knows nothing about anybody', () => {
+    expect(suggestCountables({ existing: [] })).toEqual([]);
+  });
+
+  it('holds to the limit, so the card stays a starting point not a menu', () => {
+    const s = suggestCountables({
+      existing: [],
+      people: [amma, arjun],
+      domains: [
+        { domainType: 'experiences', importance: 80 },
+        { domainType: 'growth', importance: 70 },
+        { domainType: 'health', importance: 60 },
+      ],
+    });
+    expect(s.length).toBeLessThanOrEqual(4);
   });
 });
 

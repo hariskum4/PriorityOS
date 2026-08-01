@@ -131,6 +131,40 @@ describe('archive moments that were never counted', () => {
     expect(memories.find((m) => m.id === 'd4')!.countKey).toBe('diwali_home');
   });
 
+  it('finds what someone keeps doing and nothing is counting', async () => {
+    const { service } = svc({
+      memories: [
+        untagged('m1', 'Went to trek up Skandagiri'),
+        untagged('m2', 'Sunrise trek with Arjun'),
+        untagged('m3', 'Graduation day'),
+      ],
+      answers: [],
+    });
+    const t = await service.archiveThemes('u1');
+    expect(t.map((x: any) => x.label)).toContain('treks');
+    // Once is a thing that happened, not a ritual.
+    expect(t.some((x: any) => x.label === 'graduations')).toBe(false);
+  });
+
+  it('binds a theme to whoever keeps being there', async () => {
+    const { service } = svc({
+      memories: [
+        { ...untagged('m1', 'Sunrise trek'), peoplePresent: ['Arjun'] },
+        { ...untagged('m2', 'Long trek'), peoplePresent: ['Arjun', 'Priya'] },
+      ],
+    });
+    const [trek] = await service.archiveThemes('u1');
+    expect(trek.people[0]).toBe('Arjun');
+  });
+
+  it('does not suggest what is already being counted', async () => {
+    const { service } = svc({
+      memories: [untagged('m1', 'Sunrise trek'), untagged('m2', 'Long trek')],
+      answers: [{ key: 'trek', value: { label: 'treks', perYear: 2 } }],
+    });
+    expect(await service.archiveThemes('u1')).toEqual([]);
+  });
+
   it('does nothing at all on an empty or malformed request', async () => {
     const { service, updates } = svc({ memories: [untagged('m1', 'Went to trek')] });
     expect(await service.attachToCount('u1', 'trek', [])).toEqual({ attached: 0 });

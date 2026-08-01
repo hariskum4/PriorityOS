@@ -135,6 +135,59 @@ export class MemoriesService {
     return out;
   }
 
+  /**
+   * Words that keep recurring in untagged moments — things this person
+   * evidently does and nothing is counting.
+   *
+   * A theme is a single meaningful word appearing in two or more untagged
+   * titles, which is deliberately the crudest rule that still only fires on
+   * repetition. Anything cleverer would invent rituals nobody has: the label
+   * offered is the word itself, so the suggestion is always something they
+   * literally wrote down, and they rename it when they accept it.
+   */
+  async archiveThemes(userId: string) {
+    const [untagged, counted] = await Promise.all([
+      this.prisma.memory.findMany({
+        where: { userId, countKey: null },
+        select: { title: true, peoplePresent: true },
+        orderBy: { occurredAt: 'desc' },
+        take: 200,
+      }),
+      this.prisma.onboardingAnswer.findMany({ where: { userId, section: 'counts' } }),
+    ]);
+
+    const already = new Set(
+      counted.flatMap((a) => ritualTokens((a.value as { label?: string })?.label ?? '')),
+    );
+    const seen = new Map<string, { count: number; people: Map<string, number> }>();
+
+    for (const m of untagged) {
+      const people = (Array.isArray(m.peoplePresent) ? m.peoplePresent : []) as string[];
+      for (const token of ritualTokens(m.title)) {
+        if (already.has(token) || token.length < 4) continue;
+        const row = seen.get(token) ?? { count: 0, people: new Map<string, number>() };
+        row.count += 1;
+        for (const name of people) {
+          if (typeof name === 'string' && name.trim()) {
+            row.people.set(name, (row.people.get(name) ?? 0) + 1);
+          }
+        }
+        seen.set(token, row);
+      }
+    }
+
+    return [...seen.entries()]
+      .filter(([, v]) => v.count >= 2)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 6)
+      .map(([token, v]) => ({
+        // Plural, because a countable is always a plural in this card.
+        label: token.endsWith('s') ? token : `${token}s`,
+        count: v.count,
+        people: [...v.people.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n),
+      }));
+  }
+
   /** Fold chosen archive moments into a ritual's count. */
   async attachToCount(userId: string, countKey: string, memoryIds: string[]) {
     if (!countKey || !Array.isArray(memoryIds) || !memoryIds.length) return { attached: 0 };

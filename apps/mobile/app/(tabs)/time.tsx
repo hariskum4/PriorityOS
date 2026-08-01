@@ -13,6 +13,8 @@ import {
   countKeyOf,
   dedupeRituals,
   matchRitual,
+  suggestCountables,
+  type ArchiveTheme,
   estimateTimeReality,
   screenTrade,
   estimateCostOfWaiting,
@@ -86,15 +88,6 @@ interface CountsLived {
 interface CandidateMemory { id: string; title: string; occurredAt: string }
 /** A ritual someone chose to count, as stored in their onboarding answers. */
 interface SavedCount { key: string; label: string; perYear: number; people?: string[] }
-
-/**
- * Starters, not a menu. Filtered against what someone already counts before
- * any of them is shown — offering "treks" to a person already counting treks
- * is how the card ended up with two identical rows.
- */
-const COUNT_SUGGESTIONS = [
-  'ocean swims', 'Diwalis at home', 'concerts', 'treks', 'movie nights with the kids',
-];
 
 function Section({
   icon, title, preview, children,
@@ -411,6 +404,12 @@ export default function TimeReality() {
     queryFn: () => api<Record<string, CandidateMemory[]>>('/memories/count-candidates'),
     staleTime: 5 * 60_000,
   });
+  /** Words that keep recurring in untagged moments — done, never counted. */
+  const { data: archiveThemes } = useQuery({
+    queryKey: ['memories-archive-themes'],
+    queryFn: () => api<ArchiveTheme[]>('/memories/archive-themes'),
+    staleTime: 10 * 60_000,
+  });
   const [countName, setCountName] = useState('');
   const [countPerYear, setCountPerYear] = useState<number>(1);
   /** Relationship ids this ritual is with — "road trips with Sheetal, Amma". */
@@ -432,6 +431,34 @@ export default function TimeReality() {
   const dupe = countName.trim()
     ? matchRitual(countName, savedCounts.map((c) => ({ key: c.key, label: c.label })))
     : null;
+
+  /**
+   * What to offer counting, out of this life.
+   *
+   * Four sources in order of how much they belong to this person: the moments
+   * they named as mattering with someone (`meaningfulMomentTypes`, collected
+   * at onboarding and never read until now), then things their archive keeps
+   * holding, then people they said they want more of, and only last a domain
+   * they rate highly and count nothing in.
+   */
+  const countSuggestions = suggestCountables({
+    existing: savedCounts.map((c) => ({ key: c.key, label: c.label })),
+    people: (relationships ?? []).map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      relationType: r.relationType,
+      closenessScore: r.closenessScore,
+      wantsMoreTime: r.wantsMoreTime,
+      desiredCallFrequency: r.desiredCallFrequency,
+      meaningfulMomentTypes: r.meaningfulMomentTypes,
+    })),
+    domains: (dashboard?.domains ?? []).map((d: any) => ({
+      domainType: d.domainType,
+      importance: d.importance,
+    })),
+    archiveThemes: archiveThemes ?? [],
+    limit: 3,
+  });
 
   const addCount = useMutation({
     mutationFn: () =>
@@ -1189,8 +1216,12 @@ export default function TimeReality() {
               <Ionicons name="infinite-outline" size={14} color={colors.textDim} />
               <Label>Count what counts</Label>
             </View>
+            {/* The examples that used to sit here were the same three for
+                everybody, and so is anything written into this string. What
+                belongs to this person is below, drawn from what they told the
+                app and what their archive already holds. */}
             <Text style={type.dim}>
-              Your own ritual, your own pace — ocean swims, Diwalis at home, treks with an old friend.
+              Your own rituals, at your own pace — and how many of each are still ahead.
             </Text>
             {/* One row per ritual, not one per spelling. The twins predate
                 any check on new names, so grouping happens at read time —
@@ -1300,18 +1331,29 @@ export default function TimeReality() {
               );
             })}
             <View style={{ gap: space(2) }}>
-              {/* Only what is not already counted. The card used to offer
-                  "treks" to someone already counting treks — the same bug the
-                  ladder had, one screen over. */}
-              {COUNT_SUGGESTIONS.filter(
-                (sug) => !matchRitual(sug, savedCounts.map((c) => ({ key: c.key, label: c.label }))),
-              ).length > 0 ? (
-                <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-                  {COUNT_SUGGESTIONS.filter(
-                    (sug) => !matchRitual(sug, savedCounts.map((c) => ({ key: c.key, label: c.label }))),
-                  ).map((sug) => (
-                    <Pressable key={sug} onPress={() => setCountName(sug)} style={s.chip}>
-                      <Text style={type.faint}>{sug}</Text>
+              {/* Starters from this life, not from a list. The five that
+                  used to sit here — ocean swims, Diwalis at home, concerts —
+                  were the same five for everybody, while the app already held
+                  what this person said mattered and with whom. Each one says
+                  why it is being offered; tapping fills the whole row. */}
+              {countSuggestions.length > 0 ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={type.faint}>From your own life:</Text>
+                  {countSuggestions.map((sug) => (
+                    <Pressable
+                      key={sug.label}
+                      onPress={() => {
+                        setCountName(sug.label);
+                        setCountPerYear(sug.perYear);
+                        setCountPeople(sug.peopleIds);
+                      }}
+                      style={({ pressed }) => [s.suggestRow, pressed && { opacity: 0.7 }]}
+                    >
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={type.body}>{sug.label}</Text>
+                        <Text style={type.faint}>{sug.because}</Text>
+                      </View>
+                      <Chip label={`${sug.perYear}/yr`} />
                     </Pressable>
                   ))}
                 </View>
@@ -1515,6 +1557,14 @@ const s = StyleSheet.create({
       the point, so it is drawn once rather than described twice. */
   energyBar: { flexDirection: 'row', height: 8, borderRadius: 999, overflow: 'hidden', backgroundColor: colors.lineSoft },
   energyBarFill: { height: 8 },
+  /** A starter drawn from this life. Carries its reason, so it needs a row
+      rather than a chip — a suggestion nobody can account for is the same
+      failure as a number nobody can explain. */
+  suggestRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderColor: colors.line, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.surfaceSunken,
+  },
   /** The archive offering itself to a count. An invitation, not a notice. */
   foldRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6,

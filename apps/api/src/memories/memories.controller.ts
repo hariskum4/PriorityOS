@@ -35,6 +35,12 @@ export class MemoriesController {
     return this.memories.countCandidates(u.userId);
   }
 
+  /** Recurring words in untagged moments — things done and never counted. */
+  @Get('archive-themes')
+  archiveThemes(@CurrentUser() u: JwtUser) {
+    return this.memories.archiveThemes(u.userId);
+  }
+
   @Post('count-attach')
   attachToCount(
     @CurrentUser() u: JwtUser,

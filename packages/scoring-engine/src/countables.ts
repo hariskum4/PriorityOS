@@ -294,6 +294,195 @@ export function countable(input: CountableInput): Countable {
   };
 }
 
+// ---------------------------------------------------------------------------
+// What to suggest counting — from this life, not from a list
+// ---------------------------------------------------------------------------
+
+/**
+ * The card offered the same five starters to everyone: ocean swims, Diwalis
+ * at home, concerts, treks, movie nights with the kids. Nice words, and a
+ * stranger's. Meanwhile the app was already holding, for this person:
+ *
+ *   - the moments they named as mattering with each person they track
+ *     (`meaningfulMomentTypes` — "home-cooked meals" with Amma, "date nights"
+ *     with Priya). Their own words, already attached to a name.
+ *   - an archive of things they actually did, most of it untagged
+ *   - who they said they want more time with, and how often
+ *   - which domains they rate highly and have nothing countable in
+ *
+ * A suggestion drawn from any of those is worth ten from a list, and every
+ * one of them carries why it was offered — a suggestion someone cannot
+ * account for is the same failure as a number they cannot explain.
+ */
+export type SuggestionSource = 'moment-type' | 'archive' | 'person' | 'domain';
+
+export interface CountableSuggestion {
+  label: string;
+  perYear: number;
+  /** Relationship ids this ritual would be with, when it is with anyone. */
+  peopleIds: string[];
+  /** Said back to them, always grounded in something they told the app. */
+  because: string;
+  source: SuggestionSource;
+  score: number;
+}
+
+export interface SuggestPerson {
+  id: string;
+  name: string;
+  relationType: string;
+  closenessScore?: number | null;
+  wantsMoreTime?: boolean | null;
+  desiredCallFrequency?: string | null;
+  /** Their own words for what matters with this person. */
+  meaningfulMomentTypes?: string[] | null;
+}
+
+export interface ArchiveTheme {
+  /** A word that keeps recurring in untagged moments, already pluralised. */
+  label: string;
+  count: number;
+  /** Names most often present, for binding the suggestion to them. */
+  people?: string[];
+}
+
+export interface SuggestCountablesInput {
+  existing: Array<{ key: string; label: string }>;
+  people?: SuggestPerson[];
+  domains?: Array<{ domainType: string; importance: number }>;
+  archiveThemes?: ArchiveTheme[];
+  limit?: number;
+}
+
+/** Cadence words → a countable pace the tile can actually offer. */
+const CADENCE_PER_YEAR: Record<string, number> = {
+  daily: 12, weekly: 12, biweekly: 12, monthly: 4, quarterly: 4, yearly: 1,
+};
+
+/**
+ * What a ritual with this kind of person tends to be. Only reached when
+ * someone named no moments of their own, and deliberately plain — a
+ * suggestion is a starting point they will rename, not a description of
+ * their relationship.
+ */
+const RITUAL_BY_RELATION: Record<string, string> = {
+  mother: 'meals with', father: 'meals with', parent: 'meals with',
+  spouse: 'evenings out with', partner: 'evenings out with',
+  child: 'days out with', son: 'days out with', daughter: 'days out with',
+  sibling: 'trips with', brother: 'trips with', sister: 'trips with',
+  friend: 'catch-ups with', mentor: 'long conversations with',
+};
+
+/** A countable a domain tends to hold, for domains rated highly and empty. */
+const RITUAL_BY_DOMAIN: Record<string, { label: string; perYear: number }> = {
+  experiences: { label: 'trips somewhere new', perYear: 2 },
+  health: { label: 'long walks outdoors', perYear: 12 },
+  growth: { label: 'books finished', perYear: 4 },
+  purpose: { label: 'things you shipped', perYear: 4 },
+  reflection: { label: 'days off the grid', perYear: 4 },
+  friends: { label: 'evenings with friends', perYear: 4 },
+  family: { label: 'family gatherings', perYear: 2 },
+  impact: { label: 'people you helped', perYear: 4 },
+  finance: { label: 'money reviews you actually sat through', perYear: 4 },
+  career: { label: 'work you were proud of', perYear: 4 },
+};
+
+export function suggestCountables(input: SuggestCountablesInput): CountableSuggestion[] {
+  const out: CountableSuggestion[] = [];
+  const people = input.people ?? [];
+
+  // 1. Their own words for what matters, with the person it matters with.
+  for (const p of people) {
+    for (const moment of p.meaningfulMomentTypes ?? []) {
+      if (!moment?.trim()) continue;
+      out.push({
+        label: `${moment.trim()} with ${p.name}`,
+        perYear: CADENCE_PER_YEAR[p.desiredCallFrequency ?? ''] ?? 4,
+        peopleIds: [p.id],
+        because: `You said ${moment.trim()} are what matter with ${p.name}`,
+        source: 'moment-type',
+        score: 100 + (p.closenessScore ?? 0),
+      });
+    }
+  }
+
+  // 2. Things they keep doing that nothing is counting.
+  for (const t of input.archiveThemes ?? []) {
+    const withWhom = (t.people ?? []).slice(0, 1);
+    out.push({
+      label: t.label,
+      perYear: Math.min(Math.max(t.count, 1), 12),
+      peopleIds: withWhom
+        .map((n) => people.find((p) => p.name === n)?.id)
+        .filter(Boolean) as string[],
+      because: `${t.count} already in your archive, counted against nothing`,
+      source: 'archive',
+      score: 80 + t.count * 5,
+    });
+  }
+
+  // 3. People they said they want more of.
+  for (const p of people) {
+    if (!p.wantsMoreTime) continue;
+    const verb = RITUAL_BY_RELATION[p.relationType];
+    if (!verb) continue;
+    out.push({
+      label: `${verb} ${p.name}`,
+      perYear: CADENCE_PER_YEAR[p.desiredCallFrequency ?? ''] ?? 4,
+      peopleIds: [p.id],
+      because: `You said you want more time with ${p.name}`,
+      source: 'person',
+      score: 50 + (p.closenessScore ?? 0),
+    });
+  }
+
+  // 4. A domain they rate highly and count nothing in.
+  for (const d of input.domains ?? []) {
+    const ritual = RITUAL_BY_DOMAIN[d.domainType];
+    if (!ritual || d.importance <= 0) continue;
+    out.push({
+      label: ritual.label,
+      perYear: ritual.perYear,
+      peopleIds: [],
+      because: `You rate ${d.domainType} ${Math.round(d.importance)} and count nothing in it`,
+      source: 'domain',
+      score: 20 + d.importance / 10,
+    });
+  }
+
+  /* Nothing already counted, and nothing twice — a suggester that offers
+     what someone already has is the bug this card shipped with. Each kept
+     suggestion joins the taken set, so two sources cannot both offer it.
+
+     One per person, too. Amma naming two moments she loves would otherwise
+     take two of the three slots and a third of a life would be represented
+     by one relationship — a spread across the life is the whole point of
+     drawing from it. A second pass relaxes the rule rather than returning a
+     short list, because for someone who tracks one person it is the only
+     material there is. */
+  const limit = input.limit ?? 4;
+  const taken = [...input.existing];
+  const kept: CountableSuggestion[] = [];
+  const spokenFor = new Set<string>();
+  const ranked = out.sort((a, b) => b.score - a.score);
+
+  for (const pass of [0, 1]) {
+    for (const s of ranked) {
+      if (kept.length >= limit) break;
+      if (kept.includes(s)) continue;
+      const owner = s.peopleIds[0];
+      if (pass === 0 && owner && spokenFor.has(owner)) continue;
+      if (matchRitual(s.label, taken)) continue;
+      taken.push({ key: countKeyOf(s.label), label: s.label });
+      if (owner) spokenFor.add(owner);
+      kept.push(s);
+    }
+  }
+  // Back into score order: which pass admitted a suggestion is bookkeeping,
+  // and should not decide what someone reads first.
+  return kept.sort((a, b) => b.score - a.score);
+}
+
 /**
  * The line under the number.
  *
