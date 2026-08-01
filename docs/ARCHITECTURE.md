@@ -651,6 +651,81 @@ Related: `PATCH /me` returned `prisma.user.update()` unselected, so it replied
 with the whole row — `passwordHash` included. Every user-returning path now
 shares one `PUBLIC_USER_FIELDS` constant.
 
+## 12.4 A check-in is a day, not a tap
+
+`POST /habits/:id/complete` had no guard of any kind. Six calls in the same
+second wrote six `HabitLog` rows and awarded 60 XP, and the only thing between
+one honest tap and six was `disabled={h.doneToday}` on the client.
+
+The cost was not the XP. `perWeek` — the four-week rate that the healthspan
+card reads to decide whether a lever is *kept* or *slipping* (§9a) — reported
+**1.5/week off six taps in one second**. A figure built to be honest was
+forgeable by a thumb. And it needed nobody dishonest: mutations run
+`networkMode: 'offlineFirst'` with `retry: 3`, so one tap on a bad connection
+could write three.
+
+- **The day is the unit.** `complete` is idempotent — it finds today's log
+  first, and a repeat returns `alreadyToday: true` with `xp: null`. A note
+  arriving with a repeat tap is still kept, because adding what you lifted
+  after ticking the box is not a duplicate.
+- **`uncomplete` exists**, removing today's log only. With one log a day
+  enforced, tapping the wrong row otherwise cost a whole day.
+- **The row shows the tally.** `targetPerWeek` was being sent to the dashboard
+  and never rendered; one tap struck a twice-a-week commitment through, which
+  is a completion idiom on what is really a count. It now reads `1/2 this
+  week` and strikes through only at target.
+- **Optimistic, and inert while in flight.** Completing is idempotent but
+  *unticking* is not, so a toggle read from the last render made five fast
+  taps alternate and settle on nothing recorded. The screen holds its own
+  answer (`tickDraft`) and the row ignores taps until its request settles.
+
+**On proof.** Photo-proof of a check-in was considered and rejected: it is the
+highest-friction check-in design there is against a documented 70%-churn
+problem (§2), it proves nothing without an audience or stakes — this app has
+neither by design — and it commits us to blob storage with journal-grade
+encryption. `HabitLog.note` had existed unused since the model was written; an
+optional line is four seconds, is far harder to tap out of habit than a
+circle, and gives the archive something to hold. Long-press a rhythm to add
+one. Nothing is required.
+
+## 12.5 The day shape — what, how, and finally when
+
+Every engine above answers *what* a life is short of and *how* one hour can
+serve two domains. None answered *when*, and "after dinner, before you open
+the laptop" is most of the distance between agreeing with a suggestion and
+doing it.
+
+`dayShape()` (`packages/scoring-engine/src/dayShape.ts`) draws the blocks
+already spoken for — sleep from quiet hours, work and commute from three new
+profile fields — and places **one** ranked stack in the largest gap left.
+
+Two things it deliberately is not:
+
+- **Not a calendar.** Manual entry is what killed the personal-CRM generation
+  (§3). Everything derives from four facts asked once; three were already
+  held or approximated. No calendar integration: reading someone's work
+  calendar is a large permission for a small gain when the free gaps are
+  derivable without it.
+- **Not today's plan.** It is the shape of a typical working day and says so
+  in its own assumptions. The day it claims to know about a 6pm meeting is the
+  day it becomes noise and stops being read.
+
+Details that matter: the suggestion sits at the **start** of the gap, because
+anything deferred to "later, when there is time" is what gets postponed; it is
+refused outright if it does not fit, since proposing an hour into forty
+minutes is how a plan starts lying on its first day; and when the longest
+unbroken stretch is under 45 minutes the copy names it as **a scheduling
+problem, not a discipline one**. Totalling scattered minutes is the
+comforting lie — two half-hours around a fifteen-hour day is not an hour you
+can spend with anyone.
+
+**`Number(null)` is 0, not NaN.** The nullable columns come back as `null`,
+which sailed through a `Number.isFinite` guard as midnight — so an unset
+profile drew work from midnight to midnight, marked every waking hour as Work,
+and told the reader their day was full. The unit test missed it because it
+passed `{}`, and `undefined` is the one empty value that *does* produce NaN.
+Found in a browser. Guard for empty, not only for NaN.
+
 # 13. Security & Observability
 
 Security:
@@ -685,6 +760,11 @@ Backend:
   nothing, a retired habit leaves the active list but survives in the full
   one. Requires a running API and a development database; it creates real
   accounts.
+- **After adding a migration, run `npm run test:db --prefix apps/api`.** The
+  vitest suite runs against a separate `priority_test` database that
+  `prisma migrate deploy` does not touch, and the failure it produces —
+  `The column User.x does not exist` across a whole unrelated suite — reads
+  like a broken feature rather than a stale schema.
 
 Mobile:
 - onboarding flow tests

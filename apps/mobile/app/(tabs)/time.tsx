@@ -25,6 +25,9 @@ import {
   suggestSeason,
   classifyLever,
   rhythmRungFor,
+  dayShape,
+  formatSpan,
+  type DayBlock,
   PLANNING_HORIZON_AGE,
   type StackSuggestion,
   type LeverSignal,
@@ -391,6 +394,20 @@ export default function TimeReality() {
   });
   /** So the chip answers the tap before the round trip lands. */
   const [screenDraft, setScreenDraft] = useState<number | null>(null);
+
+  /**
+   * The three facts the day shape needs, asked once and then never again.
+   *
+   * Deliberately three and not a calendar: the personal-CRM graveyard is full
+   * of tools that died of manual entry, and a schedule someone has to keep
+   * current is abandoned by March.
+   */
+  const saveDay = useMutation({
+    mutationFn: (patch: Record<string, number>) =>
+      api('/me', { method: 'PATCH', body: patch }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+  });
+  const [editingDay, setEditingDay] = useState(false);
 
   /**
    * Every rhythm including retired ones, so the reclaim offer never hands back
@@ -793,6 +810,33 @@ export default function TimeReality() {
     activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance, neglectRisk: d.neglectRisk })),
   );
 
+  /**
+   * Where in a day the top move would actually go.
+   *
+   * Everything above this answers what is short and how to serve two things
+   * with one hour. None of it says when, and "when" is most of the distance
+   * between agreeing with a suggestion and doing it. The stack is already
+   * ranked; this only puts it on a clock.
+   */
+  const topStack = stacks[0];
+  const shape = dayShape({
+    workStartHour: me.workStartHour,
+    workEndHour: me.workEndHour,
+    commuteMinutes: me.commuteMinutes,
+    workType: me.workType,
+    sleepHour: prefs?.quietHoursStart,
+    wakeHour: prefs?.quietHoursEnd,
+    suggestion: topStack
+      ? {
+        action: topStack.action,
+        minutes: 60,
+        domains: topStack.covers?.length ? topStack.covers : topStack.domains,
+        reason: topStack.reason || undefined,
+      }
+      : null,
+  });
+  const dayHoursKnown = me.workStartHour != null && me.workEndHour != null;
+
   const hs = healthspan(age, leverSignals);
   /* The sharp-hours number is only worth showing if it is theirs, so it is
      built from the two things actually known about them: the working week
@@ -1029,6 +1073,103 @@ export default function TimeReality() {
                         shortDomains.length === 1 ? 'domain' : 'domains'
                       } getting less attention than you asked for.`}
                 </Text>
+              </Card>
+
+              {/* 1b. The day that move has to fit into.
+                  A stack is only advice until it has an hour. This draws the
+                  hours that are already spoken for and puts the top move in
+                  the largest thing left — one move, not an agenda, and never
+                  presented as today's plan, because the day it is wrong about
+                  a 6pm meeting is the day it stops being read. */}
+              <Card style={{ gap: space(3) }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="time-outline" size={14} color={colors.textDim} />
+                  <Label>Where the hour is</Label>
+                  <View style={{ flex: 1 }} />
+                  <Pressable onPress={() => setEditingDay((v) => !v)}>
+                    <Text style={[type.faint, { color: colors.amber }]}>
+                      {dayHoursKnown ? 'edit' : 'set hours'}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {editingDay || !dayHoursKnown ? (
+                  <View style={{ gap: space(3) }}>
+                    <Text style={type.faint}>
+                      Three things, once. Nothing to keep up to date afterwards.
+                    </Text>
+                    {([
+                      { key: 'workStartHour', label: 'Work starts', opts: [6, 7, 8, 9, 10], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
+                      { key: 'workEndHour', label: 'Work ends', opts: [15, 16, 17, 18, 19, 21], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
+                      { key: 'commuteMinutes', label: 'Commute each way', opts: [0, 15, 30, 45, 60, 90], fmt: (n: number) => (n === 0 ? 'none' : `${n}m`) },
+                    ] as const).map((row) => (
+                      <View key={row.key} style={{ gap: 6 }}>
+                        <Text style={type.dim}>{row.label}:</Text>
+                        <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                          {row.opts.map((n) => {
+                            const on = (me as any)[row.key] === n;
+                            return (
+                              <Pressable
+                                key={n}
+                                disabled={saveDay.isPending}
+                                onPress={() => saveDay.mutate({ [row.key]: n })}
+                                style={[s.chip, on && s.chipOn]}
+                              >
+                                <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                                  {row.fmt(n)}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ))}
+                    {dayHoursKnown ? (
+                      <Button title="Done" small kind="ghost" onPress={() => setEditingDay(false)} />
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {/* The day as a column of blocks. Fixed things are quiet; the
+                    one suggestion is the only thing drawn in brass. */}
+                <View style={{ gap: 2 }}>
+                  {shape.blocks.map((b: DayBlock, i: number) => (
+                    <View
+                      key={`${b.kind}-${b.startMinutes}-${i}`}
+                      style={[
+                        s.dayRow,
+                        b.kind === 'suggested' && s.dayRowOn,
+                        b.kind === 'sleep' && { opacity: 0.45 },
+                      ]}
+                    >
+                      <Text style={[type.faint, s.dayTime]}>
+                        {formatSpan(b.startMinutes, b.endMinutes)}
+                      </Text>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text
+                          style={[
+                            type.body,
+                            b.kind === 'suggested' && { color: colors.amber, fontWeight: '600' },
+                            (b.kind === 'open' || b.kind === 'sleep') && type.dim,
+                          ]}
+                        >
+                          {b.label}
+                        </Text>
+                        {b.note ? <Text style={type.faint}>{b.note}</Text> : null}
+                      </View>
+                      {b.domains?.length ? (
+                        <View style={{ flexDirection: 'row', gap: 3 }}>
+                          {b.domains.slice(0, 3).map((d: string) => (
+                            <DomainDot key={d} domain={d} size={7} />
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+
+                <Text style={type.serif}>{shape.framingText}</Text>
+                <Text style={type.faint}>{shape.assumptions.join('. ')}.</Text>
               </Card>
 
               {/* 2. Weekly allocation */}
@@ -1699,6 +1840,17 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 12,
     paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.surfaceSunken,
   },
+  /** One block of a day. The clock column is fixed-width so the rows read as
+      a timetable rather than as ragged sentences. */
+  dayRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 7, paddingHorizontal: 9, borderRadius: 9,
+  },
+  dayRowOn: {
+    borderWidth: 1, borderColor: alpha(colors.amber, 0.35),
+    backgroundColor: alpha(colors.amber, 0.06),
+  },
+  dayTime: { width: 96 },
   /** Where the reclaimed hour goes. The only pressable thing on the screen
       card, so it is drawn as an offer rather than as another line of data. */
   reclaimRow: {

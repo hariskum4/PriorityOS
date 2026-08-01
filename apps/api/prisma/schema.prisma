@@ -29,6 +29,13 @@ model User {
   // Hours a day on screens outside work. Null until they say — the screen
   // trade quotes no figure without one, rather than assuming a house default.
   screenHoursPerDay   Int?
+  // When the working day starts and ends, and the commute each way. The app
+  // knew how many hours someone worked and never when — which is the whole
+  // difference between "family is short" and "after dinner, before the laptop".
+  // Null means the day shape says so rather than inventing a 9-to-5.
+  workStartHour       Int?
+  workEndHour         Int?
+  commuteMinutes      Int?
   maritalStatus       String?
   childrenCount       Int       @default(0)
   livesAwayFromParents Boolean  @default(false)

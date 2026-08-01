@@ -28,6 +28,12 @@ export class HabitsController {
     return this.habits.complete(u.userId, id, body?.note);
   }
 
+  /** Untick today. The wrong row is easy to tap and midnight is a long wait. */
+  @Post(':id/uncomplete')
+  uncomplete(@CurrentUser() u: JwtUser, @Param('id') id: string) {
+    return this.habits.uncomplete(u.userId, id);
+  }
+
   @Post(':id/retire')
   retire(@CurrentUser() u: JwtUser, @Param('id') id: string) {
     return this.habits.retire(u.userId, id);

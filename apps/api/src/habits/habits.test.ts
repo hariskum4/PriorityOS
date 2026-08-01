@@ -18,8 +18,9 @@ import { HabitsService } from './habits.service';
 
 const DAY = 86_400_000;
 
-function make(habits: Array<Record<string, any>>) {
+function make(habits: Array<Record<string, any>>, logs: Array<Record<string, any>> = []) {
   const updates: Array<{ id: string; data: any }> = [];
+  const startOfToday = new Date(new Date().setHours(0, 0, 0, 0));
   const prisma = {
     habit: {
       findFirst: async ({ where }: any) =>
@@ -35,18 +36,47 @@ function make(habits: Array<Record<string, any>>) {
         return h;
       },
     },
+    habitLog: {
+      findFirst: async ({ where }: any) => logs.find((l) => (
+        l.habitId === where.habitId && l.completedAt >= where.completedAt.gte
+      )) ?? null,
+      count: async ({ where }: any) => logs.filter((l) => (
+        l.habitId === where.habitId && l.completedAt >= where.completedAt.gte
+      )).length,
+      create: async ({ data }: any) => {
+        const row = { id: `l${logs.length + 1}`, completedAt: new Date(), ...data };
+        logs.push(row);
+        return row;
+      },
+      update: async ({ where, data }: any) => {
+        const l = logs.find((x) => x.id === where.id)!;
+        Object.assign(l, data);
+        return l;
+      },
+      deleteMany: async ({ where }: any) => {
+        const keep = logs.filter((l) => !(
+          l.habitId === where.habitId && l.completedAt >= where.completedAt.gte
+        ));
+        const removed = logs.length - keep.length;
+        logs.length = 0;
+        logs.push(...keep);
+        return { count: removed };
+      },
+    },
   };
   const clock = {
     daysAgo: async () => new Date(Date.now() - 28 * DAY),
     startOfWeek: async () => new Date(Date.now() - 3 * DAY),
+    startOfToday: async () => startOfToday,
   };
+  const award = vi.fn();
   const svc = new HabitsService(
     prisma as any,
     { recalcUserDomains: vi.fn() } as any,
-    { award: vi.fn() } as any,
+    { award } as any,
     clock as any,
   );
-  return { svc, updates };
+  return { svc, updates, logs, award };
 }
 
 const active = { id: 'h1', userId: 'u1', title: 'Weekly money review', isActive: true, streakCurrent: 9 };
@@ -105,5 +135,83 @@ describe('which rhythms get listed', () => {
     const [h] = await svc.list('u1') as any[];
     expect(h.rateWindowDays).toBe(28);
     expect(h.perWeek).toBe(3);
+  });
+});
+
+/**
+ * The day is the unit.
+ *
+ * `complete` had no guard at all: six calls in the same second wrote six logs
+ * and awarded 60 XP, and `perWeek` — the figure the healthspan card reads to
+ * decide whether a lever is kept — reported 1.5 off the back of it. Nobody had
+ * to be dishonest for this to fire, either: mutations run offlineFirst with
+ * three retries, so one tap on a bad connection could write three.
+ */
+describe('checking a rhythm off', () => {
+  const twice = { id: 'h1', userId: 'u1', title: 'Strength training twice a week', isActive: true, domainType: 'health', targetPerWeek: 2, streakCurrent: 0 };
+
+  it('writes one log however many times it is tapped', async () => {
+    const { svc, logs, award } = make([{ ...twice }]);
+    for (let i = 0; i < 6; i++) await svc.complete('u1', 'h1');
+    expect(logs).toHaveLength(1);
+    expect(award).toHaveBeenCalledOnce();
+  });
+
+  it('says plainly that today was already counted', async () => {
+    const { svc } = make([{ ...twice }]);
+    const first = await svc.complete('u1', 'h1') as any;
+    const second = await svc.complete('u1', 'h1') as any;
+    expect(first.alreadyToday).toBe(false);
+    expect(second.alreadyToday).toBe(true);
+    expect(second.xp).toBeNull();
+  });
+
+  it('reports the week against the target, not a boolean', async () => {
+    const { svc } = make([{ ...twice }]);
+    const r = await svc.complete('u1', 'h1') as any;
+    // Half of a twice-a-week commitment is not a finished one.
+    expect(r.doneThisWeek).toBe(1);
+    expect(r.targetPerWeek).toBe(2);
+  });
+
+  it('keeps a note added after the tick, without double-counting the day', async () => {
+    const { svc, logs } = make([{ ...twice }]);
+    await svc.complete('u1', 'h1');
+    await svc.complete('u1', 'h1', '  5x5 squats, 60kg  ');
+    expect(logs).toHaveLength(1);
+    expect(logs[0].note).toBe('5x5 squats, 60kg');
+  });
+
+  it('stores a note trimmed, and blank as nothing', async () => {
+    const { svc, logs } = make([{ ...twice }]);
+    await svc.complete('u1', 'h1', '   ');
+    expect(logs[0].note).toBeNull();
+  });
+
+  it('unticks today and lets the day be counted again', async () => {
+    const { svc, logs } = make([{ ...twice }]);
+    await svc.complete('u1', 'h1');
+    expect(logs).toHaveLength(1);
+    const undone = await svc.uncomplete('u1', 'h1') as any;
+    expect(logs).toHaveLength(0);
+    expect(undone.doneThisWeek).toBe(0);
+    await svc.complete('u1', 'h1');
+    expect(logs).toHaveLength(1);
+  });
+
+  it('unticking leaves earlier days alone', async () => {
+    const yesterday = { id: 'old', habitId: 'h1', completedAt: new Date(Date.now() - DAY), note: null };
+    const { svc, logs } = make([{ ...twice }], [yesterday]);
+    await svc.complete('u1', 'h1');
+    expect(logs).toHaveLength(2);
+    await svc.uncomplete('u1', 'h1');
+    expect(logs).toEqual([yesterday]);
+  });
+
+  it("refuses to tick someone else's rhythm", async () => {
+    const { svc, logs } = make([{ ...twice }]);
+    await expect(svc.complete('someone-else', 'h1')).rejects.toThrow(NotFoundException);
+    await expect(svc.uncomplete('someone-else', 'h1')).rejects.toThrow(NotFoundException);
+    expect(logs).toHaveLength(0);
   });
 });

@@ -24,6 +24,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
+import { Input } from '@/components/ui';
 import { levelProgress } from '@/theme';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
@@ -382,10 +383,55 @@ export default function Today() {
     mutationFn: (id: string) => api(`/missions/${id}`, { method: 'PATCH', body: { status: 'dismissed' } }),
     onSuccess: invalidate,
   });
+  /**
+   * The tick, and the thing that makes a toggle safe to tap quickly.
+   *
+   * The server keeps one log a day whatever happens, so *completing* is
+   * idempotent. Untick is not, and a row that toggles reads its state from
+   * the last render — so five quick taps each saw the same stale value,
+   * alternated tick and untick, and settled on nothing recorded. A double
+   * tap, which is what an impatient thumb does when a row does not answer
+   * instantly, would silently undo itself.
+   *
+   * `tickDraft` is what this screen believes right now. It answers the tap
+   * before the round trip, the next tap reads it rather than the server's
+   * older answer, and the row is inert until its own request settles.
+   */
+  const [tickDraft, setTickDraft] = useState<Record<string, boolean>>({});
+  const [tickBusy, setTickBusy] = useState<string[]>([]);
+  const settle = (id: string) => {
+    setTickBusy((p) => p.filter((x) => x !== id));
+    setTickDraft((p) => { const { [id]: _drop, ...rest } = p; return rest; });
+  };
   const tickHabit = useMutation({
-    mutationFn: (id: string) => api(`/habits/${id}/complete`, { method: 'POST', body: {} }),
-    onSuccess: invalidate,
+    mutationFn: ({ id, note }: { id: string; note?: string }) =>
+      api(`/habits/${id}/complete`, { method: 'POST', body: note ? { note } : {} }),
+    onSuccess: (_d, { id }) => { invalidate(); settle(id); },
+    onError: (_e, { id }) => settle(id),
   });
+  /** Untick today. Tapping the wrong row should not cost a day. */
+  const untickHabit = useMutation({
+    mutationFn: (id: string) => api(`/habits/${id}/uncomplete`, { method: 'POST', body: {} }),
+    onSuccess: (_d, id) => { invalidate(); settle(id); },
+    onError: (_e, id) => settle(id),
+  });
+  const toggleHabit = (id: string, doneNow: boolean) => {
+    setTickBusy((p) => (p.includes(id) ? p : [...p, id]));
+    setTickDraft((p) => ({ ...p, [id]: !doneNow }));
+    if (doneNow) untickHabit.mutate(id);
+    else tickHabit.mutate({ id });
+  };
+  /**
+   * The one line about what was actually done.
+   *
+   * `HabitLog.note` has existed since the model was written and nothing has
+   * ever sent one. It is the honest alternative to a proof photo: four
+   * seconds to type, much harder to tap out of habit than a circle, and it
+   * gives the archive something to hold. Optional, always — a rhythm kept
+   * without a note is still kept.
+   */
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
   /** Giving a domain a rhythm, from the sky, in one tap. */
   const startRhythm = useMutation({
     mutationFn: ({ domainType, title, perWeek }: {
@@ -1204,31 +1250,76 @@ export default function Today() {
         {data.todayHabits?.length > 0 ? (
           <View style={s.quiet}>
             <Tick>Habits</Tick>
-            {data.todayHabits.map((h: any) => (
-              <Pressable
-                key={h.id}
-                disabled={h.doneToday}
-                onPress={() => tickHabit.mutate(h.id)}
-                style={({ pressed }) => [s.habitRow, pressed && { opacity: 0.7 }]}
-              >
-                <Ionicons
-                  name={h.doneToday ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={20}
-                  color={h.doneToday ? obs.brass : obs.inkFaint}
-                />
-                <Text
-                  style={[
-                    obsType.body, { flex: 1 },
-                    h.doneToday && { color: obs.inkDim, textDecorationLine: 'line-through' },
-                  ]}
-                >
-                  {h.title}
-                </Text>
-                {typeof h.currentStreak === 'number' && h.currentStreak > 0 ? (
-                  <Tick>{h.currentStreak}d</Tick>
-                ) : null}
-              </Pressable>
-            ))}
+            {data.todayHabits.map((h: any) => {
+              /* Struck through only when the week's commitment is actually
+                 met. One tap on a twice-a-week rhythm used to strike the row
+                 and disable it, which reads as finished when it is half done —
+                 and the target was being sent to this screen all along and
+                 never shown. */
+              const target = h.targetPerWeek ?? 1;
+              /* What this screen believes, which is the server's answer unless
+                 a tap is still in the air. */
+              const done = tickDraft[h.id] ?? h.doneToday;
+              const serverKept = h.doneThisWeek ?? (h.doneToday ? 1 : 0);
+              const kept = Math.max(serverKept + ((done ? 1 : 0) - (h.doneToday ? 1 : 0)), 0);
+              const met = kept >= target;
+              return (
+                <View key={h.id}>
+                  <Pressable
+                    disabled={tickBusy.includes(h.id)}
+                    onPress={() => toggleHabit(h.id, done)}
+                    onLongPress={() => {
+                      setNoteFor(noteFor === h.id ? null : h.id);
+                      setNoteDraft(h.todayNote ?? '');
+                    }}
+                    style={({ pressed }) => [s.habitRow, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons
+                      name={done ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={20}
+                      color={done ? obs.brass : obs.inkFaint}
+                    />
+                    <Text
+                      style={[
+                        obsType.body, { flex: 1 },
+                        met && { color: obs.inkDim, textDecorationLine: 'line-through' },
+                        done && !met && { color: obs.inkDim },
+                      ]}
+                    >
+                      {h.title}
+                    </Text>
+                    {/* What was actually agreed to, against what has happened. */}
+                    {target > 1 ? (
+                      <Tick color={met ? obs.brass : undefined}>{kept}/{target} this week</Tick>
+                    ) : null}
+                    {typeof h.streak === 'number' && h.streak > 0 ? (
+                      <Tick>{h.streak}w</Tick>
+                    ) : null}
+                  </Pressable>
+                  {/* Their own line about it, kept with the log. */}
+                  {h.todayNote && noteFor !== h.id ? (
+                    <Text style={[obsType.dim, s.habitNote]}>“{h.todayNote}”</Text>
+                  ) : null}
+                  {noteFor === h.id ? (
+                    <View style={s.habitNoteBox}>
+                      <Input
+                        placeholder="What did you actually do? (optional)"
+                        value={noteDraft}
+                        onChangeText={setNoteDraft}
+                        onSubmitEditing={() => {
+                          if (noteDraft.trim()) tickHabit.mutate({ id: h.id, note: noteDraft.trim() });
+                          setNoteFor(null);
+                        }}
+                      />
+                      <Text style={obsType.dim}>
+                        Long-press any rhythm to add a line. Nothing is required — this is for
+                        you to read later, not to prove anything.
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
           </View>
         ) : null}
 
@@ -1383,6 +1474,9 @@ const s = StyleSheet.create({
     borderRadius: 999, paddingVertical: 4, paddingHorizontal: 11,
   },
   habitRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 8 },
+  /** Their own words about the rhythm, sitting under it rather than in it. */
+  habitNote: { marginLeft: 31, marginTop: -4, marginBottom: 6, fontStyle: 'italic' },
+  habitNoteBox: { marginLeft: 31, marginTop: 2, marginBottom: 8, gap: 6 },
   supportRow: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 7 },
   dot: { width: 7, height: 7, borderRadius: 4 },
 

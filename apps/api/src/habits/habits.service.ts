@@ -66,13 +66,87 @@ export class HabitsService {
     });
   }
 
+  /**
+   * Check a rhythm off for today. Once per day, whatever happens.
+   *
+   * This used to create a log every time it was called, with no guard of any
+   * kind — the only thing standing between one honest tap and six logs was a
+   * `disabled` prop on the client. Six calls in the same second produced six
+   * logs and 60 XP, and made `perWeek` report 1.5, which is the number the
+   * healthspan card reads to decide whether a lever is being kept. A figure
+   * built to be honest was trivially forgeable.
+   *
+   * It did not need anyone dishonest, either. Mutations run `offlineFirst`
+   * with `retry: 3`, so a single tap on a bad connection could write three.
+   *
+   * So the day is the unit, and the call is idempotent: tapping again returns
+   * the same answer, awards nothing further, and says plainly that today was
+   * already counted. A note sent with a repeat tap is still kept — someone
+   * adding what they lifted after ticking the box is not a duplicate.
+   */
   async complete(userId: string, id: string, note?: string) {
     const habit = await this.prisma.habit.findFirst({ where: { id, userId } });
     if (!habit) throw new NotFoundException('Habit not found');
-    await this.prisma.habitLog.create({ data: { habitId: id, note } });
+
+    const startOfToday = await this.clock.startOfToday(userId);
+    const already = await this.prisma.habitLog.findFirst({
+      where: { habitId: id, completedAt: { gte: startOfToday } },
+      orderBy: { completedAt: 'desc' },
+    });
+
+    if (already) {
+      const trimmed = note?.trim();
+      if (trimmed && !already.note) {
+        await this.prisma.habitLog.update({ where: { id: already.id }, data: { note: trimmed } });
+      }
+      return {
+        habitId: id,
+        alreadyToday: true,
+        xp: null,
+        doneThisWeek: await this.doneThisWeek(userId, id),
+        targetPerWeek: habit.targetPerWeek,
+      };
+    }
+
+    await this.prisma.habitLog.create({ data: { habitId: id, note: note?.trim() || null } });
     const xp = await this.game.award(userId, 'habit_completed', habit.domainType, id);
     await this.scoring.recalcUserDomains(userId);
-    return { habitId: id, xp };
+    return {
+      habitId: id,
+      alreadyToday: false,
+      xp,
+      doneThisWeek: await this.doneThisWeek(userId, id),
+      targetPerWeek: habit.targetPerWeek,
+    };
+  }
+
+  /** How many days this week this rhythm has been kept. Days, not taps. */
+  private async doneThisWeek(userId: string, habitId: string): Promise<number> {
+    return this.prisma.habitLog.count({
+      where: { habitId, completedAt: { gte: await this.clock.startOfWeek(userId) } },
+    });
+  }
+
+  /**
+   * Undo today's check-in.
+   *
+   * Ticking the wrong row is easy and, with one log a day now enforced,
+   * there was no way back from it — the row simply stayed struck through
+   * until midnight. Removes today's log only; earlier days are history.
+   */
+  async uncomplete(userId: string, id: string) {
+    const habit = await this.prisma.habit.findFirst({ where: { id, userId } });
+    if (!habit) throw new NotFoundException('Habit not found');
+    const startOfToday = await this.clock.startOfToday(userId);
+    await this.prisma.habitLog.deleteMany({
+      where: { habitId: id, completedAt: { gte: startOfToday } },
+    });
+    await this.scoring.recalcUserDomains(userId);
+    return {
+      habitId: id,
+      doneThisWeek: await this.doneThisWeek(userId, id),
+      targetPerWeek: habit.targetPerWeek,
+    };
   }
 
   /**

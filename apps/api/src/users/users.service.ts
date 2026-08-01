@@ -15,6 +15,7 @@ const PUBLIC_USER_FIELDS = {
   id: true, email: true, fullName: true, dob: true, timezone: true,
   city: true, country: true, profession: true, workType: true,
   workHoursPerWeek: true, screenHoursPerDay: true,
+  workStartHour: true, workEndHour: true, commuteMinutes: true,
   maritalStatus: true, childrenCount: true,
   livesAwayFromParents: true, onboardingCompleted: true,
   motivationStyle: true, createdAt: true,
@@ -36,6 +37,7 @@ export class UsersService {
       'fullName', 'dob', 'timezone', 'city', 'country', 'profession',
       'workType', 'workHoursPerWeek', 'screenHoursPerDay', 'maritalStatus',
       'childrenCount', 'livesAwayFromParents', 'motivationStyle',
+      'workStartHour', 'workEndHour', 'commuteMinutes',
     ];
     const patch = Object.fromEntries(
       Object.entries(data).filter(([k]) => allowed.includes(k)),
@@ -54,13 +56,22 @@ export class UsersService {
       }
       patch.dob = dob;
     }
-    for (const key of ['workHoursPerWeek', 'screenHoursPerDay', 'childrenCount']) {
+    for (const key of ['workHoursPerWeek', 'screenHoursPerDay', 'childrenCount', 'commuteMinutes']) {
       if (patch[key] === undefined || patch[key] === null) continue;
       const n = Number(patch[key]);
       if (!Number.isFinite(n) || n < 0) {
         throw new BadRequestException(`${key} must be a non-negative number`);
       }
       patch[key] = Math.round(n);
+    }
+    /* An hour of the day, not a duration — 0 is midnight and is valid. */
+    for (const key of ['workStartHour', 'workEndHour']) {
+      if (patch[key] === undefined || patch[key] === null) continue;
+      const n = Number(patch[key]);
+      if (!Number.isInteger(n) || n < 0 || n > 23) {
+        throw new BadRequestException(`${key} must be an hour between 0 and 23`);
+      }
+      patch[key] = n;
     }
 
     return this.prisma.user.update({

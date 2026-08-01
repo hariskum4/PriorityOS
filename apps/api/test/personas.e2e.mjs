@@ -603,6 +603,63 @@ async function mutationChecks(p) {
     check(p.id, 'delete journal entry', del.status < 400, `${del.status}`);
   }
 
+  // The day is the unit. Six taps used to be six logs, 60 XP, and a perWeek
+  // of 1.5 — the number the healthspan card reads to call a lever "kept".
+  if (p.habitId) {
+    const xpBefore = (await call(t, '/gamification/profile')).body?.totalXp ?? 0;
+    const flags = [];
+    for (let i = 0; i < 5; i++) {
+      const r = await call(t, `/habits/${p.habitId}/complete`, { method: 'POST', body: {} });
+      flags.push(r.body?.alreadyToday);
+    }
+    const xpAfter = (await call(t, '/gamification/profile')).body?.totalXp ?? 0;
+    check(p.id, 'repeat taps are idempotent',
+      flags.slice(1).every((f) => f === true), JSON.stringify(flags));
+    check(p.id, 'repeat taps award no extra XP',
+      xpAfter - xpBefore <= 10, `gained ${xpAfter - xpBefore}`);
+
+    const dashHabit = ((await call(t, '/dashboard')).body?.todayHabits ?? [])
+      .find((h) => h.id === p.habitId);
+    check(p.id, 'the row reports the week, not a boolean',
+      dashHabit?.doneThisWeek === 1 && typeof dashHabit?.metThisWeek === 'boolean',
+      JSON.stringify(dashHabit));
+    check(p.id, 'a half-kept commitment does not read as met',
+      dashHabit?.targetPerWeek <= 1 || dashHabit?.metThisWeek === false,
+      `${dashHabit?.doneThisWeek}/${dashHabit?.targetPerWeek} met=${dashHabit?.metThisWeek}`);
+
+    const noted = await call(t, `/habits/${p.habitId}/complete`, {
+      method: 'POST', body: { note: '  five by five  ' },
+    });
+    check(p.id, 'a note added after the tick is kept, trimmed',
+      noted.status < 400, `${noted.status}`);
+    const withNote = ((await call(t, '/dashboard')).body?.todayHabits ?? [])
+      .find((h) => h.id === p.habitId);
+    check(p.id, 'the note reads back without double-counting the day',
+      withNote?.todayNote === 'five by five' && withNote?.doneThisWeek === 1,
+      `${withNote?.todayNote} / ${withNote?.doneThisWeek}`);
+
+    const un = await call(t, `/habits/${p.habitId}/uncomplete`, { method: 'POST', body: {} });
+    check(p.id, 'today can be untapped', un.status < 400 && un.body?.doneThisWeek === 0,
+      `${un.status} ${JSON.stringify(un.body)}`);
+    await call(t, `/habits/${p.habitId}/complete`, { method: 'POST', body: {} });
+  }
+
+  // The day shape's three facts, and their bounds.
+  const dayOk = await call(t, '/me', {
+    method: 'PATCH',
+    body: { workStartHour: 9, workEndHour: 17, commuteMinutes: 45 },
+  });
+  check(p.id, 'day hours save', dayOk.status === 200, `${dayOk.status}`);
+  check(p.id, 'day hours read back',
+    dayOk.body?.workStartHour === 9 && dayOk.body?.workEndHour === 17
+    && dayOk.body?.commuteMinutes === 45,
+    JSON.stringify({ s: dayOk.body?.workStartHour, e: dayOk.body?.workEndHour, c: dayOk.body?.commuteMinutes }));
+  for (const bad of [{ workStartHour: 25 }, { workStartHour: -1 }, { workEndHour: 'evening' }, { commuteMinutes: -5 }]) {
+    const r = await call(t, '/me', { method: 'PATCH', body: bad });
+    check(p.id, `bad day input rejected: ${JSON.stringify(bad)}`,
+      r.status === 400, `${r.status}`);
+  }
+
   if (p.habitId) {
     const retire = await call(t, `/habits/${p.habitId}/retire`, { method: 'POST', body: {} });
     check(p.id, 'retire habit', retire.status < 400, `${retire.status}`);

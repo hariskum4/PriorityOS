@@ -29,10 +29,19 @@ export class DashboardService {
         where: { userId },
         orderBy: { neglectRiskScore: 'desc' },
       }),
+      /**
+       * Today's logs drive the tick, and the week's count drives what the row
+       * is allowed to claim. A rhythm asked for twice a week used to strike
+       * itself through after one tap — a completion idiom on what is really a
+       * tally, so a half-kept commitment read as finished.
+       */
       this.prisma.habit.findMany({
         where: { userId, isActive: true },
         include: {
           logs: { where: { completedAt: { gte: await this.clock.startOfToday(userId) } } },
+          _count: {
+            select: { logs: { where: { completedAt: { gte: await this.clock.startOfWeek(userId) } } } },
+          },
         },
       }),
       this.game.profile(userId),
@@ -118,6 +127,10 @@ export class DashboardService {
         domainType: h.domainType,
         targetPerWeek: h.targetPerWeek,
         doneToday: h.logs.length > 0,
+        /** Days kept this week — the number the row is allowed to claim on. */
+        doneThisWeek: h._count.logs,
+        metThisWeek: h._count.logs >= h.targetPerWeek,
+        todayNote: h.logs[0]?.note ?? null,
         streak: h.streakCurrent,
       })),
       gamification: profile,
