@@ -21,6 +21,7 @@ export * from './tinySteps';
 export * from './goalTitle';
 export * from './lifeWindows';
 export * from './timeArithmetic';
+export * from './countables';
 export * from './timeStacking';
 export * from './allocation';
 export * from './lifeStrategy';

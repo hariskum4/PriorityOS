@@ -9,7 +9,11 @@ import {
   booksRemaining,
   tripsRemaining,
   annualMoments,
-  customCountRemaining,
+  countable,
+  countKeyOf,
+  dedupeRituals,
+  matchRitual,
+  estimateTimeReality,
   screenTrade,
   estimateCostOfWaiting,
   estimateCreativeCompounding,
@@ -26,6 +30,7 @@ import {
   type LeverSignal,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
+import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { Button, Card, Chip, DomainDot, ErrorNote, Input, Label } from '@/components/ui';
 import { YearGrid } from '@/components/YearGrid';
@@ -70,6 +75,27 @@ function ageFromDob(dob?: string | null): number | null {
  * "Health and energy" hides the answer; one that says "~41 able years" is still
  * doing the work, and opening it is for the reasoning behind the figure.
  */
+/** The lived side of a ritual, as `/memories/counts-summary` reports it. */
+interface CountsLived {
+  count: number;
+  firstAt: string;
+  lastAt: string;
+  /** Distinct names across the counted moments, most present first. */
+  people: string[];
+}
+interface CandidateMemory { id: string; title: string; occurredAt: string }
+/** A ritual someone chose to count, as stored in their onboarding answers. */
+interface SavedCount { key: string; label: string; perYear: number; people?: string[] }
+
+/**
+ * Starters, not a menu. Filtered against what someone already counts before
+ * any of them is shown — offering "treks" to a person already counting treks
+ * is how the card ended up with two identical rows.
+ */
+const COUNT_SUGGESTIONS = [
+  'ocean swims', 'Diwalis at home', 'concerts', 'treks', 'movie nights with the kids',
+];
+
 function Section({
   icon, title, preview, children,
 }: {
@@ -370,15 +396,43 @@ export default function TimeReality() {
     queryKey: ['onboarding-answers'],
     queryFn: () => api<any[]>('/onboarding/answers'),
   });
+  /**
+   * The lived side of each ritual — how many, since when, and with whom.
+   * Was a bare count, which is why a pace nobody had kept could be quoted
+   * back as "your current pace".
+   */
   const { data: countsLived } = useQuery({
     queryKey: ['memories-counts'],
-    queryFn: () => api<Record<string, number>>('/memories/counts-summary'),
+    queryFn: () => api<Record<string, CountsLived>>('/memories/counts-summary'),
+  });
+  /** Moments already in the archive that look like a ritual being counted. */
+  const { data: countCandidates } = useQuery({
+    queryKey: ['memories-count-candidates'],
+    queryFn: () => api<Record<string, CandidateMemory[]>>('/memories/count-candidates'),
+    staleTime: 5 * 60_000,
   });
   const [countName, setCountName] = useState('');
   const [countPerYear, setCountPerYear] = useState<number>(1);
-  const savedCounts = (answers ?? [])
+  /** Relationship ids this ritual is with — "road trips with Sheetal, Amma". */
+  const [countPeople, setCountPeople] = useState<string[]>([]);
+  const [foldedIn, setFoldedIn] = useState<string[]>([]);
+  const savedCounts: SavedCount[] = (answers ?? [])
     .filter((a) => a.section === 'counts' && a.value?.label)
-    .map((a) => ({ ...(a.value as { label: string; perYear: number }), key: a.key as string }));
+    .map((a) => ({
+      ...(a.value as { label: string; perYear: number; people?: string[] }),
+      key: a.key as string,
+    }));
+
+  /**
+   * Whether the name being typed is a ritual already on the card.
+   *
+   * "treks" and "Went to trek" sat as two rows with identical numbers,
+   * because nothing ever compared a new name to the names already there.
+   */
+  const dupe = countName.trim()
+    ? matchRitual(countName, savedCounts.map((c) => ({ key: c.key, label: c.label })))
+    : null;
+
   const addCount = useMutation({
     mutationFn: () =>
       api('/onboarding/answers', {
@@ -386,18 +440,44 @@ export default function TimeReality() {
         body: {
           answers: [{
             section: 'counts',
-            key: countName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40),
-            value: { label: countName.trim(), perYear: countPerYear },
+            // The engine's key, so the same ritual typed two ways lands on
+            // one row rather than making a twin.
+            key: countKeyOf(countName),
+            value: {
+              label: countName.trim(),
+              perYear: countPerYear,
+              ...(countPeople.length ? { people: countPeople } : {}),
+            },
           }],
         },
       }),
     onSuccess: () => {
       setCountName('');
+      setCountPeople([]);
       qc.invalidateQueries({ queryKey: ['onboarding-answers'] });
+      qc.invalidateQueries({ queryKey: ['memories-count-candidates'] });
     },
   });
 
   const { refreshing, onRefresh } = useRefresh();
+
+  /**
+   * Folding archive moments into a ritual's count.
+   *
+   * Offered, never applied on its own. The archive holds the evidence and
+   * most of it was never tagged — but a number someone cannot explain is
+   * worse than a smaller one they can, so nothing is attributed until it is
+   * agreed to.
+   */
+  const foldIn = useMutation({
+    mutationFn: ({ countKey, memoryIds }: { countKey: string; memoryIds: string[] }) =>
+      api('/memories/count-attach', { method: 'POST', body: { countKey, memoryIds } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['memories-counts'] });
+      qc.invalidateQueries({ queryKey: ['memories-count-candidates'] });
+      invalidateLifeRecord(qc);
+    },
+  });
 
   /**
    * What this life is already doing about its own healthspan.
@@ -1112,37 +1192,144 @@ export default function TimeReality() {
             <Text style={type.dim}>
               Your own ritual, your own pace — ocean swims, Diwalis at home, treks with an old friend.
             </Text>
-            {savedCounts.map((c) => {
-              const cc = customCountRemaining(age, c.label, c.perYear);
-              const lived = countsLived?.[c.key] ?? 0;
+            {/* One row per ritual, not one per spelling. The twins predate
+                any check on new names, so grouping happens at read time —
+                collapsing a display costs nothing, and deleting the wrong one
+                of a pair costs moments. */}
+            {dedupeRituals(savedCounts, (c) => countsLived?.[c.key]?.count ?? 0).map((group) => {
+              const c = group.item;
+              /* Both spellings' archives count toward the one row. */
+              const merged = group.keys
+                .map((k) => countsLived?.[k])
+                .filter(Boolean) as CountsLived[];
+              const lived: CountsLived | undefined = merged.length
+                ? {
+                  count: merged.reduce((n, m) => n + m.count, 0),
+                  firstAt: merged.map((m) => m.firstAt).sort()[0],
+                  lastAt: merged.map((m) => m.lastAt).sort().reverse()[0],
+                  people: [...new Set(merged.flatMap((m) => m.people))],
+                }
+                : undefined;
+              /* Who this ritual is with: whoever they named when they made it,
+                 and failing that whoever the archive keeps finding there. The
+                 second is the interesting one — nobody has to tell the app
+                 that Diwali means Amma; the logged Diwali already said so. */
+              const namedPeople = (c.people ?? [])
+                .map((id) => (relationships ?? []).find((r: any) => r.id === id))
+                .filter(Boolean) as any[];
+              const observedPeople = namedPeople.length
+                ? []
+                : (lived?.people ?? [])
+                  .map((n: string) => (relationships ?? []).find((r: any) => r.name === n))
+                  .filter(Boolean) as any[];
+              const people = [...namedPeople, ...observedPeople]
+                .filter((r) => r.age != null)
+                .slice(0, 2)
+                .map((r) => ({
+                  name: r.name as string,
+                  qualityYears: estimateTimeReality({
+                    personAge: r.age,
+                    personLabel: r.name,
+                    personHealthStatus: r.healthStatus ?? undefined,
+                    personLocationType: r.locationType ?? undefined,
+                    currentVisitsPerYear: 1,
+                    region: me?.country ?? undefined,
+                  }).qualityYears,
+                }));
+
+              const cc = countable({
+                age,
+                label: c.label,
+                declaredPerYear: c.perYear,
+                observation: lived ? { count: lived.count, firstAt: lived.firstAt } : undefined,
+                people,
+              });
+              /* Both spellings match the same archive moments, so the same
+                 memory arrives once per key. Counting it twice would tell
+                 someone four things are waiting when two are. */
+              const waiting = [...new Map(
+                group.keys
+                  .flatMap((k) => countCandidates?.[k] ?? [])
+                  .filter((m: CandidateMemory) => !foldedIn.includes(m.id))
+                  .map((m: CandidateMemory) => [m.id, m] as const),
+              ).values()];
+
               return (
-                <View key={c.label} style={s.windowRow}>
+                <View key={c.key} style={s.windowRow}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Text style={[type.stat, { fontSize: 22, color: colors.amber }]}>~{cc.remaining}</Text>
                     <Text style={[type.heading, { flex: 1 }]}>more {c.label}</Text>
-                    {lived > 0 && <Chip label={`${lived} kept`} color={colors.green} />}
-                    <Chip label={`${c.perYear}/yr`} />
+                    {cc.lived > 0 && <Chip label={`${cc.lived} kept`} color={colors.green} />}
+                    {/* The pace, and where it came from. A rate the archive
+                        proved reads differently from a button once tapped. */}
+                    <Chip
+                      label={cc.paceBasis === 'observed' ? `~${cc.observedPerYear}/yr real` : `${c.perYear}/yr aim`}
+                      color={cc.paceBasis === 'observed' ? colors.green : undefined}
+                    />
                   </View>
-                  <Text style={type.faint}>
-                    {cc.framingText}
-                    {lived > 0 ? ` ${lived} already in your archive.` : ''}
-                  </Text>
+                  <Text style={type.faint}>{cc.detailText}</Text>
+                  {/* Says what was folded together, rather than silently
+                      dropping a name someone typed. */}
+                  {group.aliasLabels.length > 0 ? (
+                    <Text style={type.faint}>
+                      Also saved as “{group.aliasLabels.join('”, “')}” — counted here as one.
+                    </Text>
+                  ) : null}
+                  {/* The archive already holds moments that belong to this
+                      ritual and were never tagged. Offered, never assumed. */}
+                  {waiting.length > 0 ? (
+                    <Pressable
+                      disabled={foldIn.isPending}
+                      onPress={() => {
+                        setFoldedIn((p) => [...p, ...waiting.map((m: CandidateMemory) => m.id)]);
+                        foldIn.mutate(
+                          { countKey: c.key, memoryIds: waiting.map((m: CandidateMemory) => m.id) },
+                          { onError: () => setFoldedIn((p) => p.filter((id) => !waiting.some((m: CandidateMemory) => m.id === id))) },
+                        );
+                      }}
+                      style={({ pressed }) => [s.foldRow, pressed && { opacity: 0.7 }]}
+                    >
+                      <Ionicons name="git-merge-outline" size={13} color={colors.amber} />
+                      <Text style={[type.faint, { flex: 1, color: colors.amber }]}>
+                        {waiting.length} in your archive {waiting.length === 1 ? 'looks' : 'look'} like
+                        this — “{waiting[0].title}”{waiting.length > 1 ? ` +${waiting.length - 1}` : ''}. Count {waiting.length === 1 ? 'it' : 'them'}?
+                      </Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               );
             })}
             <View style={{ gap: space(2) }}>
-              <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-                {['ocean swims', 'Diwalis at home', 'concerts', 'treks', 'movie nights with the kids'].map((sug) => (
-                  <Pressable key={sug} onPress={() => setCountName(sug)} style={s.chip}>
-                    <Text style={type.faint}>{sug}</Text>
-                  </Pressable>
-                ))}
-              </View>
+              {/* Only what is not already counted. The card used to offer
+                  "treks" to someone already counting treks — the same bug the
+                  ladder had, one screen over. */}
+              {COUNT_SUGGESTIONS.filter(
+                (sug) => !matchRitual(sug, savedCounts.map((c) => ({ key: c.key, label: c.label }))),
+              ).length > 0 ? (
+                <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                  {COUNT_SUGGESTIONS.filter(
+                    (sug) => !matchRitual(sug, savedCounts.map((c) => ({ key: c.key, label: c.label }))),
+                  ).map((sug) => (
+                    <Pressable key={sug} onPress={() => setCountName(sug)} style={s.chip}>
+                      <Text style={type.faint}>{sug}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
               <Input
                 placeholder="Name the moment worth counting…"
                 value={countName}
                 onChangeText={setCountName}
               />
+              {/* Says so before the twin exists, rather than showing two
+                  identical rows afterwards and leaving them there. */}
+              {dupe ? (
+                <Text style={[type.faint, { color: dupe.match === 'same' ? colors.amber : colors.textDim }]}>
+                  {dupe.match === 'same'
+                    ? `You already count this as “${dupe.against.label}” — counting it again updates that row rather than adding a second.`
+                    : `Close to “${dupe.against.label}”. Keep going if this is its own ritual.`}
+                </Text>
+              ) : null}
               <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
                 <Text style={type.faint}>times a year:</Text>
                 {[1, 2, 4, 12].map((n) => (
@@ -1151,8 +1338,34 @@ export default function TimeReality() {
                   </Pressable>
                 ))}
               </View>
+              {/* Who it is with. A road trip is a road trip; a road trip with
+                  Amma and Appa is a number that changes what someone does
+                  this year, and their window is the shorter one. */}
+              {(relationships ?? []).length > 0 ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={type.faint}>with (optional):</Text>
+                  <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                    {(relationships ?? []).slice(0, 8).map((r: any) => {
+                      const on = countPeople.includes(r.id);
+                      return (
+                        <Pressable
+                          key={r.id}
+                          onPress={() => setCountPeople((p) => (
+                            on ? p.filter((id) => id !== r.id) : [...p, r.id]
+                          ))}
+                          style={[s.chip, on && s.chipOn]}
+                        >
+                          <Text style={[type.faint, on && { color: colors.amber, fontWeight: '700' }]}>
+                            {r.name}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
               <Button
-                title="Count it"
+                title={dupe?.match === 'same' ? 'Update that count' : 'Count it'}
                 small
                 kind="ghost"
                 onPress={() => addCount.mutate()}
@@ -1302,6 +1515,12 @@ const s = StyleSheet.create({
       the point, so it is drawn once rather than described twice. */
   energyBar: { flexDirection: 'row', height: 8, borderRadius: 999, overflow: 'hidden', backgroundColor: colors.lineSoft },
   energyBarFill: { height: 8 },
+  /** The archive offering itself to a count. An invitation, not a notice. */
+  foldRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6,
+    borderWidth: 1, borderColor: alpha(colors.amber, 0.3), borderRadius: 12,
+    paddingHorizontal: 11, paddingVertical: 9,
+  },
   /** A closed section is a single tappable line, not a card — the cards
       inside are the content, and nesting one in another reads as clutter. */
   sectionHead: {

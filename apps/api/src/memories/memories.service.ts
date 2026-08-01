@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ritualTokens } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { GamificationService } from '../gamification/gamification.service';
 
@@ -40,14 +41,110 @@ export class MemoriesService {
     });
   }
 
-  /** Count of logged memories per countKey — "lived" side of the counts. */
+  /**
+   * The "lived" side of the counts — per ritual, not just how many but since
+   * when, and with whom.
+   *
+   * This used to be a bare `groupBy` returning a number, which is why the
+   * Time tab could print "~150 more treks at your current pace" over an
+   * archive holding zero treks: a count alone cannot contradict a pace. The
+   * dates let the engine measure what actually happens, and `people` is the
+   * fact that was being thrown away entirely — the one logged Diwali knew it
+   * was with Amma and Appa, and the card said "1 already in your archive".
+   */
   async countsSummary(userId: string) {
-    const rows = await this.prisma.memory.groupBy({
-      by: ['countKey'],
+    const rows = await this.prisma.memory.findMany({
       where: { userId, countKey: { not: null } },
-      _count: { _all: true },
+      select: { countKey: true, occurredAt: true, peoplePresent: true },
+      orderBy: { occurredAt: 'asc' },
     });
-    return Object.fromEntries(rows.map((r) => [r.countKey, r._count._all]));
+
+    const out: Record<string, {
+      count: number;
+      firstAt: string;
+      lastAt: string;
+      people: string[];
+    }> = {};
+    const tally: Record<string, Map<string, number>> = {};
+
+    for (const r of rows) {
+      const key = r.countKey as string;
+      const at = r.occurredAt.toISOString();
+      if (!out[key]) {
+        out[key] = { count: 0, firstAt: at, lastAt: at, people: [] };
+        tally[key] = new Map();
+      }
+      out[key].count += 1;
+      out[key].lastAt = at; // rows are ascending, so the last write wins
+      for (const name of (Array.isArray(r.peoplePresent) ? r.peoplePresent : []) as string[]) {
+        if (typeof name === 'string' && name.trim()) {
+          tally[key].set(name, (tally[key].get(name) ?? 0) + 1);
+        }
+      }
+    }
+    // Most-present first: whoever this ritual is really with leads the row.
+    for (const key of Object.keys(out)) {
+      out[key].people = [...tally[key].entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([name]) => name);
+    }
+    return out;
+  }
+
+  /**
+   * Moments already in the archive that look like a ritual being counted, but
+   * carry no key.
+   *
+   * The archive is where the evidence lives and most of it was never tagged —
+   * someone logs "Went to trek", sees it, and creates a second countable
+   * rather than connecting the two. Matching is deliberately offered and
+   * never applied: a number nobody can explain is worse than a smaller one
+   * they can, so this returns candidates and the user decides.
+   */
+  async countCandidates(userId: string) {
+    const [answers, untagged] = await Promise.all([
+      this.prisma.onboardingAnswer.findMany({ where: { userId, section: 'counts' } }),
+      this.prisma.memory.findMany({
+        where: { userId, countKey: null },
+        select: { id: true, title: true, occurredAt: true, peoplePresent: true },
+        orderBy: { occurredAt: 'desc' },
+        take: 200,
+      }),
+    ]);
+
+    const out: Record<string, Array<{ id: string; title: string; occurredAt: string }>> = {};
+    for (const a of answers) {
+      const label = (a.value as { label?: string })?.label;
+      if (!label) continue;
+      const wanted = new Set(ritualTokens(label));
+      if (!wanted.size) continue;
+
+      const hits = untagged
+        .filter((m) => {
+          const got = new Set(ritualTokens(m.title));
+          // Every meaningful word of the ritual present in the title. Loose
+          // enough to catch "Went to trek" for "treks", tight enough that
+          // "dinner with Amma" never answers for "dinner with Arjun".
+          return [...wanted].every((t) => got.has(t));
+        })
+        .slice(0, 8)
+        .map((m) => ({ id: m.id, title: m.title, occurredAt: m.occurredAt.toISOString() }));
+
+      if (hits.length) out[a.key] = hits;
+    }
+    return out;
+  }
+
+  /** Fold chosen archive moments into a ritual's count. */
+  async attachToCount(userId: string, countKey: string, memoryIds: string[]) {
+    if (!countKey || !Array.isArray(memoryIds) || !memoryIds.length) return { attached: 0 };
+    const { count } = await this.prisma.memory.updateMany({
+      // Scoped to this user and to genuinely untagged rows, so a stale id or
+      // a retried request can never re-file someone else's moment.
+      where: { userId, countKey: null, id: { in: memoryIds } },
+      data: { countKey },
+    });
+    return { attached: count };
   }
 
   async create(userId: string, data: any) {

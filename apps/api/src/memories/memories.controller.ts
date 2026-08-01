@@ -29,6 +29,20 @@ export class MemoriesController {
     return this.memories.countsSummary(u.userId);
   }
 
+  /** Untagged archive moments that look like a ritual already being counted. */
+  @Get('count-candidates')
+  countCandidates(@CurrentUser() u: JwtUser) {
+    return this.memories.countCandidates(u.userId);
+  }
+
+  @Post('count-attach')
+  attachToCount(
+    @CurrentUser() u: JwtUser,
+    @Body() body: { countKey: string; memoryIds: string[] },
+  ) {
+    return this.memories.attachToCount(u.userId, body?.countKey, body?.memoryIds ?? []);
+  }
+
   @Post()
   create(@CurrentUser() u: JwtUser, @Body() body: any) {
     return this.memories.create(u.userId, body ?? {});

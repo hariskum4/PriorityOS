@@ -81,28 +81,6 @@ export function tripsRemaining(age: number, tripsPerYear: number): ActivityCount
   };
 }
 
-/**
- * User-defined counts — the deepest Tail End cut: not our presets but
- * THEIR ritual ("ocean swims", "Diwalis at home", "treks with Arjun")
- * at THEIR pace. Personal counts are the ones that change behavior.
- */
-export function customCountRemaining(
-  age: number,
-  label: string,
-  timesPerYear: number,
-): ActivityCount {
-  const years = yearsToHorizon(age);
-  const remaining = Math.max(softRound(timesPerYear * years), 1);
-  const uplift = Math.max(softRound((timesPerYear + 1) * years), remaining);
-  return {
-    remaining,
-    upliftRemaining: uplift,
-    framingText:
-      `~${remaining} more ${label} at your current pace. ` +
-      `Once more a year makes it ~${uplift} — that lever is yours.`,
-  };
-}
-
 export interface AnnualMoments {
   summers: number;
   birthdays: number;

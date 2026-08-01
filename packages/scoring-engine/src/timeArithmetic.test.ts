@@ -4,7 +4,6 @@ import {
   booksRemaining,
   tripsRemaining,
   annualMoments,
-  customCountRemaining,
   screenTrade,
 } from './timeArithmetic';
 
@@ -42,25 +41,6 @@ describe('activity counts — the Tail End pattern', () => {
 
   it('a reader of zero books still never sees zero', () => {
     expect(booksRemaining(70, 0).remaining).toBeGreaterThanOrEqual(1);
-  });
-
-  it('custom counts: the ocean-swims pattern at the user\'s own pace', () => {
-    const r = customCountRemaining(33, 'ocean swims', 1);
-    expect(r.remaining).toBe(65);         // 1/year × 67 horizon years → nearest 5
-    expect(r.upliftRemaining).toBe(130);  // 2/year → 134 → nearest 10
-    expect(r.framingText).toContain('ocean swims');
-    expect(r.framingText).toMatch(/that lever is yours/);
-  });
-
-  it('custom counts: "Diwalis at home" at 1/year for an NRI', () => {
-    const r = customCountRemaining(30, 'Diwalis at home', 1);
-    expect(r.remaining).toBe(70);
-    expect(r.upliftRemaining).toBe(140);
-  });
-
-  it('custom counts never show zero even at tiny paces late in life', () => {
-    const r = customCountRemaining(78, 'treks', 0);
-    expect(r.remaining).toBeGreaterThanOrEqual(1);
   });
 
   it('annual moments count summers, birthdays, full moons', () => {
