@@ -38,6 +38,20 @@ export class InsightsService {
    * Deliberately sparse: max one insight per relationship — research on
    * mortality-salience apps shows daily repetition desensitizes users fast.
    */
+  /**
+   * An insight is worth skipping, never worth crashing for.
+   *
+   * `estimate` is a Float column, and a NaN reaching it makes Prisma throw —
+   * which took down the whole of `/onboarding/complete`, so a single unusable
+   * number left a new account permanently stuck before the Life Reveal. The
+   * arithmetic is guarded at its source now; this is the second lock, because
+   * the cost of a missing insight is one missing card and the cost of a throw
+   * here is somebody who cannot finish signing up.
+   */
+  private usable(est: { estimate: number; headline: string }): boolean {
+    return Number.isFinite(est.estimate) && !/NaN|Infinity|undefined/.test(est.headline);
+  }
+
   async regenerateForUser(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const rels = await this.prisma.relationship.findMany({ where: { userId } });
@@ -73,19 +87,21 @@ export class InsightsService {
               horizonYears: 10,
               personLabel: rel.name,
             });
-        await this.prisma.opportunityInsight.create({
-          data: {
-            userId,
-            relationshipId: rel.id,
-            domainType: relDomain(rel.relationType),
-            kind: est.kind,
-            headline: est.headline,
-            detail: est.detail,
-            assumptions: est.assumptions,
-            estimate: est.estimate,
-            unit: est.unit,
-          },
-        });
+        if (this.usable(est)) {
+          await this.prisma.opportunityInsight.create({
+            data: {
+              userId,
+              relationshipId: rel.id,
+              domainType: relDomain(rel.relationType),
+              kind: est.kind,
+              headline: est.headline,
+              detail: est.detail,
+              assumptions: est.assumptions,
+              estimate: est.estimate,
+              unit: est.unit,
+            },
+          });
+        }
       }
       // Childhood windows: ordinary units (weekends, dinners) for kids under
       // 18 — deliberately NOT the "18 summers" meme, which guilt-trips

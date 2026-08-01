@@ -573,8 +573,83 @@ the moved block saying why it stays where it is.
   should move up; anything genuinely dependent on loaded data belongs in a
   module-level plain function taking that data as an argument (see
   `heldContents()` in `(tabs)/index.tsx`).
-- **Verify cold.** Clearing `priority-query-cache-v1` and reloading is the
+- **Verify cold.** Clearing `priority-query-cache-v2` and reloading is the
   only way to exercise this path. A warm reload proves nothing.
+
+## 12.2 The cache belongs to one account — signing in must empty it
+
+A new account opened onto the previous account's life: their dashboard, their
+relationships, their journal, rendered instantly and then quietly replaced a
+second later when the refetch landed. On a shared device it was a privacy
+breach, not a glitch.
+
+Three pieces, each correct alone:
+
+- `logout()` called `clearPersistedCache()`, which removes the localStorage /
+  AsyncStorage snapshot — and nothing else.
+- The `QueryClient` was created inside `RootLayout`, so nothing outside the
+  React tree could reach it. **The in-memory cache was never cleared.**
+- `startPersisting` stayed subscribed across the sign-out, so within a second
+  it wrote the previous account's still-resident cache straight back to disk,
+  undoing the one thing `logout` did do.
+
+Registering never cleared anything at all — `register.tsx` calls `setTokens`
+and navigates — so "sign up as a new user" inherited everything.
+
+**The shape of the fix:**
+
+- The client moved to `src/services/queryClient.ts` as a module, so auth can
+  reach it. `forgetEverything()` in `store/auth.ts` clears memory *first* and
+  disk second — a pending persist that fires in between finds an empty cache
+  and skips, where the reverse order would rewrite the file it just deleted.
+- **Both** `setTokens` and `logout` call it. A session can end without anyone
+  pressing Log out: an expired token, a rotated refresh token, a new account
+  on a borrowed phone.
+- The snapshot carries an `ownerId` (the `sub` claim of the stored access
+  token) and `restoreCache` refuses anything that does not match, so the
+  guarantee survives a force-quit between accounts rather than depending on
+  every call site remembering to clear. Signed out, nothing is restored at
+  all. Cache version bumped to **v2** for the new field.
+
+**Verify it the same way it broke:** sign in, sign out, sign in as somebody
+else *without reloading the page* — the in-memory cache is the half that a
+reload would hide. `apps/api/test/personas.e2e.mjs` covers the server side of
+the same guarantee.
+
+## 12.3 Unknown strings that become NaN
+
+`Relationship.healthStatus` and `.locationType` are nullable free-text columns
+and were written through unvalidated, while `estimateTimeReality` indexes
+lookup tables with them. A value outside the three known keys indexed to
+`undefined`, `undefined * years` is `NaN`, and NaN reached two places:
+
+1. User-facing copy — *"~NaN meaningful visits ahead with Lakshmi."*
+2. `OpportunityInsight.estimate`, a Float column, where Prisma threw.
+
+The throw propagated out of `OnboardingService.complete()` *before* it set
+`onboardingCompleted`, so the account was stranded on the last screen of
+sign-up with no way forward. One unrecognised word made the product
+unreachable.
+
+Fixed in four layers, because any one of them alone leaves the others armed:
+
+- `normalizeHealthStatus` / `normalizeLocationType` in the engine map known
+  synonyms and default the rest. **Unknown health reads as `good`, never
+  worse** — guessing "declining" from a word we do not know is the app
+  inventing bad news about somebody's parent.
+- `relationships.service.ts` normalises on write, so nothing unrecognised
+  reaches the database. Its `update` also gained a field allowlist: it used to
+  hand the request body straight to Prisma, which let a client set `userId`
+  (moving a person into another account) or `priorityScore` (which the engine
+  owns).
+- `insights.service.ts` skips any insight whose estimate is not finite. A
+  missing card costs one card; a throw costs the whole request.
+- `onboarding.complete()` wraps scoring and insight generation in try/catch.
+  Both are enrichment. Finishing onboarding is not.
+
+Related: `PATCH /me` returned `prisma.user.update()` unselected, so it replied
+with the whole row — `passwordHash` included. Every user-returning path now
+shares one `PUBLIC_USER_FIELDS` constant.
 
 # 13. Security & Observability
 
@@ -596,6 +671,20 @@ Backend:
 - unit tests for scoring engine
 - integration tests for auth/dashboard
 - worker tests for notifications/weekly reviews
+- **the persona pass** — `npm run test:e2e --prefix apps/api` builds five
+  deliberately unlike lives (22 to 61, an 8-hour week to a 68-hour one, four
+  countries, 0 to 3 children), runs each through the real onboarding write
+  sequence, calls every endpoint the tabs actually call, mutates through each
+  tab, and then asserts that no persona can see any part of another's.
+
+  It is here because the bugs it found are seam bugs, invisible to unit
+  tests: a cache shared between accounts, an unrecognised word becoming NaN
+  and stranding sign-up, a write path returning `passwordHash`. It also
+  asserts the things easy to forget — no response carries a credential, no
+  rendered copy contains `NaN`, `insightIntensity: off` really returns
+  nothing, a retired habit leaves the active list but survives in the full
+  one. Requires a running API and a development database; it creates real
+  accounts.
 
 Mobile:
 - onboarding flow tests
@@ -604,6 +693,9 @@ Mobile:
 - **a cold-start pass on every tab** — clear the persisted query cache and
   load each screen. The warm path hides hook-order crashes entirely (§12.1);
   a fresh install is the one session where they all fire at once.
+- **an account-switch pass** — sign in, sign out, sign in as somebody else
+  *without reloading*. A reload hides the in-memory half of §12.2, which is
+  the half that leaked.
 
 # 15. Final Engineering Principle
 

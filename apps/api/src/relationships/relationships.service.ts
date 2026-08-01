@@ -4,8 +4,50 @@ import { AiService } from '../ai/ai.service';
 import { RELATIONSHIP_NUDGE } from '@priority/ai-prompts';
 import {
   calculateRelationshipPriorityScore,
+  normalizeHealthStatus,
+  normalizeLocationType,
   Cadence,
 } from '@priority/scoring-engine';
+
+/**
+ * What a client is allowed to say about a person.
+ *
+ * `update` used to hand the request body straight to Prisma. That let anything
+ * in the JSON reach a column — including `userId`, which would have moved
+ * someone's mother into a stranger's account, and `priorityScore`, which the
+ * engine owns. An allowlist is the only thing standing between the request and
+ * the row, so it lives next to the writes rather than in a decorator someone
+ * can forget to add to the next endpoint.
+ */
+const WRITABLE_FIELDS = [
+  'name', 'relationType', 'age', 'city', 'closenessScore',
+  'inPersonFrequency', 'callFrequency', 'desiredCallFrequency',
+  'healthStatus', 'locationType', 'wantsMoreTime',
+  'meaningfulMomentTypes', 'notes', 'birthday',
+] as const;
+
+/**
+ * Health and location are stored as free strings, and the Time Reality engine
+ * indexes tables with them. Normalising on the way in means a word the engine
+ * has never seen cannot sit in the database waiting to become NaN.
+ */
+function normalizeWritable(data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of WRITABLE_FIELDS) {
+    if (data[key] !== undefined) out[key] = data[key];
+  }
+  if (out.healthStatus != null && out.healthStatus !== '') {
+    out.healthStatus = normalizeHealthStatus(String(out.healthStatus));
+  }
+  if (out.locationType != null && out.locationType !== '') {
+    out.locationType = normalizeLocationType(String(out.locationType));
+  }
+  if (out.age !== undefined) {
+    const age = Number(out.age);
+    out.age = Number.isFinite(age) && age >= 0 && age < 130 ? Math.floor(age) : null;
+  }
+  return out;
+}
 
 @Injectable()
 export class RelationshipsService {
@@ -71,7 +113,8 @@ export class RelationshipsService {
    * where the new value says something: a blank field must not erase what is
    * already known.
    */
-  async create(userId: string, data: any) {
+  async create(userId: string, raw: any) {
+    const data = { ...raw, ...normalizeWritable(raw ?? {}) };
     const name = String(data.name ?? '').trim();
     const existing = await this.prisma.relationship.findFirst({
       where: {
@@ -122,7 +165,10 @@ export class RelationshipsService {
 
   async update(userId: string, id: string, data: any) {
     await this.assertOwned(userId, id);
-    return this.prisma.relationship.update({ where: { id }, data });
+    return this.prisma.relationship.update({
+      where: { id },
+      data: normalizeWritable(data ?? {}),
+    });
   }
 
   async remove(userId: string, id: string) {

@@ -3,6 +3,8 @@ import {
   estimateTimeReality,
   lifeExpectancyForRegion,
   workConstraintModifier,
+  normalizeHealthStatus,
+  normalizeLocationType,
   softRound,
   framingFor,
   TimeRealityInput,
@@ -133,5 +135,71 @@ describe('time reality engine', () => {
     expect(workConstraintModifier(55)).toBe(0.6);
     expect(workConstraintModifier(70)).toBe(0.4);
     expect(workConstraintModifier(undefined)).toBe(1.0);
+  });
+});
+
+/**
+ * `healthStatus` and `locationType` are nullable free strings in the database
+ * and were written through unvalidated. A value the engine did not know
+ * indexed to `undefined`, multiplied into NaN, and reached both the copy
+ * ("~NaN meaningful visits ahead with Lakshmi") and a Float column, where the
+ * write threw and stranded the account mid-onboarding.
+ */
+describe('unknown stored values never become NaN', () => {
+  const strays = [
+    'fair', 'poor', 'excellent', 'Good', 'DECLINING', 'not great',
+    '', '  ', 'null', 'undefined', '???',
+  ];
+
+  it('every stray health string still produces a real number', () => {
+    for (const personHealthStatus of strays) {
+      const r = estimateTimeReality({ ...base, personHealthStatus: personHealthStatus as any });
+      expect(Number.isFinite(r.currentTrajectory)).toBe(true);
+      expect(Number.isFinite(r.qualityYears)).toBe(true);
+      expect(Number.isFinite(r.improvedTrajectory)).toBe(true);
+      expect(Number.isFinite(r.maxPossible)).toBe(true);
+      expect(r.display).not.toMatch(/NaN|Infinity|undefined/);
+      expect(r.framingText).not.toMatch(/NaN|Infinity|undefined/);
+    }
+  });
+
+  it('every stray location string still produces a real number', () => {
+    for (const personLocationType of [...strays, 'same_home', 'different_country', 'overseas']) {
+      const r = estimateTimeReality({ ...base, personLocationType: personLocationType as any });
+      expect(Number.isFinite(r.currentTrajectory)).toBe(true);
+      expect(Number.isFinite(r.maxPossible)).toBe(true);
+      expect(r.display).not.toMatch(/NaN|Infinity|undefined/);
+    }
+  });
+
+  it('a non-numeric age or visit count does not poison the result', () => {
+    const r = estimateTimeReality({
+      ...base,
+      personAge: NaN as any,
+      currentVisitsPerYear: undefined as any,
+      desiredVisitsPerYear: 'lots' as any,
+    });
+    expect(Number.isFinite(r.currentTrajectory)).toBe(true);
+    expect(r.currentTrajectory).toBeGreaterThanOrEqual(1);
+    expect(r.display).not.toMatch(/NaN/);
+  });
+
+  it('an unrecognised health word reads as good, never as worse', () => {
+    // Guessing "declining" from a word we do not know would be the app
+    // inventing bad news about somebody's parent.
+    expect(normalizeHealthStatus('mysterious')).toBe('good');
+    expect(normalizeHealthStatus(undefined)).toBe('good');
+    expect(normalizeHealthStatus('')).toBe('good');
+  });
+
+  it('known synonyms land on the right bucket', () => {
+    expect(normalizeHealthStatus('fair')).toBe('declining');
+    expect(normalizeHealthStatus('poor')).toBe('declining');
+    expect(normalizeHealthStatus('excellent')).toBe('good');
+    expect(normalizeHealthStatus('  SERIOUS ')).toBe('serious');
+    expect(normalizeLocationType('same_home')).toBe('same_city');
+    expect(normalizeLocationType('different_country')).toBe('abroad');
+    expect(normalizeLocationType('overseas')).toBe('abroad');
+    expect(normalizeLocationType(undefined)).toBe('different_city');
   });
 });

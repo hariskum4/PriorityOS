@@ -1,11 +1,13 @@
 import React, { useEffect } from 'react';
 import { View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
-import { useAuth } from '@/store/auth';
+import { useAuth, userIdFromToken } from '@/store/auth';
 import { api } from '@/services/api';
 import { track } from '@/services/analytics';
+import { queryClient } from '@/services/queryClient';
+import { storage } from '@/services/storage';
 import { restoreCache, startPersisting } from '@/services/cache';
 import { watchNetwork } from '@/services/network';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -15,43 +17,6 @@ watchNetwork();
 
 /** Dev-only handle, so cache and offline behaviour can be inspected live. */
 declare const __DEV__: boolean;
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      /**
-       * gcTime has to outlive the persisted copy, or restore hands back
-       * entries the client immediately discards — but it cannot exceed the
-       * 32-bit setTimeout ceiling.
-       *
-       * Set to 30 days this silently inverted: 2,592,000,000ms overflows
-       * setTimeout, which then fires on the next tick, so every restored
-       * query was garbage-collected the instant it landed. Restore logged
-       * five entries and the screens still came up empty. 24.8 days is the
-       * largest timeout the platform can actually hold.
-       */
-      gcTime: 2_147_483_647,
-      staleTime: 60_000,
-      /**
-       * offlineFirst, not online: serve what we have and fetch behind it.
-       * The default pauses the query entirely without a network, which is the
-       * blank-screen behaviour this replaces.
-       */
-      networkMode: 'offlineFirst',
-      retry: 2,
-      refetchOnReconnect: true,
-    },
-    mutations: {
-      /**
-       * A write made offline waits instead of failing. Recording a memory on
-       * a plane is exactly when someone most wants to record one, and losing
-       * it teaches them not to trust the app with anything.
-       */
-      networkMode: 'offlineFirst',
-      retry: 3,
-    },
-  },
-});
 
 if (__DEV__) (globalThis as any).__qc = queryClient;
 
@@ -68,11 +33,26 @@ function CacheGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let stop: (() => void) | undefined;
-    restoreCache(queryClient).finally(() => {
-      stop = startPersisting(queryClient);
+    let cancelled = false;
+    (async () => {
+      /* Whose device this is, read straight off the stored token — the cache
+         has to be handed back to the account that wrote it and no other. */
+      const owner = userIdFromToken(await storage.getItem('accessToken'));
+      await restoreCache(queryClient, owner);
+      /* Before the persister, not after: until the store holds the token it
+         reports nobody as signed in, and every write in that window is
+         dropped. AuthGate calls this too; it is idempotent. */
+      await useAuth.getState().hydrate();
+      if (cancelled) return;
+      /* Read live at each write: the same subscription outlives sign-outs and
+         sign-ins, so the owner is whoever holds the token at that moment. */
+      stop = startPersisting(
+        queryClient,
+        () => userIdFromToken(useAuth.getState().accessToken),
+      );
       setReady(true);
-    });
-    return () => stop?.();
+    })();
+    return () => { cancelled = true; stop?.(); };
   }, []);
 
   if (!ready) return <View style={{ flex: 1, backgroundColor: colors.bg }} />;

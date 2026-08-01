@@ -86,6 +86,51 @@ const LOCATION_CAPACITY: Record<LocationType, number> = {
   abroad: 4,
 };
 
+/**
+ * Words this engine has seen in the wild that mean one of the three it knows.
+ *
+ * `healthStatus` and `locationType` are plain nullable strings in the database
+ * and were written straight through from whatever a client sent. Anything
+ * outside the three keys indexed to `undefined`, `undefined * years` is NaN,
+ * and NaN reached two places it must never reach: the copy — "~NaN meaningful
+ * visits ahead with Lakshmi" — and a Float column, where Prisma threw and took
+ * the whole of `/onboarding/complete` down with it.
+ *
+ * So this maps what it can and defaults what it cannot. Unknown health reads
+ * as `good`, never as worse: an app that darkens an estimate because it did
+ * not recognise a word is guessing about somebody's mother.
+ */
+const HEALTH_ALIASES: Record<string, HealthStatus> = {
+  good: 'good', excellent: 'good', great: 'good', well: 'good', healthy: 'good', fine: 'good',
+  declining: 'declining', fair: 'declining', ok: 'declining', okay: 'declining',
+  poor: 'declining', frail: 'declining', unwell: 'declining',
+  serious: 'serious', critical: 'serious', severe: 'serious', terminal: 'serious',
+};
+
+const LOCATION_ALIASES: Record<string, LocationType> = {
+  same_city: 'same_city', same_home: 'same_city', same_house: 'same_city',
+  same_town: 'same_city', local: 'same_city', nearby: 'same_city',
+  different_city: 'different_city', another_city: 'different_city',
+  same_country: 'different_city', different_state: 'different_city',
+  abroad: 'abroad', different_country: 'abroad', overseas: 'abroad', international: 'abroad',
+};
+
+/** Normalise a stored string to a key the arithmetic actually has. */
+export function normalizeHealthStatus(value?: string | null): HealthStatus {
+  if (!value) return 'good';
+  return HEALTH_ALIASES[value.trim().toLowerCase().replace(/[\s-]+/g, '_')] ?? 'good';
+}
+
+export function normalizeLocationType(value?: string | null): LocationType {
+  if (!value) return 'different_city';
+  return LOCATION_ALIASES[value.trim().toLowerCase().replace(/[\s-]+/g, '_')] ?? 'different_city';
+}
+
+/** Last line of defence: a number that is not a number never leaves here. */
+function finite(n: number, fallback: number): number {
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export function lifeExpectancyForRegion(region?: string): number {
   if (!region) return DEFAULT_LIFE_EXPECTANCY;
   return LIFE_EXPECTANCY[region.trim().toUpperCase()] ?? DEFAULT_LIFE_EXPECTANCY;
@@ -123,14 +168,17 @@ export function framingFor(estimate: number, personLabel: string): string {
 }
 
 export function estimateTimeReality(input: TimeRealityInput): TimeRealityResult {
-  const health = input.personHealthStatus ?? 'good';
-  const location = input.personLocationType ?? 'different_city';
+  /* Normalised, not trusted. These arrive as free strings from the database. */
+  const health = normalizeHealthStatus(input.personHealthStatus);
+  const location = normalizeLocationType(input.personLocationType);
+  /* An age that is not a number would carry NaN through every line below. */
+  const personAge = finite(Number(input.personAge), 0);
 
   const expectancy = lifeExpectancyForRegion(input.region);
   const conditionalYears =
-    (CONDITIONAL_HORIZON_AGE - input.personAge) * CONDITIONAL_SURVIVAL_FACTOR;
+    (CONDITIONAL_HORIZON_AGE - personAge) * CONDITIONAL_SURVIVAL_FACTOR;
   const yearsRemaining = Math.max(
-    expectancy - input.personAge,
+    expectancy - personAge,
     conditionalYears,
     MIN_YEARS_REMAINING,
   );
@@ -141,9 +189,9 @@ export function estimateTimeReality(input: TimeRealityInput): TimeRealityResult 
 
   const capacityPerYear = LOCATION_CAPACITY[location] * workConstraintModifier(input.userWorkHoursPerWeek);
 
-  const currentPace = Math.max(input.currentVisitsPerYear, 1);
+  const currentPace = Math.max(finite(Number(input.currentVisitsPerYear), 1), 1);
   const desiredPace = Math.min(
-    Math.max(input.desiredVisitsPerYear ?? currentPace + 2, currentPace),
+    Math.max(finite(Number(input.desiredVisitsPerYear ?? currentPace + 2), currentPace + 2), currentPace),
     Math.max(capacityPerYear, currentPace),
   );
 

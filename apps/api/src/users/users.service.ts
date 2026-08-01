@@ -1,6 +1,24 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * The shape of a user this API is willing to say out loud.
+ *
+ * One constant, used by every path that returns a user, because `update` had
+ * its own answer: it returned `prisma.user.update()` unselected, so a plain
+ * `PATCH /me` replied with the whole row — `passwordHash` included. `me()` had
+ * always been careful; the write path beside it had simply never been given
+ * the same list, and nothing made the omission visible.
+ */
+const PUBLIC_USER_FIELDS = {
+  id: true, email: true, fullName: true, dob: true, timezone: true,
+  city: true, country: true, profession: true, workType: true,
+  workHoursPerWeek: true, screenHoursPerDay: true,
+  maritalStatus: true, childrenCount: true,
+  livesAwayFromParents: true, onboardingCompleted: true,
+  motivationStyle: true, createdAt: true,
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -9,14 +27,7 @@ export class UsersService {
   me(userId: string) {
     return this.prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true, email: true, fullName: true, dob: true, timezone: true,
-        city: true, country: true, profession: true, workType: true,
-        workHoursPerWeek: true, screenHoursPerDay: true,
-        maritalStatus: true, childrenCount: true,
-        livesAwayFromParents: true, onboardingCompleted: true,
-        motivationStyle: true, createdAt: true,
-      },
+      select: PUBLIC_USER_FIELDS,
     });
   }
 
@@ -29,7 +40,34 @@ export class UsersService {
     const patch = Object.fromEntries(
       Object.entries(data).filter(([k]) => allowed.includes(k)),
     );
-    return this.prisma.user.update({ where: { id: userId }, data: patch });
+
+    /**
+     * `dob` is a DateTime column and arrives as whatever the client sent.
+     * A plain "1992-03-14" made Prisma throw, which surfaced as a 500 — an
+     * unhandled server error for what is a client mistake, and one that told
+     * the caller nothing about which field was wrong.
+     */
+    if (patch.dob !== undefined && patch.dob !== null) {
+      const dob = new Date(patch.dob as string);
+      if (Number.isNaN(dob.getTime())) {
+        throw new BadRequestException('dob must be a valid date');
+      }
+      patch.dob = dob;
+    }
+    for (const key of ['workHoursPerWeek', 'screenHoursPerDay', 'childrenCount']) {
+      if (patch[key] === undefined || patch[key] === null) continue;
+      const n = Number(patch[key]);
+      if (!Number.isFinite(n) || n < 0) {
+        throw new BadRequestException(`${key} must be a non-negative number`);
+      }
+      patch[key] = Math.round(n);
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: patch,
+      select: PUBLIC_USER_FIELDS,
+    });
   }
 
   preferences(userId: string) {
@@ -66,14 +104,7 @@ export class UsersService {
     ] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },
-        select: {
-          id: true, email: true, fullName: true, dob: true, timezone: true,
-          city: true, country: true, profession: true, workType: true,
-          workHoursPerWeek: true, screenHoursPerDay: true,
-          maritalStatus: true, childrenCount: true,
-          livesAwayFromParents: true, onboardingCompleted: true,
-          motivationStyle: true, createdAt: true,
-        },
+        select: PUBLIC_USER_FIELDS,
       }),
       this.prisma.userPreferences.findUnique({ where: { userId } }),
       this.prisma.onboardingAnswer.findMany({ where: { userId } }),

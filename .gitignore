@@ -6,3 +6,6 @@ dist/
 coverage/
 .DS_Store
 .vercel
+
+# Tokens the persona e2e run leaves behind for manual sign-in.
+apps/api/test/.personas.local.json

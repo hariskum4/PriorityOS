@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { InsightsService } from '../insights/insights.service';
@@ -8,6 +8,8 @@ import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
 
 @Injectable()
 export class OnboardingService {
+  private readonly logger = new Logger(OnboardingService.name);
+
   constructor(
     private prisma: PrismaService,
     private scoring: ScoringService,
@@ -62,8 +64,22 @@ export class OnboardingService {
     }
 
     // 2. Scores + opportunity insights
-    await this.scoring.recalcUserDomains(userId);
-    await this.insights.regenerateForUser(userId);
+    //
+    // Neither may block step 3. Insight generation threw on one unusable
+    // number and the exception propagated out of this method, so
+    // `onboardingCompleted` was never set and the account was stranded on the
+    // last screen of sign-up with no way forward — the worst possible place to
+    // fail. Both of these are enrichment; finishing onboarding is not.
+    try {
+      await this.scoring.recalcUserDomains(userId);
+    } catch (err) {
+      this.logger.error(`recalcUserDomains failed for ${userId}`, err as Error);
+    }
+    try {
+      await this.insights.regenerateForUser(userId);
+    } catch (err) {
+      this.logger.error(`regenerateForUser failed for ${userId}`, err as Error);
+    }
 
     // 3. Mark complete
     await this.prisma.user.update({

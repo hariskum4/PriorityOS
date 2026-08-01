@@ -26,7 +26,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { QueryClient } from '@tanstack/react-query';
 
-const VERSION = 1;
+const VERSION = 2;
 const KEY = `priority-query-cache-v${VERSION}`;
 
 /** How long a stored response stays usable offline before it is dropped. */
@@ -38,6 +38,13 @@ const WRITE_DELAY_MS = 1_000;
 interface Snapshot {
   version: number;
   savedAt: number;
+  /**
+   * Whose life this is. A snapshot with no owner, or one belonging to somebody
+   * else, is dropped rather than restored — the guarantee has to hold even if
+   * a sign-out never ran, because the app was force-quit or the process died
+   * between accounts.
+   */
+  ownerId: string | null;
   entries: Array<{ key: unknown[]; data: unknown; updatedAt: number }>;
 }
 
@@ -61,13 +68,29 @@ const store = {
  * pretending they arrived just now would suppress the refetch that should
  * happen as soon as there is a network again.
  */
-export async function restoreCache(queryClient: QueryClient): Promise<number> {
+export async function restoreCache(
+  queryClient: QueryClient,
+  ownerId: string | null,
+): Promise<number> {
   try {
     const raw = await store.get(KEY);
     if (!raw) return 0;
 
     const snapshot = JSON.parse(raw) as Snapshot;
     if (snapshot.version !== VERSION || Date.now() - snapshot.savedAt > MAX_CACHE_AGE) {
+      await store.remove(KEY);
+      return 0;
+    }
+    /**
+     * The ownership check, and the reason this file has a version 2.
+     *
+     * Restoring by key alone is what let a new account open onto the previous
+     * account's life: the snapshot was written under one user and handed to
+     * whoever launched the app next. Signed out (`ownerId === null`) nothing
+     * is restored at all — there is no screen to fill yet, and the login form
+     * has no use for a cache.
+     */
+    if (!ownerId || snapshot.ownerId !== ownerId) {
       await store.remove(KEY);
       return 0;
     }
@@ -86,13 +109,27 @@ export async function restoreCache(queryClient: QueryClient): Promise<number> {
   }
 }
 
-/** Mirror the cache to disk as it changes. Returns an unsubscribe. */
-export function startPersisting(queryClient: QueryClient): () => void {
+/**
+ * Mirror the cache to disk as it changes. Returns an unsubscribe.
+ *
+ * `ownerOf` is read at write time rather than passed once, because the same
+ * subscription outlives a sign-out: whoever is signed in when the timer fires
+ * is who the snapshot belongs to.
+ */
+export function startPersisting(
+  queryClient: QueryClient,
+  ownerOf: () => string | null,
+): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const write = async () => {
     timer = null;
     try {
+      /* Signed out, there is nobody to write a life for. Without this the
+         persister happily saved the cache of the account that just left. */
+      const ownerId = ownerOf();
+      if (!ownerId) return;
+
       const entries = queryClient.getQueryCache().getAll()
         .filter((q) => q.state.data !== undefined)
         .map((q) => ({
@@ -109,7 +146,7 @@ export function startPersisting(queryClient: QueryClient): () => void {
        */
       if (!entries.length) return;
 
-      const snapshot: Snapshot = { version: VERSION, savedAt: Date.now(), entries };
+      const snapshot: Snapshot = { version: VERSION, savedAt: Date.now(), ownerId, entries };
       await store.set(KEY, JSON.stringify(snapshot));
     } catch {
       // A full disk must never take down the app. Losing the cache costs a
