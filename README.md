@@ -46,7 +46,7 @@ npm run db:migrate              # prisma migrate dev
 npm run db:seed                 # demo@priority.app / priority123
 
 # 5. Run
-npm run api:dev                 # API on :3000
+npm run api:dev                 # API on :3001
 npm run mobile:start            # Expo dev server (press i / a / scan QR)
 ```
 

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { detectCrisisLanguage } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
@@ -69,17 +69,48 @@ export class JournalService {
     return entry;
   }
 
+  /**
+   * Whether there is anything here worth keeping.
+   *
+   * Mirrors the Journal screen's own `empty` check, which already disables
+   * Save when every field is blank — this is the same rule on the side that
+   * cannot be bypassed. Without it a payload naming no field the schema knows
+   * still created a row: all-null, counted in the archive, awarded XP, and
+   * fed into scoring. That is how a client typo becomes a journal full of
+   * entries nobody wrote. An honest 400 is better than a blank memory.
+   *
+   * A mood on its own does count. Tapping "heavy" and closing the app is a
+   * real entry, and the screen treats it as one.
+   */
+  private hasSomethingToKeep(data: any): boolean {
+    if (data?.mood != null) return true;
+    return ['gratitude', 'whatMattered', 'whatIAvoided', 'gladNotPostponed', 'freeText']
+      .some((k) => typeof data?.[k] === 'string' && data[k].trim().length > 0);
+  }
+
   async create(userId: string, data: any) {
+    if (!this.hasSomethingToKeep(data)) {
+      throw new BadRequestException(
+        'An entry needs a mood or something written — nothing was sent to keep.',
+      );
+    }
+
+    const text = (v: unknown) => {
+      if (typeof v !== 'string') return null;
+      const trimmed = v.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    };
+
     const entry = await this.prisma.journalEntry.create({
       data: {
         userId,
         mood: data.mood ?? null,
-        gratitude: data.gratitude ?? null,
-        whatMattered: data.whatMattered ?? null,
-        whatIAvoided: data.whatIAvoided ?? null,
-        gladNotPostponed: data.gladNotPostponed ?? null,
-        freeText: data.freeText ?? null,
-        domainTags: data.domainTags ?? [],
+        gratitude: text(data.gratitude),
+        whatMattered: text(data.whatMattered),
+        whatIAvoided: text(data.whatIAvoided),
+        gladNotPostponed: text(data.gladNotPostponed),
+        freeText: text(data.freeText),
+        domainTags: Array.isArray(data.domainTags) ? data.domainTags : [],
       },
     });
     await this.game.award(userId, 'journal_entry', 'reflection', entry.id);

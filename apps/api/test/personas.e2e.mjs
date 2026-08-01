@@ -489,6 +489,29 @@ async function writeBoundaryChecks(people) {
   check('write', 'non-numeric screenHoursPerDay is a 400',
     badHours.status === 400, `${badHours.status}`);
 
+  // A payload naming no field the model knows used to create a blank entry,
+  // counted in the archive and awarded XP. This is how that was found: the
+  // harness itself sent `content` when the column is `freeText`.
+  const before = await call(a.token, '/journal?take=30');
+  const beforeCount = (Array.isArray(before.body) ? before.body : []).length;
+  const blank = await call(a.token, '/journal', {
+    method: 'POST',
+    body: { content: 'wrong field name', title: 'also wrong' },
+  });
+  check('write', 'a journal payload with no known field is refused',
+    blank.status === 400, `${blank.status} ${JSON.stringify(blank.body).slice(0, 120)}`);
+  const after = await call(a.token, '/journal?take=30');
+  check('write', 'the refused entry was not created',
+    (Array.isArray(after.body) ? after.body : []).length === beforeCount,
+    `${beforeCount} -> ${(Array.isArray(after.body) ? after.body : []).length}`);
+
+  const moodOnly = await call(a.token, '/journal', { method: 'POST', body: { mood: 2 } });
+  check('write', 'a mood on its own is still a real entry', moodOnly.status < 400, `${moodOnly.status}`);
+  if (moodOnly.body?.id) await call(a.token, `/journal/${moodOnly.body.id}`, { method: 'DELETE' });
+
+  const spaces = await call(a.token, '/journal', { method: 'POST', body: { freeText: '    ' } });
+  check('write', 'whitespace is not writing', spaces.status === 400, `${spaces.status}`);
+
   // The field allowlist: a relationship must not be reassignable to another
   // account, and the engine's own score must not be settable by a client.
   const rels = await call(a.token, '/relationships');

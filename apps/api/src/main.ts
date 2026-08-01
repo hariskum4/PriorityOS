@@ -26,7 +26,12 @@ async function bootstrap() {
   // back to reflecting every origin with credentials.
   app.enableCors({ origin: corsOrigins(), credentials: true });
 
-  const port = process.env.PORT ?? 3000;
+  // 3001, not 3000. The old default collided with whatever else a developer
+  // has on the conventional port, and losing the race means this API silently
+  // fails to start while an unrelated process answers requests meant for it.
+  // Everything that addresses this service — apps/api/.env, the mobile client's
+  // dev fallback, .claude/launch.json — agrees on 3001.
+  const port = process.env.PORT ?? 3001;
   await app.listen(port, '0.0.0.0');
   // eslint-disable-next-line no-console
   console.log(`Priority API running on :${port}${isProduction ? '' : ' (development)'}`);
