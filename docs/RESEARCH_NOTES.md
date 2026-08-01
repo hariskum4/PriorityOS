@@ -69,7 +69,7 @@ The PRD's signature "meaningful opportunities remaining" feature sits exactly on
 
 **A number that looks personal must be personal.** The same desensitization
 argument applies to any figure the app quotes about someone's life, and the
-Time tab drifted across that line twice before it was caught:
+Time tab drifted across that line three times before it was caught:
 
 - The healthspan card offered four rhythms with "+3 yrs" attached to each and
   no idea which ones the reader was actually doing — the same card to a person
@@ -79,12 +79,26 @@ Time tab drifted across that line twice before it was caught:
 - The energy card asserted 21 sharp hours a week to everyone regardless of a
   working week the profile already knew, and told every reader "under-rest is
   quietly shrinking this number" having never asked anyone about sleep.
+- The countables card quoted "~150 more treks at your current pace" from a
+  frequency chip tapped once at creation, over an archive holding no treks at
+  all — and offered the same five starter rituals (ocean swims, Diwalis at
+  home, concerts…) to every reader, while `meaningfulMomentTypes` sat on each
+  relationship holding that person's own answer to exactly that question.
 
 The rule that came out of it: **a figure moves with the reader or it is
 labelled as not being about them.** Where the direction is known but the
 magnitude is not — sleep on peak hours — say the direction and leave the
 number alone. Inventing a coefficient to make a card feel personalised is the
 same failure as a daily mortality reminder, in smaller print.
+
+The three share a shape worth recognising early, because it is cheap to build
+and expensive to notice: **a constant sitting in a slot labelled "yours".** It
+survives review because the arithmetic is right, the copy is warm, and it is
+only wrong relative to data held elsewhere in the same app. The tell is a
+number that cannot change no matter what the reader does. Before shipping a
+figure on a personal surface, ask what input would move it — and if the answer
+is "nothing", either wire that input up or say plainly whose number it is.
+Twice now the honest input was already in the database, unread.
 
 ## 5. What retains: the weekly ritual + someone noticing
 

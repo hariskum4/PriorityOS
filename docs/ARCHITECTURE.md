@@ -281,6 +281,17 @@ missions (
 - GET /journal
 - POST /journal
 
+## Memories / countables
+- GET /memories — `?person=` `?countKey=`
+- POST /memories
+- PATCH /memories/:id
+- DELETE /memories/:id
+- GET /memories/on-this-day
+- GET /memories/counts-summary — per ritual: count, firstAt, lastAt, people
+- GET /memories/count-candidates — untagged moments matching a counted ritual
+- GET /memories/archive-themes — words recurring in untagged moments
+- POST /memories/count-attach — fold chosen moments into a ritual's count
+
 ## Dashboard
 - GET /dashboard
 
@@ -357,6 +368,65 @@ is the opposite of what this app is for. `restore` picks it back up with the
 streak intact. This path is a hard prerequisite for suggesting rhythms across
 twelve domains, not a follow-up: a person carrying ten of them needs a way to
 end some, and "delete" is the wrong verb.
+
+# 9b. Countables — a ritual, its pace, and who it is with
+
+A habit is a rhythm someone is keeping now. A **countable** is different: a
+ritual with a finite number of repetitions left in a life — ocean swims,
+Diwalis at home, road trips with Amma. `packages/scoring-engine/countables.ts`
+owns all of it; the Time tab only renders.
+
+**The pace must be observed or labelled.** `perYear` came from a 1/2/4/12
+chip tapped once at creation and never moved, so the card printed "~150 more
+treks at your current pace" over an archive holding zero treks. The rule now:
+
+| archive holds | pace used | what the row says |
+|---|---|---|
+| 0 | declared | "a plan, not a pace" |
+| 1 | declared | "a start, not yet a rhythm" |
+| ≥2 | **observed** | the real rate, and whether it beats what they set |
+
+Two occurrences is the floor — the same "a rhythm claimed from one data point
+is not a rhythm" rule the domain sky uses. The denominator is the span since
+the first logged occurrence, floored at one year, and it measures *since they
+started logging*, never their whole life. Five different sentences, because
+four rows sharing one template read as none.
+
+**One ritual, one row.** `countKeyOf()` stems a label to its meaningful words
+so "treks" and "Went to trek" land on one key. `matchRitual()` returns `same`
+(identical word set — merge) or `similar` (one contains the other — ask, never
+merge, since "treks with Appa" may be its own ritual). Twins that predate the
+check collapse via `dedupeRituals()` at **read** time, not by deleting a row:
+merging a display costs nothing, and deleting the wrong one of a pair costs
+moments. The row names what it folded.
+
+**People, and the §4 constraint.** A countable can be bound to relationships,
+and the shared number comes from `estimateTimeReality().qualityYears` so the
+person math has exactly one implementation. Where nobody was named, the
+archive answers instead — `peoplePresent` on a counted memory already knows
+Diwali means Amma. This is the most emotionally loaded surface in the app, so
+it inherits RESEARCH_NOTES §4 without exception: arithmetic not warning, the
+agency counterpart always attached, no lifespan vocabulary, and the whole tile
+suppressed when `insightIntensity` is `off`. The engine's own test suite
+asserts the forbidden register.
+
+**Suggestions come from this life.** Four sources, ranked by how much they
+belong to this person, each carrying a `because` in their own terms:
+
+1. `meaningfulMomentTypes` on a relationship — their words, already bound to
+   a name. Collected at onboarding and, until this change, never read.
+2. `GET /memories/archive-themes` — a word recurring in ≥2 untagged moments.
+3. People with `wantsMoreTime`, shaped by relation type.
+4. A high-importance domain with nothing counted in it — last resort.
+
+Capped at one per person, so two moments someone named cannot take two of
+three slots; a second pass relaxes that rather than returning a short list.
+Nothing already counted is ever offered, and near-duplicates lose.
+
+**Offer, never attribute.** `count-candidates` surfaces untagged archive
+moments matching a ritual and they are folded in only on a tap. A number
+someone cannot explain is worse than a smaller one they can — the same reason
+the pace is labelled rather than guessed.
 
 # 10. AI Engine
 
