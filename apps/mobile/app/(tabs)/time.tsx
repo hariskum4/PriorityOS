@@ -1123,8 +1123,49 @@ export default function TimeReality() {
   const offered: StackSuggestion[] = craftedStacks?.stacks?.length
     ? craftedStacks.stacks
     : localStacks;
+
+  /**
+   * What is already dealt with, and must not be offered again.
+   *
+   * One rule for the whole card, because it was two. The stacks were filtered
+   * — `localStacks` gets an exclude list, the server's version builds its own
+   * — while the cycle's proposals were checked against `planned` alone, which
+   * holds only what was agreed to in *this session*. So a mission finished on
+   * the Missions tab came straight back as a proposal, and the day drew an
+   * hour for something already done.
+   *
+   * The same fourteen-day window the stacks use, so the two halves cannot
+   * disagree: a move the stacks are still resting must not slip back in
+   * through the cycle.
+   */
+  const norm = (t: string) => t.trim().toLowerCase();
+  const settled = (() => {
+    const out = new Set<string>(planned.map(norm));
+    for (const m of (doneMissions ?? []) as any[]) {
+      if (!m?.title || !m.completedAt) continue;
+      if (Date.now() - new Date(m.completedAt).getTime() < RESUGGEST_AFTER_DAYS * 86_400_000) {
+        out.add(norm(m.title));
+      }
+    }
+    return out;
+  })();
+  const isSettled = (action: string) => settled.has(norm(action));
+
+  /**
+   * Already on the list — which is a different thing from already done.
+   *
+   * Something finished has no business on today's shape. Something *planned*
+   * very much does: it has an hour, and the hour is the whole point of the
+   * card. So a pending mission stays drawn and its button reads as agreed to
+   * rather than offering to add it again — which is what happened on every
+   * reload, because "agreed to" lived only in session state.
+   */
+  const onTheList = new Set(
+    ((pendingMissions ?? []) as any[]).filter((m) => m?.title).map((m) => norm(m.title)),
+  );
+
   const stacks: StackSuggestion[] = offered.filter(
-    (st: StackSuggestion) => !planned.includes(st.action),
+    (st: StackSuggestion) => !isSettled(st.action),
   );
   /** What these moves would actually feed — not merely touch. */
   const stackHelps = craftedStacks?.stacks?.length
@@ -1172,7 +1213,7 @@ export default function TimeReality() {
    */
   const placeable = [
     ...(lifeOs?.proposals ?? [])
-      .filter((p: any) => p?.action && !planned.includes(p.action))
+      .filter((p: any) => p?.action && !isSettled(p.action))
       .map((p: any) => ({
         key: `proposal:${p.id ?? p.action}`,
         action: p.action,
@@ -1605,7 +1646,9 @@ export default function TimeReality() {
                     }
 
                     const open = openBlock === p.key;
-                    const done = scheduled.includes(p.key);
+                    /* From the record, not only from this session — a reload
+                       used to forget and offer to add it a second time. */
+                    const done = scheduled.includes(p.key) || onTheList.has(norm(p.action));
                     const mins = p.endMinutes - p.startMinutes;
 
                     return (

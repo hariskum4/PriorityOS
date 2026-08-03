@@ -31,6 +31,16 @@ const DERIVED_KEYS = [
   // Steal the time is ranked from attention shares and filtered by what is
   // already planned, so every one of these writes changes what it should say.
   ['life-stacks'],
+  /**
+   * And the cycle, for exactly the same reason — which it was missing.
+   *
+   * Completing a mission refreshed the stacks and left today's proposals
+   * cached for another five minutes, so the day card went on offering an hour
+   * for something already finished. The stacks half of that card was filtered
+   * and the cycle half was not, so the one that stayed stale was also the one
+   * with nothing checking it.
+   */
+  ['life-os-today'],
 ];
 
 /**
