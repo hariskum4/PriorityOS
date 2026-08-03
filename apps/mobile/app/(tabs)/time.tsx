@@ -28,6 +28,7 @@ import {
   dayShape,
   activeHour,
   formatSpan,
+  formatClock,
   type DayBlock,
   type DayType,
   PLANNING_HORIZON_AGE,
@@ -74,6 +75,10 @@ const CADENCE_DAYS: Record<string, number> = {
  * putting on a wire in the first place.
  */
 const DAY_TYPE_KEY = 'priority-day-type-v1';
+const NUDGE_KEY = 'priority-day-nudges-v1';
+
+/** One step of "earlier" or "later". Big enough to matter, small enough to aim. */
+const NUDGE_STEP = 30;
 
 const DAY_TYPE_LABELS: Array<{ key: DayType; label: string }> = [
   { key: 'usual', label: 'usual' },
@@ -485,6 +490,78 @@ export default function TimeReality() {
       .setItem(DAY_TYPE_KEY, JSON.stringify({ userId: me.id, date: localDayKey(), dayType: next }))
       .catch(() => {/* The shape has already moved; the note is the lesser half. */});
   };
+
+  /**
+   * Where the reader has moved things to.
+   *
+   * The shape puts each thing where the evidence says it goes, and the reader
+   * is the authority on their own Tuesday — the app knows their work hours and
+   * their habits, not that the school run is at four. Stored beside the day
+   * type and expiring the same way: a correction to today is not a fact about
+   * next Tuesday, and there is nothing here worth putting on a wire.
+   */
+  const [nudges, setNudges] = useState<Record<string, number>>({});
+  React.useEffect(() => {
+    if (!me?.id) return;
+    let alive = true;
+    AsyncStorage.getItem(NUDGE_KEY)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        const saved = JSON.parse(raw);
+        if (saved?.userId === me.id && saved?.date === localDayKey() && saved?.nudges) {
+          setNudges(saved.nudges);
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [me?.id]);
+  const nudge = (key: string, byMinutes: number) => {
+    setNudges((prev) => {
+      const next = { ...prev, [key]: (prev[key] ?? 0) + byMinutes };
+      if (me?.id) {
+        AsyncStorage
+          .setItem(NUDGE_KEY, JSON.stringify({ userId: me.id, date: localDayKey(), nudges: next }))
+          .catch(() => {});
+      }
+      return next;
+    });
+  };
+
+  /**
+   * Putting an hour on the record.
+   *
+   * A Mission with the hour on it, not a calendar entry — the life grid holds
+   * what *happened* (completed missions, contacts, memories, rhythms kept) and
+   * a plan has no business in a record of a life until it is one. So this puts
+   * it on the list with its hour attached, and the grid receives it on the day
+   * it is actually done, at the time it was actually done.
+   */
+  const [scheduled, setScheduled] = useState<string[]>([]);
+  const scheduleBlock = useMutation({
+    mutationFn: (p: { key: string; action: string; reason?: string; domains: string[]; startMinutes: number; minutes: number }) => {
+      const at = new Date();
+      at.setHours(0, 0, 0, 0);
+      at.setMinutes(p.startMinutes);
+      return api('/missions', {
+        method: 'POST',
+        body: {
+          title: p.action,
+          description: p.reason ?? null,
+          domainType: p.domains[0] ?? 'growth',
+          missionType: 'one_time',
+          dueDate: at.toISOString(),
+          estimatedMinutes: p.minutes,
+          sourceType: 'system',
+        },
+      });
+    },
+    onMutate: (p) => setScheduled((s) => (s.includes(p.key) ? s : [...s, p.key])),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['missions'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (_e, p) => setScheduled((s) => s.filter((k) => k !== p.key)),
+  });
 
   /**
    * Every rhythm including retired ones, so the reclaim offer never hands back
@@ -928,25 +1005,37 @@ export default function TimeReality() {
     (p: any) => p?.action && !planned.includes(p.action),
   ) ?? null;
 
-  const placedSuggestion = cycleProposal
-    ? {
-      action: cycleProposal.action,
-      minutes: cycleProposal.effortMinutes || 60,
-      /* Kernel domains are the eight; the dots speak the twelve. Lossy, and
-         only used to colour a row — the proposal's own text is the truth. */
-      domains: cycleProposal.domain
-        ? [LIFE_TO_DOMAIN[cycleProposal.domain as LifeDomain]].filter(Boolean)
-        : [],
-      reason: cycleProposal.because || undefined,
-    }
-    : topStack
-      ? {
-        action: topStack.action,
-        minutes: 60,
-        domains: topStack.covers?.length ? topStack.covers : topStack.domains,
-        reason: topStack.reason || undefined,
-      }
-      : null;
+  /**
+   * Everything worth placing, best-argued first.
+   *
+   * The cycle's own proposals lead — they are ranked on pressure and evidence
+   * across eight engines — and the stacks follow, which is what fills a day
+   * that has more room in it than the cycle had things to say. How many of
+   * these actually land is the shape's decision, not this list's: a working
+   * evening takes one, a cleared Saturday takes three.
+   */
+  const placeable = [
+    ...(lifeOs?.proposals ?? [])
+      .filter((p: any) => p?.action && !planned.includes(p.action))
+      .map((p: any) => ({
+        key: `proposal:${p.id ?? p.action}`,
+        action: p.action,
+        minutes: p.effortMinutes || 60,
+        /* Kernel domains are the eight; the dots speak the twelve. Lossy, and
+           only used to colour a row — the proposal's own text is the truth. */
+        domains: p.domain ? [LIFE_TO_DOMAIN[p.domain as LifeDomain]].filter(Boolean) : [],
+        reason: p.because || undefined,
+        fromCycle: true,
+      })),
+    ...stacks.map((st) => ({
+      key: `stack:${st.key}`,
+      action: st.action,
+      minutes: 60,
+      domains: st.covers?.length ? st.covers : st.domains,
+      reason: st.reason || undefined,
+      fromCycle: false,
+    })),
+  ].filter((s, i, all) => all.findIndex((o) => o.action === s.action) === i);
 
   const shape = dayShape({
     workStartHour: me.workStartHour,
@@ -960,17 +1049,17 @@ export default function TimeReality() {
     wakeHour: prefs?.quietHoursEnd,
     dayType,
     activeAt,
-    suggestion: placedSuggestion,
+    suggestions: placeable,
+    nudges,
   });
   const dayHoursKnown = me.workStartHour != null && me.workEndHour != null;
-  /* Where the placed thing came from, said once and quietly. A card that puts
+  /* Where the placed things came from, said once and quietly. A card that puts
      something in your evening which is not in the list directly above it owes
      the reader that much. */
+  const fromCycle = shape.placements.some((p) => p.key.startsWith('proposal:'));
   const dayNotes = [
     ...shape.assumptions,
-    shape.placedIn && cycleProposal
-      ? `This is today's read of the whole system, not the first of the moves above`
-      : null,
+    fromCycle ? `Drawn from today's read of the whole system, not only the moves above` : null,
   ].filter((n): n is string => n != null);
 
   const hs = healthspan(age, leverSignals);
@@ -1332,6 +1421,54 @@ export default function TimeReality() {
                     </View>
                   ))}
                 </View>
+
+                {/* The controls, one row per placed thing.
+                    The shape puts each where the evidence says it goes and the
+                    reader knows what the evidence cannot: that the school run
+                    is at four. Moving something is a correction to today, not
+                    a fact about next Tuesday, so it lives and dies with the
+                    day. "Put it on the list" is the only thing here that
+                    writes anything down. */}
+                {shape.placements.map((p) => {
+                  const done = scheduled.includes(p.key);
+                  return (
+                    <View key={p.key} style={s.dayControls}>
+                      <Text style={[type.faint, { flex: 1 }]} numberOfLines={1}>
+                        {formatClock(p.startMinutes)} · {p.action}
+                      </Text>
+                      <Pressable
+                        onPress={() => nudge(p.key, -NUDGE_STEP)}
+                        hitSlop={8}
+                        style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
+                      >
+                        <Ionicons name="chevron-up" size={13} color={colors.textDim} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => nudge(p.key, NUDGE_STEP)}
+                        hitSlop={8}
+                        style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
+                      >
+                        <Ionicons name="chevron-down" size={13} color={colors.textDim} />
+                      </Pressable>
+                      <Pressable
+                        disabled={done || scheduleBlock.isPending}
+                        onPress={() => scheduleBlock.mutate({
+                          key: p.key,
+                          action: p.action,
+                          reason: p.reason,
+                          domains: p.domains,
+                          startMinutes: p.startMinutes,
+                          minutes: p.endMinutes - p.startMinutes,
+                        })}
+                        style={({ pressed }) => [s.chip, done && s.chipOn, pressed && { opacity: 0.7 }]}
+                      >
+                        <Text style={[type.faint, done && { color: colors.amber, fontWeight: '700' }]}>
+                          {done ? 'on the list' : 'put it on the list'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
 
                 <Text style={type.serif}>{shape.framingText}</Text>
                 <Text style={type.faint}>{dayNotes.join('. ')}.</Text>
@@ -2016,6 +2153,16 @@ const s = StyleSheet.create({
     backgroundColor: alpha(colors.amber, 0.06),
   },
   dayTime: { width: 96 },
+  /** One row of controls per placed thing — move it, or write it down. */
+  dayControls: {
+    flexDirection: 'row', alignItems: 'center', gap: space(2),
+    paddingHorizontal: 9,
+  },
+  nudge: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line,
+  },
   /** Where the reclaimed hour goes. The only pressable thing on the screen
       card, so it is drawn as an offer rather than as another line of data. */
   reclaimRow: {

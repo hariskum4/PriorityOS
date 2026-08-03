@@ -179,7 +179,8 @@ describe('today can be a different kind of day', () => {
     expect(s.placedIn).not.toBeNull();
     expect(s.framingText).toMatch(/day off/i);
     expect(s.framingText).not.toMatch(/Nothing here is scheduled/);
-    expect(s.framingText).toMatch(/60 minutes of it is spoken for/);
+    expect(s.framingText).toMatch(/One thing is pencilled into 60 minutes/);
+    expect(s.framingText).toMatch(/move it or ignore it/);
   });
 
   it('still says a bare day off is a bare day off', () => {
@@ -314,6 +315,229 @@ describe('it places things at the hour the person actually uses', () => {
       const s = dayShape({ ...nineToFive, suggestion: walkWithMum, activeAt: at(minutes) });
       expect(Number.isFinite(s.placedIn?.startMinutes ?? 0)).toBe(true);
       expect(s.framingText).not.toMatch(/NaN|Infinity|undefined/);
+    }
+  });
+});
+
+/**
+ * The one-thing rule comes from choice overload and is right where it came
+ * from — the dashboard, answering "what now". Applied to a day off it produced
+ * a card showing fifteen free hours with a single fifteen-minute item in it,
+ * which is not restraint, it is having nothing to say.
+ */
+describe('a day with room in it holds more than one thing', () => {
+  const three = [
+    { key: 'a', action: 'Call Appa', minutes: 30, domains: ['family'] },
+    { key: 'b', action: 'Walk before it gets hot', minutes: 45, domains: ['health'] },
+    { key: 'c', action: 'An hour on the project', minutes: 60, domains: ['purpose'] },
+  ];
+  const placedOf = (s: ReturnType<typeof dayShape>) =>
+    s.blocks.filter((b) => b.kind === 'suggested');
+
+  it('a packed weekday still gets exactly one', () => {
+    // Out at 8, home at 8, asleep at 11: four hours, and not a free four.
+    const s = dayShape({
+      workStartHour: 9, workEndHour: 19, commuteMinutes: 60, workType: 'onsite',
+      sleepHour: 23, wakeHour: 7, suggestions: three,
+    });
+    expect(s.freeMinutes).toBe(240);
+    expect(placedOf(s)).toHaveLength(1);
+  });
+
+  it('an ordinary evening gets two', () => {
+    const s = dayShape({ ...nineToFive, suggestions: three });
+    expect(s.freeMinutes).toBe(360);
+    expect(placedOf(s)).toHaveLength(2);
+  });
+
+  it('a day off gets three, and never a fourth', () => {
+    const s = dayShape({
+      ...nineToFive, dayType: 'off',
+      suggestions: [...three, { key: 'd', action: 'A fourth thing', minutes: 30, domains: [] }],
+    });
+    expect(placedOf(s)).toHaveLength(3);
+  });
+
+  it('never claims more than half the free day', () => {
+    const s = dayShape({
+      ...nineToFive, dayType: 'off',
+      suggestions: [
+        { key: 'a', action: 'Long one', minutes: 180, domains: [] },
+        { key: 'b', action: 'Another long one', minutes: 180, domains: [] },
+        { key: 'c', action: 'A third', minutes: 180, domains: [] },
+      ],
+    });
+    expect(s.committedMinutes).toBeLessThanOrEqual(s.freeMinutes / 2);
+  });
+
+  it('leaves room to breathe between them', () => {
+    const s = dayShape({ ...nineToFive, dayType: 'off', suggestions: three });
+    const placed = placedOf(s);
+    for (let i = 1; i < placed.length; i++) {
+      expect(placed[i].startMinutes - placed[i - 1].endMinutes).toBeGreaterThanOrEqual(30);
+    }
+  });
+
+  /**
+   * Caught in a browser. A fixed half-hour separation queued three things at
+   * 7am, 7:45am and 8:25am on a fifteen-hour day off, leaving twelve untouched
+   * hours below them. Nobody plans a free Saturday that way.
+   */
+  it('spreads across a free day instead of queueing at the alarm clock', () => {
+    const s = dayShape({ ...nineToFive, dayType: 'off', suggestions: three });
+    const placed = placedOf(s);
+    expect(placed).toHaveLength(3);
+    const span = placed[2].endMinutes - placed[0].startMinutes;
+    // Three things across a fifteen-hour day should cover most of it, not the
+    // first morning of it.
+    expect(span).toBeGreaterThan(8 * 60);
+  });
+
+  it('does not spread a short evening into nonsense', () => {
+    const s = dayShape({ ...nineToFive, suggestions: three });
+    const placed = placedOf(s);
+    for (const p of placed) {
+      expect(p.startMinutes).toBeGreaterThanOrEqual(7 * 60);
+      expect(p.endMinutes).toBeLessThanOrEqual(23 * 60);
+    }
+  });
+
+  it('draws a contiguous day — no holes between the rows', () => {
+    const s = dayShape({ ...nineToFive, dayType: 'off', suggestions: three });
+    for (let i = 1; i < s.blocks.length; i++) {
+      expect(s.blocks[i].startMinutes).toBe(s.blocks[i - 1].endMinutes);
+    }
+  });
+
+  it('one suggestion still behaves exactly as it always did', () => {
+    const a = dayShape({ ...nineToFive, suggestion: walkWithMum });
+    const b = dayShape({ ...nineToFive, suggestions: [walkWithMum] });
+    expect(a.placedIn).toEqual(b.placedIn);
+    expect(a.framingText).toBe(b.framingText);
+  });
+
+  it('places nothing at all on a travelling day, however much room there is', () => {
+    const s = dayShape({ ...nineToFive, dayType: 'travel', suggestions: three });
+    expect(s.placements).toHaveLength(0);
+    expect(s.committedMinutes).toBe(0);
+  });
+
+  it('stops when nothing left will hold the next one', () => {
+    const s = dayShape({
+      ...nineToFive,
+      suggestions: [
+        { key: 'a', action: 'Fits', minutes: 60, domains: [] },
+        { key: 'b', action: 'Does not', minutes: 180, domains: [] },
+      ],
+    });
+    expect(s.placements.map((p) => p.key)).toEqual(['a']);
+  });
+
+  it('survives an empty or junk list without placing nonsense', () => {
+    expect(dayShape({ ...nineToFive, suggestions: [] }).placements).toHaveLength(0);
+    const s = dayShape({
+      ...nineToFive,
+      suggestions: [
+        { action: '', minutes: 30, domains: [] },
+        { action: '   ', minutes: 30, domains: [] },
+        { action: 'Real', minutes: NaN as any, domains: null as any },
+      ],
+    });
+    expect(s.placements).toHaveLength(1);
+    expect(s.placements[0].action).toBe('Real');
+    expect(s.placements[0].domains).toEqual([]);
+    expect(s.placements[0].endMinutes).toBeGreaterThan(s.placements[0].startMinutes);
+  });
+});
+
+/**
+ * The shape puts things where the evidence says they go. The reader is the
+ * authority on their own Tuesday, and a control that silently does nothing is
+ * worse than one that stops at the edge.
+ */
+describe('the reader can move a placement', () => {
+  it('moves it later by the minutes asked for', () => {
+    const s = dayShape({
+      ...nineToFive, suggestion: { ...walkWithMum, key: 'walk' },
+      nudges: { walk: 120 },
+    });
+    // Naturally 6pm; asked for two hours later.
+    expect(formatSpan(s.placedIn!.startMinutes, s.placedIn!.endMinutes)).toBe('8 pm–9 pm');
+    expect(s.placements[0].nudgedBy).toBe(120);
+  });
+
+  it('moves it earlier too', () => {
+    const s = dayShape({
+      ...nineToFive, dayType: 'off',
+      suggestion: { ...walkWithMum, key: 'walk' }, nudges: { walk: 180 },
+    });
+    const back = dayShape({
+      ...nineToFive, dayType: 'off',
+      suggestion: { ...walkWithMum, key: 'walk' }, nudges: { walk: -60 },
+    });
+    expect(s.placedIn!.startMinutes).toBeGreaterThan(back.placedIn!.startMinutes);
+  });
+
+  /**
+   * "Later" sometimes means after work. A nudge big enough to reach another
+   * free stretch should land there rather than stopping at the edge of the
+   * morning it started in.
+   */
+  it('a big enough move reaches a different free stretch', () => {
+    const morningPerson = {
+      workStartHour: 12, workEndHour: 20, commuteMinutes: 0, workType: 'remote',
+      sleepHour: 23, wakeHour: 5,
+      suggestion: { ...walkWithMum, key: 'walk', minutes: 60 },
+    };
+    // Roomiest stretch is 5am–12pm, so it starts there.
+    expect(formatSpan(
+      dayShape(morningPerson).placedIn!.startMinutes,
+      dayShape(morningPerson).placedIn!.endMinutes,
+    )).toBe('5 am–6 am');
+    // Fifteen hours later is 8pm — past work, in the evening stretch.
+    const moved = dayShape({ ...morningPerson, nudges: { walk: 15 * 60 } });
+    expect(formatSpan(moved.placedIn!.startMinutes, moved.placedIn!.endMinutes)).toBe('8 pm–9 pm');
+  });
+
+  it('clamps rather than pushing it into work or sleep', () => {
+    const s = dayShape({
+      ...nineToFive, suggestion: { ...walkWithMum, key: 'walk' },
+      nudges: { walk: 10 * 60 },
+    });
+    // 6–11pm holds an hour; the latest it can start is 10pm.
+    expect(s.placedIn!.endMinutes).toBeLessThanOrEqual(23 * 60);
+    expect(formatSpan(s.placedIn!.startMinutes, s.placedIn!.endMinutes)).toBe('10 pm–11 pm');
+  });
+
+  it('says that a move was the reader’s, not its own idea', () => {
+    const s = dayShape({
+      ...nineToFive, suggestion: { ...walkWithMum, key: 'walk' }, nudges: { walk: 60 },
+    });
+    expect(s.assumptions.join(' ')).toMatch(/You moved something here/);
+  });
+
+  it('keys by action when a suggestion has no key of its own', () => {
+    const s = dayShape({
+      ...nineToFive, suggestion: walkWithMum,
+      nudges: { 'Walk with Mum after dinner': 60 },
+    });
+    expect(formatSpan(s.placedIn!.startMinutes, s.placedIn!.endMinutes)).toBe('7 pm–8 pm');
+  });
+
+  it('ignores a nudge for something that is not on the day', () => {
+    const a = dayShape({ ...nineToFive, suggestion: walkWithMum });
+    const b = dayShape({ ...nineToFive, suggestion: walkWithMum, nudges: { nothing: 300 } });
+    expect(a.placedIn).toEqual(b.placedIn);
+  });
+
+  it('survives a nonsense nudge', () => {
+    for (const n of [NaN, Infinity, -Infinity, 1e9, 'later' as any]) {
+      const s = dayShape({
+        ...nineToFive, suggestion: { ...walkWithMum, key: 'walk' }, nudges: { walk: n },
+      });
+      expect(Number.isFinite(s.placedIn!.startMinutes)).toBe(true);
+      expect(s.placedIn!.endMinutes).toBeLessThanOrEqual(23 * 60);
+      expect(s.placedIn!.startMinutes).toBeGreaterThanOrEqual(7 * 60);
     }
   });
 });

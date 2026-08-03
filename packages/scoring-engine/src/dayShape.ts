@@ -50,6 +50,29 @@ export interface DayBlock {
   note?: string;
 }
 
+export interface DaySuggestion {
+  /** Stable identity, so a nudge survives a rewording. Falls back to action. */
+  key?: string;
+  action: string;
+  minutes: number;
+  domains: string[];
+  reason?: string;
+}
+
+/** One thing, on the clock, with a record of how it got there. */
+export interface Placement {
+  startMinutes: number;
+  endMinutes: number;
+  key: string;
+  action: string;
+  domains: string[];
+  reason?: string;
+  /** Read from their own record, or the rule about where plans survive. */
+  placedBy: 'observed' | 'front-of-gap';
+  /** How far the reader moved it from where the shape put it. */
+  nudgedBy: number;
+}
+
 export interface DayShapeInput {
   /** Hour work begins, 0–23 in the person's own timezone. */
   workStartHour?: number | null;
@@ -74,12 +97,32 @@ export interface DayShapeInput {
   /** What kind of day today is. Defaults to `usual`. */
   dayType?: DayType | null;
   /** The one thing to place, already chosen by the ranking engines. */
-  suggestion?: {
-    action: string;
-    minutes: number;
-    domains: string[];
-    reason?: string;
-  } | null;
+  suggestion?: DaySuggestion | null;
+  /**
+   * More than one, in the order the ranker put them.
+   *
+   * A day off is fifteen hours, and offering one fifteen-minute thing into it
+   * was the single-thing rule applied where it does not belong. That rule
+   * comes from choice overload and it is right for the dashboard, where the
+   * question is "what now" — on a day with nothing in it the question is
+   * different, and answering it with 0.2% of the available time is not
+   * restraint, it is the card having nothing to say.
+   *
+   * How many actually land is decided by how much room there is; see
+   * `capacityFor`. Whatever happens, most of the day stays theirs.
+   */
+  suggestions?: DaySuggestion[] | null;
+  /**
+   * How far the reader has moved a placement, in minutes, keyed by its `key`
+   * or its action.
+   *
+   * The shape puts things where the evidence says they go, and the reader is
+   * the authority on their own Tuesday. A nudge big enough to reach another
+   * free stretch moves it there; one that would push it into work or sleep is
+   * clamped rather than refused, because a control that silently does nothing
+   * is worse than one that stops at the edge.
+   */
+  nudges?: Record<string, number> | null;
   /**
    * When this person actually gets to things, read from what they have
    * finished rather than assumed about people in general.
@@ -101,8 +144,12 @@ export interface DayShape {
   blocks: DayBlock[];
   /** Waking minutes not already spoken for. */
   freeMinutes: number;
-  /** The gap the suggestion went into, if one was placed. */
+  /** Everything that landed, in clock order. */
+  placements: Placement[];
+  /** The first of them, kept for callers that only ever wanted one. */
   placedIn: { startMinutes: number; endMinutes: number } | null;
+  /** Minutes of the free time now spoken for. Always a minority of it. */
+  committedMinutes: number;
   /**
    * How the hour was chosen — read from their own record, or the rule about
    * where plans survive. Null when nothing was placed.
@@ -149,6 +196,51 @@ const MIN_MEANINGFUL_STRETCH = 45;
  * nine. Ninety minutes is the least it can honestly be.
  */
 const TRAVEL_TRANSIT_MINUTES = 90;
+
+/**
+ * How many things a day can hold before it stops being a shape and becomes an
+ * agenda.
+ *
+ * The one-thing rule is right where it came from — the dashboard, answering
+ * "what now", where a list is choice overload (RESEARCH_NOTES §2). It was
+ * being applied to a day off with fifteen hours in it, where one fifteen-minute
+ * item is not restraint but an empty card. So the count follows the room.
+ *
+ * The ceiling is three whatever the arithmetic says. A free Saturday can hold
+ * six things and a person who is shown six will do none of them.
+ */
+function capacityFor(freeMinutes: number): number {
+  if (freeMinutes < 5 * HOUR) return 1;
+  if (freeMinutes < 8 * HOUR) return 2;
+  return 3;
+}
+
+/**
+ * The most of a free day this may ever claim.
+ *
+ * Half, and it is a ceiling rather than a target. The promise the card makes
+ * in its own copy — "the rest stays yours" — has to be true on the day with
+ * the most to lose, which is the day someone has finally cleared.
+ */
+const MAX_SHARE_OF_FREE = 0.5;
+
+/**
+ * How far apart two placed things sit.
+ *
+ * A fixed half hour was right for the one case it was written for and wrong
+ * for the one that mattered: three things on a fifteen-hour day off queued up
+ * at 7am, 7:45am and 8:25am, leaving twelve untouched hours below them. Nobody
+ * plans a free Saturday that way, and a card that does has not understood what
+ * a free Saturday is.
+ *
+ * So the separation comes from the room. Divided by one more than the number
+ * of things, which spreads them across the day rather than stacking them at
+ * one end of it, and bounded so that neither a packed evening nor a fortnight
+ * of leave produces something absurd.
+ */
+function spacingFor(freeMinutes: number, capacity: number): number {
+  return Math.min(Math.max(Math.round(freeMinutes / (capacity + 1)), 30), 4 * HOUR);
+}
 
 const DAY_TYPES: readonly string[] = ['usual', 'remote', 'travel', 'off'];
 
@@ -211,6 +303,11 @@ function roomiest(
 ): number {
   const size = (b.endMinutes - b.startMinutes) - (a.endMinutes - a.startMinutes);
   return size !== 0 ? size : b.startMinutes - a.startMinutes;
+}
+
+/** "One thing is" / "3 things are" — so the sentence around it can agree. */
+function countThings(n: number): string {
+  return n === 1 ? 'One thing is' : `${n} things are`;
 }
 
 function describeGap(minutes: number): string {
@@ -320,23 +417,20 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
 
   const freeMinutes = gaps.reduce((n, g) => n + (g.endMinutes - g.startMinutes), 0);
 
-  // ---- place the one thing ----------------------------------------------
+  // ---- place things ------------------------------------------------------
   //
-  // Only into a gap that actually holds it. Proposing an hour into forty
+  // Only into room that actually holds them. Proposing an hour into forty
   // minutes is how a plan starts lying on its first day.
-  let placedIn: DayShape['placedIn'] = null;
-  let placedBy: DayShape['placedBy'] = null;
-  const suggestion = input.suggestion ?? null;
   const evening = [...gaps].sort(roomiest)[0];
-  const need = suggestion ? Math.max(Math.min(suggestion.minutes, 3 * HOUR), 10) : 0;
 
   /* A travelling day still has hours in it, and they are still worth seeing.
      What it does not have is a known *where*, so nothing gets planted in them:
      an app that schedules a walk with your mother into a departure lounge has
      stopped describing the reader's life and started describing a template. */
-  const roomy = suggestion && !travelling
-    ? gaps.filter((g) => g.endMinutes - g.startMinutes >= need)
-    : [];
+  const wanted: DaySuggestion[] = travelling
+    ? []
+    : (input.suggestions?.length ? input.suggestions : [input.suggestion])
+      .filter((s): s is DaySuggestion => !!s && typeof s.action === 'string' && !!s.action.trim());
 
   /* The hour they actually use, brought into this day's coordinates. Gaps run
      forward from waking and may cross midnight, so a reading of 1am belongs at
@@ -348,59 +442,135 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     while (at < wake) at += DAY_MINUTES;
     return at;
   })();
-  const observedGap = observedAt != null
-    ? roomy.find((g) => observedAt >= g.startMinutes && observedAt + need <= g.endMinutes)
-    : undefined;
 
-  const chosen = observedGap ?? [...roomy].sort(roomiest)[0];
-  const fits = !!chosen;
-  /* Within a few minutes of the front of the gap, the front is the answer —
-     a "Yours" row eight minutes long is a crumb drawn as an opportunity. */
-  const nudged = observedGap && observedAt! - observedGap.startMinutes >= MIN_USEFUL_GAP;
-  const startAt = nudged ? observedAt! : chosen?.startMinutes ?? 0;
+  const capacity = capacityFor(freeMinutes);
+  const spacing = spacingFor(freeMinutes, capacity);
+  const ceiling = freeMinutes * MAX_SHARE_OF_FREE;
+  const nudges = input.nudges ?? {};
 
+  /* What is still available, shrunk as things land. Separate from `gaps`,
+     which stays the truth about the day and is what `freeMinutes` reports —
+     breathing room between two placements is not time taken away from the
+     reader, it is only time this function will not put anything else into. */
+  let open = gaps.map((g) => ({ ...g }));
+  const placements: Placement[] = [];
+  let committedMinutes = 0;
+
+  for (const s of wanted) {
+    if (placements.length >= capacity) break;
+    const need = Math.max(Math.min(Number(s.minutes) || 0, 3 * HOUR), 10);
+    if (placements.length && committedMinutes + need > ceiling) break;
+
+    const roomy = open.filter((g) => g.endMinutes - g.startMinutes >= need);
+    if (!roomy.length) break;
+
+    /* Absent a reading, a thing sits at the *start* of the roomiest stretch
+       left: anything asked for "later, when there is time" is what gets
+       postponed, and the first hour after the fixed blocks end is the one that
+       actually exists. A reading beats the rule, because the hour somebody has
+       used a dozen times is not a hypothesis — and only the first placement
+       gets it, since it is a claim about when they act, not about how many
+       times a day they do. */
+    const observedRoom = !placements.length && observedAt != null
+      ? roomy.find((g) => observedAt >= g.startMinutes && observedAt + need <= g.endMinutes)
+      : undefined;
+    let host = observedRoom ?? [...roomy].sort(roomiest)[0];
+    let startAt = observedRoom ? observedAt! : host.startMinutes;
+    let placedBy: Placement['placedBy'] = observedRoom ? 'observed' : 'front-of-gap';
+
+    /* Within a few minutes of the front, the front is the answer — a "Yours"
+       row eight minutes long is a crumb drawn as an opportunity. */
+    if (startAt - host.startMinutes < MIN_USEFUL_GAP) {
+      startAt = host.startMinutes;
+      placedBy = 'front-of-gap';
+    }
+
+    /* Then the reader's own correction. A nudge large enough to reach another
+       free stretch moves it there rather than stopping at the edge of this
+       one; the day is theirs, and "later" sometimes means after work. */
+    const key = (s.key ?? s.action).trim();
+    const shift = Math.round(Number(nudges[key]) || 0);
+    let nudgedBy = 0;
+    if (shift) {
+      const target = startAt + shift;
+      const reachable = roomy.find(
+        (g) => target >= g.startMinutes && target + need <= g.endMinutes,
+      );
+      if (reachable) {
+        host = reachable;
+        startAt = target;
+      } else {
+        startAt = Math.min(Math.max(target, host.startMinutes), host.endMinutes - need);
+      }
+      nudgedBy = startAt - (observedRoom ? observedAt! : host.startMinutes);
+      if (nudgedBy !== 0) placedBy = 'front-of-gap';
+    }
+
+    placements.push({
+      startMinutes: startAt,
+      endMinutes: startAt + need,
+      key,
+      action: s.action,
+      domains: Array.isArray(s.domains) ? s.domains : [],
+      reason: s.reason,
+      placedBy,
+      nudgedBy,
+    });
+    committedMinutes += need;
+
+    /* Carve it out, with breathing room either side, so the next thing does
+       not land against it and the day reads as a day rather than a schedule. */
+    const from = startAt - spacing;
+    const to = startAt + need + spacing;
+    open = open.flatMap((g) => {
+      if (to <= g.startMinutes || from >= g.endMinutes) return [g];
+      const parts: Array<{ startMinutes: number; endMinutes: number }> = [];
+      if (from - g.startMinutes >= MIN_USEFUL_GAP) {
+        parts.push({ startMinutes: g.startMinutes, endMinutes: from });
+      }
+      if (g.endMinutes - to >= MIN_USEFUL_GAP) {
+        parts.push({ startMinutes: to, endMinutes: g.endMinutes });
+      }
+      return parts;
+    });
+  }
+
+  placements.sort((a, b) => a.startMinutes - b.startMinutes);
+  const placedIn = placements.length
+    ? { startMinutes: placements[0].startMinutes, endMinutes: placements[0].endMinutes }
+    : null;
+  const placedBy: DayShape['placedBy'] = placements.length ? placements[0].placedBy : null;
+  const fits = placements.length > 0;
+
+  // ---- draw it -----------------------------------------------------------
+  //
+  // Free time is whatever the gaps hold minus whatever landed in them. Every
+  // remainder is drawn however small: a hole in the middle of a column of
+  // times reads as a rendering fault, and the reader has no way to know that
+  // the four minutes between two things were deliberately not mentioned.
   const blocks: DayBlock[] = [...bounded];
+  for (const p of placements) {
+    blocks.push({
+      startMinutes: p.startMinutes,
+      endMinutes: p.endMinutes,
+      kind: 'suggested',
+      label: p.action,
+      domains: p.domains,
+      note: p.reason,
+    });
+  }
   for (const g of gaps) {
-    if (fits && g === chosen) {
-      /* Absent a reading, the suggestion sits at the *start* of the gap:
-         anything asked for "later, when there is time" is what gets
-         postponed, and the first hour after the fixed blocks end is the one
-         that actually exists. A reading beats the rule, because the hour
-         somebody has used a dozen times is not a hypothesis. */
-      if (startAt > g.startMinutes) {
-        blocks.push({
-          startMinutes: g.startMinutes,
-          endMinutes: startAt,
-          kind: 'open',
-          label: 'Yours',
-        });
+    const inside = placements
+      .filter((p) => p.startMinutes >= g.startMinutes && p.endMinutes <= g.endMinutes);
+    let at = g.startMinutes;
+    for (const p of inside) {
+      if (p.startMinutes > at) {
+        blocks.push({ startMinutes: at, endMinutes: p.startMinutes, kind: 'open', label: 'Yours' });
       }
-      blocks.push({
-        startMinutes: startAt,
-        endMinutes: startAt + need,
-        kind: 'suggested',
-        label: suggestion!.action,
-        domains: suggestion!.domains,
-        note: suggestion!.reason,
-      });
-      placedIn = { startMinutes: startAt, endMinutes: startAt + need };
-      placedBy = nudged ? 'observed' : 'front-of-gap';
-      const rest = g.endMinutes - (startAt + need);
-      if (rest >= MIN_USEFUL_GAP) {
-        blocks.push({
-          startMinutes: startAt + need,
-          endMinutes: g.endMinutes,
-          kind: 'open',
-          label: 'Yours',
-        });
-      }
-    } else {
-      blocks.push({
-        startMinutes: g.startMinutes,
-        endMinutes: g.endMinutes,
-        kind: 'open',
-        label: 'Yours',
-      });
+      at = p.endMinutes;
+    }
+    if (g.endMinutes > at) {
+      blocks.push({ startMinutes: at, endMinutes: g.endMinutes, kind: 'open', label: 'Yours' });
     }
   }
 
@@ -435,8 +605,11 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     /* A rest day has no work hours to explain, and saying where work would
        have gone on a day there is none is noise pretending to be provenance. */
     restDay ? null : workLine,
-    placedBy === 'observed' && input.activeAt
-      ? `The ${formatClock(startAt)} is not a guess — it is where ${input.activeAt.sampleSize} things you finished across ${input.activeAt.days} days actually landed`
+    placedBy === 'observed' && input.activeAt && placedIn
+      ? `The ${formatClock(placedIn.startMinutes)} is not a guess — it is where ${input.activeAt.sampleSize} things you finished across ${input.activeAt.days} days actually landed`
+      : null,
+    placements.some((p) => p.nudgedBy !== 0)
+      ? 'You moved something here, so that is where it stays for today'
       : null,
     'The shape of a typical working day, not a plan for today — nothing here knows about your meetings',
     'Sleep comes from your quiet hours',
@@ -450,10 +623,11 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
        suggestion, and it survived into a card that visibly puts one in your
        evening. A day off is now one tap away, so the contradiction went from
        unreachable to the second thing anybody tries. */
-    framingText = placedIn
-      ? `A day off is ${describeGap(freeMinutes)} of your own. ${need} minutes of it is ` +
-        `spoken for here and the rest is not a plan — it is only worth knowing how much ` +
-        `there actually is.`
+    framingText = placements.length
+      ? `A day off is ${describeGap(freeMinutes)} of your own. ` +
+        `${countThings(placements.length)} pencilled into ${describeGap(committedMinutes)} ` +
+        `of it — move ${placements.length === 1 ? 'it' : 'them'} or ignore ` +
+        `${placements.length === 1 ? 'it' : 'them'}; the rest is not a plan.`
       : `A day off is ${describeGap(freeMinutes)} of your own. Nothing here is scheduled — ` +
         `it is only worth knowing how much there actually is.`;
   } else if (travelling) {
@@ -478,16 +652,22 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       : `The longest unbroken stretch in this day is ${describeGap(longest)}. Adding up to ` +
         `${describeGap(freeMinutes)} across the day does not make it an hour you could ` +
         `spend with someone — it is a scheduling problem, not a discipline one.`;
-  } else if (fits && placedIn && placedBy === 'observed') {
+  } else if (placements.length > 1) {
     framingText =
-      `This is at ${formatClock(startAt)} because that is when you actually get to things — ` +
-      `not at the front of the evening, where plans go to be postponed. ` +
-      `The stretch runs ${formatSpan(chosen.startMinutes, chosen.endMinutes)} and the rest of it stays yours.`;
-  } else if (fits && placedIn) {
+      `${countThings(placements.length)} pencilled into ${describeGap(committedMinutes)} of the ` +
+      `${describeGap(freeMinutes)} you have left, starting ` +
+      `${formatClock(placements[0].startMinutes)}. Move them to where they belong — ` +
+      `the rest stays yours either way.`;
+  } else if (fits && placedBy === 'observed') {
     framingText =
-      `Your longest free stretch is ${formatSpan(chosen.startMinutes, chosen.endMinutes)} — ` +
-      `${describeGap(chosen.endMinutes - chosen.startMinutes)}. The first ${need} minutes of it ` +
-      `is enough for this, and the rest stays yours.`;
+      `This is at ${formatClock(placedIn!.startMinutes)} because that is when you actually get to ` +
+      `things — not at the front of the evening, where plans go to be postponed. ` +
+      `The stretch runs ${formatSpan(evening.startMinutes, evening.endMinutes)} and the rest of it stays yours.`;
+  } else if (fits) {
+    framingText =
+      `Your longest free stretch is ${formatSpan(evening.startMinutes, evening.endMinutes)} — ` +
+      `${describeGap(evening.endMinutes - evening.startMinutes)}. ` +
+      `${describeGap(committedMinutes)} of it is enough for this, and the rest stays yours.`;
   } else {
     framingText =
       `About ${describeGap(freeMinutes)} of the day is not already spoken for, ` +
@@ -495,5 +675,8 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       `That is the hour worth deciding about on purpose.`;
   }
 
-  return { blocks, freeMinutes, placedIn, placedBy, basis, dayType, framingText, assumptions };
+  return {
+    blocks, freeMinutes, placements, placedIn, committedMinutes,
+    placedBy, basis, dayType, framingText, assumptions,
+  };
 }
