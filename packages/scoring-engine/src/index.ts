@@ -25,6 +25,7 @@ export * from './countables';
 export * from './timeStacking';
 export * from './allocation';
 export * from './dayShape';
+export * from './activeHour';
 export * from './lifeStrategy';
 export * from './alignment';
 export * from './domainLadder';

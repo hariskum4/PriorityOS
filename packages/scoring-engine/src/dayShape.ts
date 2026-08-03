@@ -26,6 +26,18 @@
 
 export type BlockKind = 'sleep' | 'commute' | 'work' | 'open' | 'suggested' | 'meal';
 
+/**
+ * Which kind of day this is — the one thing the shape cannot derive.
+ *
+ * Everything else here comes from facts asked once, and that is deliberate.
+ * But a shape that is the same every weekday is a shape that is wrong on the
+ * days that matter most: it draws an evening at home for someone in an airport
+ * and a commute for someone who has not left the house. This is the smallest
+ * possible correction — four words, one tap, true only for today — and it is
+ * the difference between a diagram and something that knows what day it is.
+ */
+export type DayType = 'usual' | 'remote' | 'travel' | 'off';
+
 export interface DayBlock {
   /** Minutes from midnight of the waking day. May exceed 1440 near sleep. */
   startMinutes: number;
@@ -59,12 +71,29 @@ export interface DayShapeInput {
   wakeHour?: number | null;
   /** False for a rest day: no work, no commute, the whole day is open. */
   isWorkday?: boolean;
+  /** What kind of day today is. Defaults to `usual`. */
+  dayType?: DayType | null;
   /** The one thing to place, already chosen by the ranking engines. */
   suggestion?: {
     action: string;
     minutes: number;
     domains: string[];
     reason?: string;
+  } | null;
+  /**
+   * When this person actually gets to things, read from what they have
+   * finished rather than assumed about people in general.
+   *
+   * Carries its own provenance because the copy has to be able to say what the
+   * claim rests on — an hour asserted without a count behind it is exactly the
+   * kind of confident-sounding guess this app is built to avoid. Null until
+   * there is enough to say, which is most of the first fortnight.
+   */
+  activeAt?: {
+    /** Minutes from local midnight. */
+    minutes: number;
+    sampleSize: number;
+    days: number;
   } | null;
 }
 
@@ -74,8 +103,15 @@ export interface DayShape {
   freeMinutes: number;
   /** The gap the suggestion went into, if one was placed. */
   placedIn: { startMinutes: number; endMinutes: number } | null;
+  /**
+   * How the hour was chosen — read from their own record, or the rule about
+   * where plans survive. Null when nothing was placed.
+   */
+  placedBy: 'observed' | 'front-of-gap' | null;
   /** Whether the inputs were real or assumed. Same rule as everywhere. */
   basis: 'stated' | 'assumed';
+  /** The kind of day this was drawn for. */
+  dayType: DayType;
   framingText: string;
   assumptions: string[];
 }
@@ -104,6 +140,22 @@ const MIN_USEFUL_GAP = 20;
  * anyone. What matters is the longest unbroken stretch.
  */
 const MIN_MEANINGFUL_STRETCH = 45;
+
+/**
+ * The floor a travelling day puts on getting about.
+ *
+ * Not a claim about anyone's itinerary — it is an admission that a day spent
+ * moving has more of itself spoken for than a day spent arriving somewhere at
+ * nine. Ninety minutes is the least it can honestly be.
+ */
+const TRAVEL_TRANSIT_MINUTES = 90;
+
+const DAY_TYPES: readonly string[] = ['usual', 'remote', 'travel', 'off'];
+
+function normalizeDayType(v: unknown): DayType {
+  const s = String(v ?? '').toLowerCase();
+  return DAY_TYPES.includes(s) ? (s as DayType) : 'usual';
+}
 
 /**
  * Absent, as the database means it.
@@ -142,6 +194,25 @@ export function formatSpan(startMinutes: number, endMinutes: number): string {
   return `${formatClock(startMinutes)}–${formatClock(endMinutes)}`;
 }
 
+/**
+ * Roomiest first, and on a tie the later one.
+ *
+ * The tie is not rare — a twelve-hour working day with an hour either side of
+ * it produces two gaps of exactly the same size, and a stable sort handed that
+ * to the earlier one. Which is how "call your father" came to be proposed for
+ * seven in the morning. Absent any evidence about this particular person, the
+ * hour before work is the least likely one in the day to be honoured, and the
+ * evening is what the whole card is named around. Evidence, when there is any,
+ * overrules this anyway.
+ */
+function roomiest(
+  a: { startMinutes: number; endMinutes: number },
+  b: { startMinutes: number; endMinutes: number },
+): number {
+  const size = (b.endMinutes - b.startMinutes) - (a.endMinutes - a.startMinutes);
+  return size !== 0 ? size : b.startMinutes - a.startMinutes;
+}
+
 function describeGap(minutes: number): string {
   if (minutes >= 2 * HOUR) return `${Math.round((minutes / HOUR) * 10) / 10} hours`;
   return `${Math.round(minutes)} minutes`;
@@ -162,7 +233,13 @@ function derivedWorkHours(perWeek: number | null | undefined): number | null {
 }
 
 export function dayShape(input: DayShapeInput = {}): DayShape {
-  const remote = (input.workType ?? '').toLowerCase() === 'remote';
+  const dayType = normalizeDayType(input.dayType);
+  const travelling = dayType === 'travel';
+  /* Today's answer outranks the standing one. Someone who normally goes in but
+     said they are home today has no commute; someone who normally works from
+     home but said they are travelling has more transit than usual, not less. */
+  const remote = dayType === 'remote'
+    || (dayType === 'usual' && (input.workType ?? '').toLowerCase() === 'remote');
 
   const stated = input.workStartHour != null && input.workEndHour != null;
   /* Their own week, before any house default. Someone who said sixty hours
@@ -170,7 +247,8 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
      be shown a working day at all. */
   const derivedHours = stated ? null : derivedWorkHours(input.workHoursPerWeek);
   const noWorkAtAll = derivedHours === 0;
-  const isWorkday = input.isWorkday !== false && !noWorkAtAll;
+  const restDay = dayType === 'off' || input.isWorkday === false;
+  const isWorkday = !restDay && !noWorkAtAll;
 
   const workStart = clampHour(input.workStartHour, ASSUMED.workStart) * HOUR;
   let workEnd = derivedHours != null && derivedHours > 0
@@ -179,7 +257,12 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   /* A shift ending before it starts is a night shift, not bad data. */
   if (workEnd <= workStart) workEnd += DAY_MINUTES;
 
-  const commute = remote ? 0 : clampMinutes(input.commuteMinutes, ASSUMED.commute);
+  const stdCommute = clampMinutes(input.commuteMinutes, ASSUMED.commute);
+  const commute = remote
+    ? 0
+    : travelling
+      ? Math.max(stdCommute, TRAVEL_TRANSIT_MINUTES)
+      : stdCommute;
 
   const wake = clampHour(input.wakeHour, ASSUMED.wake) * HOUR;
   let sleep = clampHour(input.sleepHour, ASSUMED.sleep) * HOUR;
@@ -193,7 +276,7 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
         startMinutes: workStart - commute,
         endMinutes: workStart,
         kind: 'commute',
-        label: 'Getting there',
+        label: travelling ? 'In transit' : 'Getting there',
       });
     }
     fixed.push({
@@ -207,7 +290,7 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
         startMinutes: workEnd,
         endMinutes: workEnd + commute,
         kind: 'commute',
-        label: 'Getting home',
+        label: travelling ? 'Still in transit' : 'Getting home',
       });
     }
   }
@@ -239,35 +322,73 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
 
   // ---- place the one thing ----------------------------------------------
   //
-  // The largest gap, and only if the suggestion actually fits in it. Proposing
-  // an hour into forty minutes is how a plan starts lying on its first day.
+  // Only into a gap that actually holds it. Proposing an hour into forty
+  // minutes is how a plan starts lying on its first day.
   let placedIn: DayShape['placedIn'] = null;
+  let placedBy: DayShape['placedBy'] = null;
   const suggestion = input.suggestion ?? null;
-  const evening = [...gaps].sort((a, b) => (
-    (b.endMinutes - b.startMinutes) - (a.endMinutes - a.startMinutes)
-  ))[0];
+  const evening = [...gaps].sort(roomiest)[0];
   const need = suggestion ? Math.max(Math.min(suggestion.minutes, 3 * HOUR), 10) : 0;
-  const fits = !!suggestion && !!evening && (evening.endMinutes - evening.startMinutes) >= need;
+
+  /* A travelling day still has hours in it, and they are still worth seeing.
+     What it does not have is a known *where*, so nothing gets planted in them:
+     an app that schedules a walk with your mother into a departure lounge has
+     stopped describing the reader's life and started describing a template. */
+  const roomy = suggestion && !travelling
+    ? gaps.filter((g) => g.endMinutes - g.startMinutes >= need)
+    : [];
+
+  /* The hour they actually use, brought into this day's coordinates. Gaps run
+     forward from waking and may cross midnight, so a reading of 1am belongs at
+     the far end of tonight rather than before this morning. */
+  const observedAt = (() => {
+    const m = input.activeAt?.minutes;
+    if (m == null || !Number.isFinite(Number(m))) return null;
+    let at = ((Math.floor(Number(m)) % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
+    while (at < wake) at += DAY_MINUTES;
+    return at;
+  })();
+  const observedGap = observedAt != null
+    ? roomy.find((g) => observedAt >= g.startMinutes && observedAt + need <= g.endMinutes)
+    : undefined;
+
+  const chosen = observedGap ?? [...roomy].sort(roomiest)[0];
+  const fits = !!chosen;
+  /* Within a few minutes of the front of the gap, the front is the answer —
+     a "Yours" row eight minutes long is a crumb drawn as an opportunity. */
+  const nudged = observedGap && observedAt! - observedGap.startMinutes >= MIN_USEFUL_GAP;
+  const startAt = nudged ? observedAt! : chosen?.startMinutes ?? 0;
 
   const blocks: DayBlock[] = [...bounded];
   for (const g of gaps) {
-    if (fits && g === evening) {
-      /* The suggestion sits at the *start* of the gap. Anything asked for
-         "later, when there is time" is what gets postponed; the first hour
-         after the fixed blocks end is the one that actually exists. */
+    if (fits && g === chosen) {
+      /* Absent a reading, the suggestion sits at the *start* of the gap:
+         anything asked for "later, when there is time" is what gets
+         postponed, and the first hour after the fixed blocks end is the one
+         that actually exists. A reading beats the rule, because the hour
+         somebody has used a dozen times is not a hypothesis. */
+      if (startAt > g.startMinutes) {
+        blocks.push({
+          startMinutes: g.startMinutes,
+          endMinutes: startAt,
+          kind: 'open',
+          label: 'Yours',
+        });
+      }
       blocks.push({
-        startMinutes: g.startMinutes,
-        endMinutes: g.startMinutes + need,
+        startMinutes: startAt,
+        endMinutes: startAt + need,
         kind: 'suggested',
         label: suggestion!.action,
         domains: suggestion!.domains,
         note: suggestion!.reason,
       });
-      placedIn = { startMinutes: g.startMinutes, endMinutes: g.startMinutes + need };
-      const rest = g.endMinutes - (g.startMinutes + need);
+      placedIn = { startMinutes: startAt, endMinutes: startAt + need };
+      placedBy = nudged ? 'observed' : 'front-of-gap';
+      const rest = g.endMinutes - (startAt + need);
       if (rest >= MIN_USEFUL_GAP) {
         blocks.push({
-          startMinutes: g.startMinutes + need,
+          startMinutes: startAt + need,
           endMinutes: g.endMinutes,
           kind: 'open',
           label: 'Yours',
@@ -293,25 +414,59 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
 
   // ---- what to say about it ---------------------------------------------
   const basis: DayShape['basis'] = stated ? 'stated' : 'assumed';
+
+  const dayTypeNote: Record<DayType, string | null> = {
+    usual: null,
+    remote: 'You marked today as working from home, so there is no commute in this',
+    travel: 'You marked today as travelling, so more of it is spoken for than usual',
+    off: 'You marked today as a day off, so no work is drawn into it',
+  };
+
+  const workLine = stated
+    ? `Built from the hours you gave: work ${formatSpan(workStart, workEnd)}${commute ? `, ${commute} minutes each way` : ''}`
+    : noWorkAtAll
+      ? 'You said you are not working right now, so nothing here is blocked out for it'
+      : derivedHours != null
+        ? `Spread from the ~${Math.round(Number(input.workHoursPerWeek))}h week you gave — about ${Math.round(derivedHours)}h a day, guessed to start at ${formatClock(ASSUMED.workStart * HOUR)}. Set the hours if that is wrong`
+        : `No work hours set — this assumes ${formatSpan(ASSUMED.workStart * HOUR, ASSUMED.workEnd * HOUR)}`;
+
   const assumptions = [
-    stated
-      ? `Built from the hours you gave: work ${formatSpan(workStart, workEnd)}${commute ? `, ${commute} minutes each way` : ''}`
-      : noWorkAtAll
-        ? 'You said you are not working right now, so nothing here is blocked out for it'
-        : derivedHours != null
-          ? `Spread from the ~${Math.round(Number(input.workHoursPerWeek))}h week you gave — about ${Math.round(derivedHours)}h a day, guessed to start at ${formatClock(ASSUMED.workStart * HOUR)}. Set the hours if that is wrong`
-          : `No work hours set — this assumes ${formatSpan(ASSUMED.workStart * HOUR, ASSUMED.workEnd * HOUR)}`,
+    dayTypeNote[dayType],
+    /* A rest day has no work hours to explain, and saying where work would
+       have gone on a day there is none is noise pretending to be provenance. */
+    restDay ? null : workLine,
+    placedBy === 'observed' && input.activeAt
+      ? `The ${formatClock(startAt)} is not a guess — it is where ${input.activeAt.sampleSize} things you finished across ${input.activeAt.days} days actually landed`
+      : null,
     'The shape of a typical working day, not a plan for today — nothing here knows about your meetings',
     'Sleep comes from your quiet hours',
-  ];
+  ].filter((line): line is string => line != null);
 
   const longest = evening ? evening.endMinutes - evening.startMinutes : 0;
 
   let framingText: string;
   if (!isWorkday) {
-    framingText =
-      `A day off is ${describeGap(freeMinutes)} of your own. Nothing here is scheduled — ` +
-      `it is only worth knowing how much there actually is.`;
+    /* "Nothing here is scheduled" was written when a rest day could not hold a
+       suggestion, and it survived into a card that visibly puts one in your
+       evening. A day off is now one tap away, so the contradiction went from
+       unreachable to the second thing anybody tries. */
+    framingText = placedIn
+      ? `A day off is ${describeGap(freeMinutes)} of your own. ${need} minutes of it is ` +
+        `spoken for here and the rest is not a plan — it is only worth knowing how much ` +
+        `there actually is.`
+      : `A day off is ${describeGap(freeMinutes)} of your own. Nothing here is scheduled — ` +
+        `it is only worth knowing how much there actually is.`;
+  } else if (travelling) {
+    /* Named as a limit rather than dressed up as a lighter day. The reader
+       knows they are travelling; what they need is the app not pretending
+       their evening is where it usually is. */
+    framingText = longest >= MIN_MEANINGFUL_STRETCH
+      ? `Travelling, so this only says how much of the day is left — about ` +
+        `${describeGap(longest)} of it in one run, ${formatSpan(evening.startMinutes, evening.endMinutes)}. ` +
+        `Nothing is placed in it, because nothing here knows where you will be. ` +
+        `It is a good stretch for whatever works down a phone line.`
+      : `Travelling, and there is no real stretch left in the day once the getting ` +
+        `about is counted. That is worth seeing rather than planning around.`;
   } else if (longest < MIN_MEANINGFUL_STRETCH) {
     /* Said about the longest stretch, not the total. An hour split into two
        half-hours around a fifteen-hour day sounds like an hour and is not
@@ -323,10 +478,15 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       : `The longest unbroken stretch in this day is ${describeGap(longest)}. Adding up to ` +
         `${describeGap(freeMinutes)} across the day does not make it an hour you could ` +
         `spend with someone — it is a scheduling problem, not a discipline one.`;
+  } else if (fits && placedIn && placedBy === 'observed') {
+    framingText =
+      `This is at ${formatClock(startAt)} because that is when you actually get to things — ` +
+      `not at the front of the evening, where plans go to be postponed. ` +
+      `The stretch runs ${formatSpan(chosen.startMinutes, chosen.endMinutes)} and the rest of it stays yours.`;
   } else if (fits && placedIn) {
     framingText =
-      `Your longest free stretch is ${formatSpan(evening.startMinutes, evening.endMinutes)} — ` +
-      `${describeGap(evening.endMinutes - evening.startMinutes)}. The first ${need} minutes of it ` +
+      `Your longest free stretch is ${formatSpan(chosen.startMinutes, chosen.endMinutes)} — ` +
+      `${describeGap(chosen.endMinutes - chosen.startMinutes)}. The first ${need} minutes of it ` +
       `is enough for this, and the rest stays yours.`;
   } else {
     framingText =
@@ -335,5 +495,5 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       `That is the hour worth deciding about on purpose.`;
   }
 
-  return { blocks, freeMinutes, placedIn, basis, framingText, assumptions };
+  return { blocks, freeMinutes, placedIn, placedBy, basis, dayType, framingText, assumptions };
 }

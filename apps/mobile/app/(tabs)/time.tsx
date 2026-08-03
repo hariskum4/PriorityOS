@@ -26,12 +26,16 @@ import {
   classifyLever,
   rhythmRungFor,
   dayShape,
+  activeHour,
   formatSpan,
   type DayBlock,
+  type DayType,
   PLANNING_HORIZON_AGE,
   type StackSuggestion,
   type LeverSignal,
 } from '@priority/scoring-engine';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LIFE_TO_DOMAIN, type LifeDomain } from '@priority/types';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
@@ -59,6 +63,29 @@ const RESUGGEST_AFTER_DAYS = 14;
 const CADENCE_DAYS: Record<string, number> = {
   daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
 };
+
+/**
+ * What kind of day today is.
+ *
+ * Local and dated rather than a column on the profile, because it is true for
+ * one day and then it is not. Sending "I am travelling on the 3rd" to a server
+ * that would still be holding it on the 9th is how a helpful tap becomes a
+ * wrong assumption nobody remembers making — and there is nothing here worth
+ * putting on a wire in the first place.
+ */
+const DAY_TYPE_KEY = 'priority-day-type-v1';
+
+const DAY_TYPE_LABELS: Array<{ key: DayType; label: string }> = [
+  { key: 'usual', label: 'usual' },
+  { key: 'remote', label: 'from home' },
+  { key: 'travel', label: 'travelling' },
+  { key: 'off', label: 'day off' },
+];
+
+/** Local, not UTC — the day a person is living, not the one the server is in. */
+function localDayKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
 
 function ageFromDob(dob?: string | null): number | null {
   if (!dob) return null;
@@ -195,6 +222,26 @@ export default function TimeReality() {
       helps: string[];
       source: 'ai' | 'catalog';
     }>('/life-os/stacks'),
+    staleTime: 5 * 60_000,
+  });
+
+  /**
+   * What the whole system concluded today, not what this one card ranked.
+   *
+   * "Steal the time" is a good ranker of stackable moves and it is only that:
+   * it sees shortfalls and people, and nothing of the eight engines that read
+   * goals, decisions, closing windows and everything else. The day card was
+   * placing `stacks[0]` — the top of one list — in the only hour it had, while
+   * the cycle next door had already chosen something with better evidence
+   * behind it. The hour should go to whatever actually won.
+   *
+   * Same key, same `preview=1` and same staleness as the dashboard, so opening
+   * this tab neither runs the cycle twice nor spends the week's one profound
+   * truth on a screen the person is only passing through.
+   */
+  const { data: lifeOs } = useQuery({
+    queryKey: ['life-os-today'],
+    queryFn: () => api<any>('/life-os/today?preview=1'),
     staleTime: 5 * 60_000,
   });
 
@@ -408,6 +455,36 @@ export default function TimeReality() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
   });
   const [editingDay, setEditingDay] = useState(false);
+
+  /**
+   * Today is different — the one thing the shape cannot work out for itself.
+   *
+   * Read back only if it was written by this account and on this date, so a
+   * travelling Tuesday never leaks into a Wednesday at a desk, and never at
+   * all into somebody else's account on a shared device.
+   */
+  const [dayType, setDayType] = useState<DayType>('usual');
+  React.useEffect(() => {
+    if (!me?.id) return;
+    let alive = true;
+    AsyncStorage.getItem(DAY_TYPE_KEY)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        const saved = JSON.parse(raw);
+        if (saved?.userId === me.id && saved?.date === localDayKey() && saved?.dayType) {
+          setDayType(saved.dayType as DayType);
+        }
+      })
+      .catch(() => {/* An unreadable note about today is not worth a message. */});
+    return () => { alive = false; };
+  }, [me?.id]);
+  const chooseDayType = (next: DayType) => {
+    setDayType(next);
+    if (!me?.id) return;
+    AsyncStorage
+      .setItem(DAY_TYPE_KEY, JSON.stringify({ userId: me.id, date: localDayKey(), dayType: next }))
+      .catch(() => {/* The shape has already moved; the note is the lesser half. */});
+  };
 
   /**
    * Every rhythm including retired ones, so the reclaim offer never hands back
@@ -632,6 +709,24 @@ export default function TimeReality() {
     return out;
   }, [habits, relationships]);
 
+  /**
+   * When this person actually gets to things.
+   *
+   * Both sources are already in hand — finished missions carry `completedAt`,
+   * and each rhythm carries this week's ticks — so nothing new is fetched and
+   * nothing new is asked. Below the engine's thresholds this is null and the
+   * day shape keeps its honest guess about where the evening starts.
+   *
+   * Above the early returns, for the same reason `leverSignals` is.
+   */
+  const activeAt = useMemo(
+    () => activeHour([
+      ...(doneMissions ?? []).map((m: any) => m.completedAt),
+      ...(habits ?? []).flatMap((h: any) => (h.logs ?? []).map((l: any) => l.completedAt)),
+    ]),
+    [doneMissions, habits],
+  );
+
   const age = ageFromDob(me?.dob);
   const birthYear = me?.dob ? new Date(me.dob).getUTCFullYear() : null;
   const intensityOff = prefs?.insightIntensity === 'off';
@@ -819,6 +914,40 @@ export default function TimeReality() {
    * ranked; this only puts it on a clock.
    */
   const topStack = stacks[0];
+
+  /**
+   * The proposal the cycle chose, which is not the same as the top of a list.
+   *
+   * The engines rank on pressure and evidence across the whole life; this card
+   * ranks stackable moves against domain shortfalls. When the cycle has an
+   * answer it is the better-argued one and it gets the hour. Anything already
+   * agreed to is skipped for the same reason the stacks are: an hour spent
+   * proposing something already on the list is an hour proposing nothing.
+   */
+  const cycleProposal = (lifeOs?.proposals ?? []).find(
+    (p: any) => p?.action && !planned.includes(p.action),
+  ) ?? null;
+
+  const placedSuggestion = cycleProposal
+    ? {
+      action: cycleProposal.action,
+      minutes: cycleProposal.effortMinutes || 60,
+      /* Kernel domains are the eight; the dots speak the twelve. Lossy, and
+         only used to colour a row — the proposal's own text is the truth. */
+      domains: cycleProposal.domain
+        ? [LIFE_TO_DOMAIN[cycleProposal.domain as LifeDomain]].filter(Boolean)
+        : [],
+      reason: cycleProposal.because || undefined,
+    }
+    : topStack
+      ? {
+        action: topStack.action,
+        minutes: 60,
+        domains: topStack.covers?.length ? topStack.covers : topStack.domains,
+        reason: topStack.reason || undefined,
+      }
+      : null;
+
   const shape = dayShape({
     workStartHour: me.workStartHour,
     workEndHour: me.workEndHour,
@@ -829,16 +958,20 @@ export default function TimeReality() {
     workType: me.workType,
     sleepHour: prefs?.quietHoursStart,
     wakeHour: prefs?.quietHoursEnd,
-    suggestion: topStack
-      ? {
-        action: topStack.action,
-        minutes: 60,
-        domains: topStack.covers?.length ? topStack.covers : topStack.domains,
-        reason: topStack.reason || undefined,
-      }
-      : null,
+    dayType,
+    activeAt,
+    suggestion: placedSuggestion,
   });
   const dayHoursKnown = me.workStartHour != null && me.workEndHour != null;
+  /* Where the placed thing came from, said once and quietly. A card that puts
+     something in your evening which is not in the list directly above it owes
+     the reader that much. */
+  const dayNotes = [
+    ...shape.assumptions,
+    shape.placedIn && cycleProposal
+      ? `This is today's read of the whole system, not the first of the moves above`
+      : null,
+  ].filter((n): n is string => n != null);
 
   const hs = healthspan(age, leverSignals);
   /* The sharp-hours number is only worth showing if it is theirs, so it is
@@ -1096,6 +1229,30 @@ export default function TimeReality() {
                   </Pressable>
                 </View>
 
+                {/* Today is different — one tap, no round trip, gone tomorrow.
+                    The shape below is derived from facts asked once, which is
+                    what keeps it from becoming a calendar to maintain; this is
+                    the one thing it cannot derive, and the one day it draws an
+                    evening at home for someone in an airport is the day it
+                    stops being worth reading. */}
+                <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                  <Text style={[type.faint, { paddingTop: 7 }]}>Today:</Text>
+                  {DAY_TYPE_LABELS.map((d) => {
+                    const on = dayType === d.key;
+                    return (
+                      <Pressable
+                        key={d.key}
+                        onPress={() => chooseDayType(d.key)}
+                        style={[s.chip, on && s.chipOn]}
+                      >
+                        <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                          {d.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
                 {/* Collapsed unless asked for, even before anything is set.
                     The shape is drawn from the week they already gave at
                     onboarding, so three rows of chips greeting someone who has
@@ -1177,7 +1334,7 @@ export default function TimeReality() {
                 </View>
 
                 <Text style={type.serif}>{shape.framingText}</Text>
-                <Text style={type.faint}>{shape.assumptions.join('. ')}.</Text>
+                <Text style={type.faint}>{dayNotes.join('. ')}.</Text>
               </Card>
 
               {/* 2. Weekly allocation */}
