@@ -24,7 +24,7 @@ import {
   energyBudget,
   suggestSeason,
   classifyLever,
-  rhythmRungFor,
+  rhythmFor,
   dayShape,
   activeHour,
   formatSpan,
@@ -858,8 +858,8 @@ export default function TimeReality() {
     for (const s of [...shortDomains].sort((a, b) => b.shortfall - a.shortfall)) {
       const mine = (allHabits ?? []).filter((h: any) => h.domainType === s.domainType);
       if (mine.some((h: any) => h.isActive !== false)) continue;
-      const rung = rhythmRungFor(s.domainType, mine.map((h: any) => h.title));
-      if (rung?.recurring) return { domainType: s.domainType, rung, share: s };
+      const rhythm = rhythmFor(s.domainType, mine.map((h: any) => h.title));
+      if (rhythm) return { domainType: s.domainType, rhythm, share: s };
     }
     return null;
   })();
@@ -1621,19 +1621,19 @@ export default function TimeReality() {
                   onPress={() => {
                     setReclaimed({
                       domainType: reclaimOffer.domainType,
-                      perWeek: reclaimOffer.rung.recurring!.perWeek,
+                      perWeek: reclaimOffer.rhythm.perWeek,
                     });
                     startRhythm.mutate({
                       domainType: reclaimOffer.domainType,
-                      title: reclaimOffer.rung.title,
-                      perWeek: reclaimOffer.rung.recurring!.perWeek,
+                      title: reclaimOffer.rhythm.title,
+                      perWeek: reclaimOffer.rhythm.perWeek,
                     });
                   }}
                   style={({ pressed }) => [s.reclaimRow, pressed && { opacity: 0.7 }]}
                 >
                   <Ionicons name="arrow-undo-outline" size={14} color={colors.amber} />
                   <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={[type.body, { color: colors.amber }]}>{reclaimOffer.rung.label}</Text>
+                    <Text style={[type.body, { color: colors.amber }]}>{reclaimOffer.rhythm.title}</Text>
                     {/* Shares, not the raw shortfall. Shortfall is tenths of
                         a percentage point and rounded to a whole number it
                         said "the furthest behind — 0 points short", which is
@@ -1646,7 +1646,7 @@ export default function TimeReality() {
                       and no rhythm here yet.
                     </Text>
                   </View>
-                  <Chip label={`${reclaimOffer.rung.recurring!.perWeek}/wk`} />
+                  <Chip label={`${reclaimOffer.rhythm.perWeek}/wk`} />
                 </Pressable>
             ) : null}
           </Card>

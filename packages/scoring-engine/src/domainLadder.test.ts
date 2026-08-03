@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { domainLadder, nextDomainAction, rhythmRungFor } from './domainLadder';
+import { domainLadder, nextDomainAction } from './domainLadder';
 
 const DOMAINS = [
   'career', 'health', 'finance', 'family', 'partner', 'children',
@@ -148,30 +148,13 @@ describe('the rungs that are rhythms, not errands', () => {
     }
   });
 
-  it('offers the sky a rhythm for any domain, never an errand', () => {
-    for (const domain of DOMAINS) {
-      const rung = rhythmRungFor(domain);
-      expect(rung).toBeTruthy();
-      expect(rung!.recurring).toBeTruthy();
-    }
-  });
-
-  it('does not offer back a rhythm someone already took up', () => {
-    expect(rhythmRungFor('family')).toBeTruthy();
-    expect(rhythmRungFor('family', ['Make the call a standing weekly thing'])).toBeNull();
-  });
-
-  it('stays quiet rather than inventing one, when the domain has none left', () => {
-    // Retired counts as taken — the caller passes retired titles too, and an
-    // ended rhythm handed back the next morning is the bug this guards.
-    const all = domainLadder('reflection').filter((r) => r.recurring).map((r) => r.title);
-    expect(rhythmRungFor('reflection', all)).toBeNull();
-  });
-
-  it('matches taken titles regardless of case and whitespace', () => {
-    expect(rhythmRungFor('finance', ['  WEEKLY money REVIEW  '])).toBeNull();
-  });
-
+  /**
+   * The rhythm lookup used to live here, reading the first rung a ladder
+   * happened to have marked recurring. Ladder rungs are written as buttons
+   * for a page that supplies the missing noun, so lifted onto a card on their
+   * own they read as generic — purpose offered "Give it a standing hour".
+   * Rhythms have their own catalog now; see `rhythms.test.ts`.
+   */
   it('still ends, now that three ladders are longer', () => {
     for (const domain of DOMAINS) {
       const all = domainLadder(domain).map((r) => r.title);

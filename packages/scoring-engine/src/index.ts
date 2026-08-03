@@ -29,6 +29,9 @@ export * from './activeHour';
 export * from './lifeStrategy';
 export * from './alignment';
 export * from './domainLadder';
+export * from './rhythms';
+export * from './relationshipSanity';
+export * from './feelings';
 
 // ---------------------------------------------------------------------------
 // Config

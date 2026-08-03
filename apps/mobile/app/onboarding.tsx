@@ -4,7 +4,15 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { deriveGoalTitle } from '@priority/scoring-engine';
+import {
+  deriveGoalTitle,
+  relationshipSanity,
+  relationshipBlocked,
+  defaultsForRelation,
+  asksAboutCalls,
+  parseAge,
+  feelingOptions,
+} from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { track } from '@/services/analytics';
 import { Button, Card, DomainDot, GapBar, Input, Label } from '@/components/ui';
@@ -31,7 +39,20 @@ const CADENCE_PER_YEAR: Record<string, number> = {
   daily: 365, weekly: 52, monthly: 12, quarterly: 4, yearly: 1,
 };
 const RELATIONS = ['mother', 'father', 'partner', 'sibling', 'friend', 'child'] as const;
-const FEELINGS = ['closer to people', 'calmer', 'present', 'proud of myself', 'lighter', 'more alive'] as const;
+
+/**
+ * Where they live, including the option the form never offered.
+ *
+ * `same_home` was supported everywhere else in the app and missing from the
+ * only screen most people would ever answer this on — so a partner or a child
+ * had to be filed as living in "the same city", and the People tab then
+ * measured the distance to someone in the next room.
+ */
+const PLACES = ['same_home', 'same_city', 'different_city', 'abroad'] as const;
+const PLACE_LABELS: Record<string, string> = {
+  same_home: 'same home', same_city: 'same city',
+  different_city: 'another city', abroad: 'abroad',
+};
 
 const QUESTION_STEPS = 7; // life context, rank, reality, drift, postponing, person, feeling
 
@@ -90,9 +111,81 @@ export default function Onboarding() {
   const [callFrequency, setCallFrequency] = useState<string>('monthly');
   const [desired, setDesired] = useState<string>('weekly');
   const [visitFrequency, setVisitFrequency] = useState<string>('quarterly');
+  /**
+   * Which of the person pickers the reader has actually touched.
+   *
+   * Picking "partner" should move the other answers somewhere plausible —
+   * same house, spoken to daily — because seven pickers that all open on the
+   * same default is a form, and seven that open somewhere sensible is a
+   * confirmation. But it must never overwrite an answer already given: the
+   * person who set "abroad" and then corrected the relation type would watch
+   * their own answer disappear.
+   */
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const pickRelation = (rel: string) => {
+    setPerson({ ...person, relationType: rel });
+    const d = defaultsForRelation(rel);
+    if (!touched.locationType) setLocationType(d.locationType);
+    if (!touched.callFrequency) setCallFrequency(d.callFrequency);
+    if (!touched.desired) setDesired(d.desiredCallFrequency);
+    if (!touched.visitFrequency) setVisitFrequency(d.inPersonFrequency);
+  };
+  const own = <T,>(field: string, set: (v: T) => void) => (v: T) => {
+    setTouched((t) => ({ ...t, [field]: true }));
+    set(v);
+  };
+
+  /**
+   * Not asked when they live in the same house, so not guessed at either —
+   * the honest answer for someone in the next room is "daily".
+   */
+  const effectiveCall = asksAboutCalls(locationType) ? callFrequency : 'daily';
+
+  /**
+   * Whether what they have told us about this person holds together.
+   *
+   * Age blocks: it is the input the visits-remaining, childhood-window and
+   * closing-window readings are all built on, and leaving it optional meant a
+   * People tab that silently counted nothing. Everything else is a note —
+   * allowed, and worth hearing while the answer is still on screen.
+   */
+  const personFindings = React.useMemo(() => relationshipSanity({
+    name: person.name,
+    relationType: person.relationType,
+    age: personAge,
+    userAge: parseAge(userAge),
+    locationType,
+    // Withheld when the question was not asked, so it cannot produce a note.
+    callFrequency: asksAboutCalls(locationType) ? callFrequency : null,
+    desiredCallFrequency: desired,
+    inPersonFrequency: visitFrequency,
+  }), [
+    person.name, person.relationType, personAge, userAge,
+    locationType, callFrequency, desired, visitFrequency,
+  ]);
+  const personBlocked = relationshipBlocked(personFindings);
+
   const [postponing, setPostponing] = useState('');
   const [postponingDomain, setPostponingDomain] = useState('');
   const [feeling, setFeeling] = useState<string>('');
+  /**
+   * The last question, asked in their own terms.
+   *
+   * By the time this step is reached the app has been told which parts of a
+   * life matter, which ones are drifting, and the name of one person. Offering
+   * the same six words to everyone was the app forgetting all of it on the
+   * final page — and "more alive" cannot be checked against anything a week
+   * later, where "closer to Amma" can.
+   */
+  const feelings = React.useMemo(
+    () => feelingOptions({ ranking, neglected, personName: person.name }),
+    [ranking, neglected, person.name],
+  );
+  /* A choice that is no longer on offer must not stay selected — changing the
+     ranking behind it would otherwise leave an answer nobody can see. */
+  useEffect(() => {
+    if (feeling && !feelings.includes(feeling)) setFeeling('');
+  }, [feelings, feeling]);
   const [style, setStyle] = useState<string>('balanced');
 
   const [reveal, setReveal] = useState<any>(null);
@@ -206,10 +299,10 @@ export default function Onboarding() {
           method: 'POST',
           body: {
             ...person,
-            age: personAge ? parseInt(personAge, 10) : undefined,
+            age: parseAge(personAge) ?? undefined,
             locationType,
             healthStatus: healthStatus || undefined,
-            callFrequency,
+            callFrequency: effectiveCall,
             desiredCallFrequency: desired,
             inPersonFrequency: visitFrequency,
             closenessScore: 9,
@@ -530,19 +623,24 @@ export default function Onboarding() {
                 />
               </View>
             </View>
-            <PickRow label="They are your" options={RELATIONS} value={person.relationType} onPick={(rel) => setPerson({ ...person, relationType: rel })} />
-            <PickRow label="How often do you wish you talked?" options={CADENCES} value={desired} onPick={setDesired} />
+            <PickRow label="They are your" options={RELATIONS} value={person.relationType} onPick={pickRelation} />
+            <PickRow label="How often do you wish you talked?" options={CADENCES} value={desired} onPick={own('desired', setDesired)} />
             {lane !== 'fast' && (
               <>
                 <PickRow
                   label="Where do they live?"
-                  options={['same_city', 'different_city', 'abroad'] as const}
-                  display={{ same_city: 'same city', different_city: 'another city', abroad: 'abroad' }}
+                  options={PLACES}
+                  display={PLACE_LABELS}
                   value={locationType}
-                  onPick={setLocationType}
+                  onPick={own('locationType', setLocationType)}
                 />
-                <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={setCallFrequency} />
-                <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={setVisitFrequency} />
+                {/* Not asked of someone in the next room, where the answer is
+                    "constantly", carries nothing, and is three taps of
+                    nothing. The People tab reads visits for these anyway. */}
+                {asksAboutCalls(locationType) && (
+                  <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={own('callFrequency', setCallFrequency)} />
+                )}
+                <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={own('visitFrequency', setVisitFrequency)} />
                 <View style={{ gap: space(2) }}>
                   <Label>How is their health these days? (optional)</Label>
                   <Text style={type.faint}>This only tunes the arithmetic. It never changes how Priority speaks to you.</Text>
@@ -556,8 +654,30 @@ export default function Onboarding() {
                 </View>
               </>
             )}
+
+            {/* What the answers add up to.
+                Blocks are arithmetic that cannot be true — a mother younger
+                than her child — and stated as the typos they are. Notes are
+                allowed and worth hearing now rather than in six weeks: asking
+                for less than you already do is a correct calculation with a
+                surprising result, and it switches this person off. */}
+            {personFindings.map((f) => (
+              <Text
+                key={f.key}
+                style={[
+                  type.faint,
+                  /* An empty field is not a mistake, it is a thing still to
+                     do. Only something typed and wrong is drawn in red. */
+                  f.level === 'block' && f.key !== 'age.missing' && { color: colors.rose },
+                  f.level === 'good' && { color: colors.amber },
+                ]}
+              >
+                {f.message}
+              </Text>
+            ))}
+
             {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
-            <Button title={nextTitle} onPress={next} disabled={busy || !person.name} />
+            <Button title={nextTitle} onPress={next} disabled={busy || !person.name.trim() || personBlocked} />
           </View>
         </>
       )}
@@ -567,7 +687,7 @@ export default function Onboarding() {
           <Text style={type.display}>One week from now…</Text>
           <Text style={type.dim}>If Priority works, how do you want to feel next {new Date(Date.now() + 7 * 86_400_000).toLocaleDateString(undefined, { weekday: 'long' })} evening?</Text>
           <View style={s.chips}>
-            {FEELINGS.map((f) => {
+            {feelings.map((f) => {
               const on = feeling === f;
               return (
                 <Pressable

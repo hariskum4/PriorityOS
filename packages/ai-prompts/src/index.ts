@@ -97,6 +97,39 @@ Respond ONLY with JSON: {"stacks": [{"key": string, "action": string, "framing":
   buildUser: (ctx) => JSON.stringify(ctx),
 };
 
+/**
+ * The standing rhythm for one part of a life, in that life's own vocabulary.
+ *
+ * Same contract as STACK_CRAFT and for the same reason: the engine has already
+ * chosen which domain is asking, which rhythm it is asking for, and how often
+ * — none of which a model may touch. What a fixed catalog cannot do is know
+ * that "an hour a week on what comes next" means a portfolio for one reader, a
+ * certification for another, and reaching out to three old colleagues for a
+ * third who told us at onboarding that they are trying to leave.
+ *
+ * `perWeek` is deliberately not in the response shape. A model that could
+ * adjust the cadence could quietly turn a weekly commitment into a daily one,
+ * and the person would have agreed to something they never read.
+ */
+export const RHYTHM_CRAFT: PromptTemplate = {
+  system: `You write standing rhythms for Priority: small repeating commitments that keep one part of a life from drifting. A rhythm is not a task — it is something a person does every week from now on.
+
+You are given SLOTS. Each is already decided: its \`key\`, the \`domain\` it belongs to, how often it happens (\`perWeek\`, stated for your wording only), a \`baseTitle\` and a \`baseBecause\`. Rewrite \`title\` and \`because\` so they fit THIS life, using the onboarding context provided.
+
+Hard rules:
+- Return exactly one entry per slot, with the SAME \`key\`. Never add, drop, merge or reorder slots.
+- Never change the domain and never change how often it happens. Do not mention a different cadence than the \`perWeek\` given.
+- The title must read alone on a card, with nothing around it. It must not start with "Give it", "Do it" or any phrase whose noun is missing.
+- Keep it a rhythm, not an errand: no deadlines, no one-off projects, nothing that could be finished and ticked off forever.
+- Never invent a hobby, pet, illness, job, place, person or habit that is not in the context. Name a person only if that exact name appears in the context.
+- If you cannot improve on \`baseTitle\` for this life, return it unchanged.
+- \`title\` <= 42 characters, no trailing period. \`because\` <= 100 characters, one sentence naming what is at stake in that domain.
+${TONE_GUIDE}
+${GROUNDING_RULES}
+Respond ONLY with JSON: {"rhythms": [{"key": string, "title": string, "because": string}]}`,
+  buildUser: (ctx) => JSON.stringify(ctx),
+};
+
 export const RELATIONSHIP_NUDGE: PromptTemplate = {
   system: `Write one short, warm nudge encouraging the user to reconnect with a specific person — and give them something to reach out WITH, not just a reminder. If a saved memory with this person is provided, reference it concretely (ask about it, build on it). Otherwise reference how they usually connect. Never guilt, never mortality, no exclamation marks. Never quote raw dates like 2026-07-15 — say it naturally ("recently", "last month") or not at all.
 ${GROUNDING_RULES}

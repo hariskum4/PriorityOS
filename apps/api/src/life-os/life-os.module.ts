@@ -6,6 +6,7 @@ import { LifeDocumentService } from './life-document.service';
 import { LifeTimelineService } from './life-timeline.service';
 import { LifeOrganismService } from './life-organism.service';
 import { StacksService } from './stacks.service';
+import { RhythmsService } from './rhythms.service';
 import { FocusService } from './focus.service';
 
 /**
@@ -19,10 +20,11 @@ import { FocusService } from './focus.service';
   providers: [
     LifeOsService, LifeOsJobs, LifeDocumentService,
     LifeTimelineService, LifeOrganismService, StacksService, FocusService,
+    RhythmsService,
   ],
   exports: [
     LifeOsService, LifeDocumentService, LifeTimelineService,
-    LifeOrganismService, StacksService, FocusService,
+    LifeOrganismService, StacksService, FocusService, RhythmsService,
   ],
 })
 export class LifeOsModule {}

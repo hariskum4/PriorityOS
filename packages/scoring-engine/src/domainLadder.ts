@@ -166,28 +166,6 @@ const LADDERS: Record<string, LadderRung[]> = {
   ],
 };
 
-/**
- * The standing rhythm a domain is still asking for, if it has one to give.
- *
- * Separate from `nextDomainAction` on purpose: that walks the ladder in order
- * and answers "what is the next thing here", which is right on a domain
- * screen where someone came to work. The sky asks a narrower question — this
- * part of the life has no rhythm at all, what is the one that would give it
- * one — and the answer must not be an errand.
- *
- * `taken` is habit titles, retired ones included. A rhythm someone ended is
- * not on offer again; if that was the domain's only one, the honest answer
- * here is null and the caller says nothing.
- */
-export function rhythmRungFor(
-  domainType: string,
-  taken: Iterable<string> = [],
-): LadderRung | null {
-  const norm = (s: string) => s.trim().toLowerCase();
-  const takenSet = new Set([...taken].map(norm));
-  return domainLadder(domainType).find((r) => r.recurring && !takenSet.has(norm(r.title))) ?? null;
-}
-
 /** Everything the ladder for a domain contains, in order. */
 export function domainLadder(domainType: string): LadderRung[] {
   return LADDERS[domainType] ?? LADDERS.reflection;

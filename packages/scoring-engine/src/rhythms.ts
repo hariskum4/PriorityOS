@@ -1,0 +1,333 @@
+/**
+ * The rhythms — what a standing commitment in each part of a life looks like.
+ *
+ * This exists because the sky was offering rhythms that did not sound like the
+ * domain they belonged to. Purpose asked you to "Give it a standing hour" —
+ * give *what* a standing hour? Career asked you to "Protect one evening a
+ * week", which is a good idea and is an instruction to work *less*, sitting
+ * under a heading that says career. Experiences offered "One new thing a
+ * week". Three domains, three lines that could have been shuffled between them
+ * without anyone noticing.
+ *
+ * The cause was structural rather than editorial. Rhythms were being read off
+ * the end of `domainLadder`, whose rungs are written as *button labels* for a
+ * domain screen where the surrounding page supplies the missing noun. Lifted
+ * out of that page and dropped onto a card on their own, they lost the thing
+ * they were about.
+ *
+ * So rhythms are their own catalog, with their own rules:
+ *
+ *   **Every title stands alone.** It has to make sense as the only line on a
+ *   card, with nothing around it but a domain colour.
+ *
+ *   **Every rhythm says what it is for.** `because` names the stake in that
+ *   domain's own terms. A rhythm that cannot say why it belongs to its domain
+ *   is the bug this file was written to fix.
+ *
+ *   **Every cadence is honest.** A habit's target is an integer per week, so
+ *   monthly and yearly commitments are not in here at all. Rather no rhythm
+ *   than one nobody could keep — the habit-tracker graveyard is full of apps
+ *   that asked for four times what a person agreed to.
+ *
+ * Deterministic and offline. A model may rephrase one of these for a
+ * particular life (see `rhythms.service.ts`); it never chooses which.
+ */
+
+export interface Rhythm {
+  /**
+   * Stable identity. Used for dedupe, for keying an AI rewrite, and never
+   * shown. Titles may be rephrased for a life; this may not.
+   */
+  key: string;
+  /** The habit title, and the line on the card. Must read alone. */
+  title: string;
+  /** Times per week. Integer, because the habit target is. */
+  perWeek: number;
+  /** Roughly what one occurrence costs. */
+  minutes: number;
+  /** Why this belongs to this domain, in that domain's own terms. */
+  because: string;
+}
+
+/**
+ * Three per domain, small to standing.
+ *
+ * Titles are matched case-insensitively against existing habits, retired ones
+ * included, so they have to stay stable — editing one re-offers it to everyone
+ * who already ended it. Add rather than rewrite.
+ */
+const RHYTHMS: Record<string, Rhythm[]> = {
+  career: [
+    {
+      key: 'career.next',
+      title: 'An hour a week on what comes next',
+      perWeek: 1, minutes: 60,
+      because: 'The work that gets you the next thing is never the work that is due today.',
+    },
+    {
+      key: 'career.deep',
+      title: 'One block nobody is allowed to interrupt',
+      perWeek: 2, minutes: 90,
+      because: 'Careers are built in the hours nobody interrupts, and those hours have to be taken.',
+    },
+    {
+      key: 'career.leave',
+      title: 'Leave on time one day a week',
+      perWeek: 1, minutes: 15,
+      because: 'A career that takes every evening has quietly stopped being a career.',
+    },
+  ],
+  health: [
+    {
+      key: 'health.move',
+      title: 'Move three times a week',
+      perWeek: 3, minutes: 40,
+      because: 'Nothing else on this list survives a body you stopped maintaining.',
+    },
+    {
+      key: 'health.strength',
+      title: 'One strength session a week',
+      perWeek: 1, minutes: 45,
+      because: 'Strength is most of what decides how the last twenty years feel.',
+    },
+    {
+      key: 'health.sleep',
+      title: 'Lights out at the same hour',
+      perWeek: 7, minutes: 5,
+      because: 'Sleep is the lever that moves every other one, and the cheapest to pull.',
+    },
+  ],
+  finance: [
+    {
+      key: 'finance.review',
+      title: 'Fifteen minutes on the money, weekly',
+      perWeek: 1, minutes: 15,
+      because: 'Money goes wrong quietly. Fifteen minutes a week is enough to hear it.',
+    },
+    {
+      key: 'finance.first',
+      title: 'Move something to savings first',
+      perWeek: 1, minutes: 10,
+      because: 'What is put away before the month starts is the part that survives it.',
+    },
+    {
+      key: 'finance.learn',
+      title: 'Read one thing about money',
+      perWeek: 1, minutes: 20,
+      because: 'The gap is rarely income. It is usually the thing nobody taught you.',
+    },
+  ],
+  family: [
+    {
+      key: 'family.call',
+      title: 'Call home, the same day every week',
+      perWeek: 1, minutes: 20,
+      because: 'Family drifts on no particular day, which is why it needs a particular day.',
+    },
+    {
+      key: 'family.ask',
+      title: 'Ask one thing you have never asked',
+      perWeek: 1, minutes: 15,
+      because: 'Your parents carry a whole life you have not heard, and it does not keep.',
+    },
+    {
+      key: 'family.hour',
+      title: 'An unhurried hour with them, weekly',
+      perWeek: 1, minutes: 60,
+      because: 'A standing hour beats a good intention, every single time.',
+    },
+  ],
+  partner: [
+    {
+      key: 'partner.evening',
+      title: 'One evening a week with phones away',
+      perWeek: 1, minutes: 120,
+      because: 'Partnership is not maintained by living in the same house.',
+    },
+    {
+      key: 'partner.ask',
+      title: 'Ask what they need this week',
+      perWeek: 1, minutes: 10,
+      because: 'What they need is rarely the thing you would have guessed.',
+    },
+    {
+      key: 'partner.specific',
+      title: 'Say the specific thing, weekly',
+      perWeek: 1, minutes: 5,
+      because: 'Specific is the difference between being appreciated and being told you are.',
+    },
+  ],
+  children: [
+    {
+      key: 'children.hour',
+      title: 'One undivided hour a week',
+      perWeek: 1, minutes: 60,
+      because: 'Children measure attention by whether the phone is in the room.',
+    },
+    {
+      key: 'children.ours',
+      title: 'A thing only the two of you do',
+      perWeek: 1, minutes: 45,
+      because: 'What they remember is the thing that was theirs.',
+    },
+    {
+      key: 'children.record',
+      title: 'Write down one thing they said',
+      perWeek: 1, minutes: 5,
+      because: 'You will not remember it, and it is the part you will most want back.',
+    },
+  ],
+  friends: [
+    {
+      key: 'friends.message',
+      title: 'Message one friend a week, whoever',
+      perWeek: 1, minutes: 10,
+      because: 'Friendships end from nothing happening, not from anything happening.',
+    },
+    {
+      key: 'friends.moved',
+      title: 'Call the one who moved away',
+      perWeek: 1, minutes: 20,
+      because: 'Distance does not end friendships. Silence does.',
+    },
+    {
+      key: 'friends.yes',
+      title: 'Say yes to one thing a week',
+      perWeek: 1, minutes: 60,
+      because: 'The invitations stop coming a while after they stop being taken.',
+    },
+  ],
+  growth: [
+    {
+      key: 'growth.daily',
+      title: 'Thirty minutes of learning, daily',
+      perWeek: 7, minutes: 30,
+      because: 'Half an hour a day is a new field in three years and nothing at all in one week.',
+    },
+    {
+      key: 'growth.hard',
+      title: 'An hour a week on the hard thing',
+      perWeek: 1, minutes: 60,
+      because: 'The thing you keep avoiding is usually the one that would move you.',
+    },
+    {
+      key: 'growth.teach',
+      title: 'Teach one thing you know, weekly',
+      perWeek: 1, minutes: 20,
+      because: 'You do not know it until you have had to say it out loud.',
+    },
+  ],
+  purpose: [
+    {
+      key: 'purpose.hour',
+      title: 'A standing hour on the project',
+      perWeek: 1, minutes: 60,
+      because: 'Creative work does not wait for a free weekend. It waits for a fixed hour.',
+    },
+    {
+      key: 'purpose.open',
+      title: 'Open the file, every day',
+      perWeek: 7, minutes: 15,
+      because: 'The hard part was never the hour. It is opening the file.',
+    },
+    {
+      key: 'purpose.show',
+      title: 'Show it to one person a week',
+      perWeek: 1, minutes: 20,
+      because: 'Work nobody sees quietly stops being work.',
+    },
+  ],
+  experiences: [
+    {
+      key: 'experiences.new',
+      title: 'One thing you have never done, weekly',
+      perWeek: 1, minutes: 60,
+      because: 'Years blur when they are made of the same week, repeated.',
+    },
+    {
+      key: 'experiences.yes',
+      title: 'Say yes to one invitation a week',
+      perWeek: 1, minutes: 90,
+      because: 'The good years turn out to be mostly other people’s plans.',
+    },
+    {
+      key: 'experiences.near',
+      title: 'One place near you, never visited',
+      perWeek: 1, minutes: 120,
+      because: 'Most of what you have not seen is within an hour of where you live.',
+    },
+  ],
+  reflection: [
+    {
+      key: 'reflection.quiet',
+      title: 'Five quiet minutes, daily',
+      perWeek: 7, minutes: 5,
+      because: 'A mind gets no maintenance window unless somebody makes one.',
+    },
+    {
+      key: 'reflection.page',
+      title: 'One honest page a week',
+      perWeek: 1, minutes: 20,
+      because: 'You find out what you think by writing it, not before.',
+    },
+    {
+      key: 'reflection.hour',
+      title: 'A weekly hour that is nobody else’s',
+      perWeek: 1, minutes: 60,
+      because: 'An hour belonging to no one else is the rarest thing in a full life.',
+    },
+  ],
+  impact: [
+    {
+      key: 'impact.hour',
+      title: 'An hour a week for someone who needs it',
+      perWeek: 1, minutes: 60,
+      because: 'The help that lands is the help that is regular.',
+    },
+    {
+      key: 'impact.answer',
+      title: 'Answer one person who asked',
+      perWeek: 1, minutes: 20,
+      because: 'Most people who need help have already asked someone, once.',
+    },
+    {
+      key: 'impact.bring',
+      title: 'Bring one other person into it',
+      perWeek: 1, minutes: 30,
+      because: 'What you do alone ends with you. What you hand over does not.',
+    },
+  ],
+};
+
+/** Everything a domain has to offer, in order. */
+export function rhythmsFor(domainType: string): Rhythm[] {
+  return RHYTHMS[domainType] ?? RHYTHMS.reflection;
+}
+
+/**
+ * The rhythm a domain is still asking for, if it has one left to give.
+ *
+ * `taken` is habit titles, retired ones included: a rhythm somebody ended is
+ * not offered back to them. When a domain's three are all spoken for the
+ * honest answer is null, and the caller says nothing rather than looping to
+ * the top and pretending the last six weeks did not happen.
+ */
+export function rhythmFor(domainType: string, taken: Iterable<string> = []): Rhythm | null {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const takenSet = new Set([...taken].map(norm));
+  return rhythmsFor(domainType).find((r) => !takenSet.has(norm(r.title))) ?? null;
+}
+
+/** Look one up by key — the merge path for an AI rewrite. */
+export function rhythmByKey(key: string): Rhythm | null {
+  for (const list of Object.values(RHYTHMS)) {
+    const hit = list.find((r) => r.key === key);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Every domain this catalog covers. */
+export function rhythmDomains(): string[] {
+  return Object.keys(RHYTHMS);
+}

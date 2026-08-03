@@ -16,6 +16,7 @@ import { LifeDocumentService } from './life-document.service';
 import { LifeTimelineService } from './life-timeline.service';
 import { LifeOrganismService } from './life-organism.service';
 import { StacksService } from './stacks.service';
+import { RhythmsService } from './rhythms.service';
 import { FocusService } from './focus.service';
 
 @UseGuards(JwtGuard)
@@ -27,6 +28,7 @@ export class LifeOsController {
     private timeline: LifeTimelineService,
     private organism: LifeOrganismService,
     private stacks: StacksService,
+    private rhythms: RhythmsService,
     private focusSvc: FocusService,
   ) {}
 
@@ -192,6 +194,20 @@ export class LifeOsController {
   stealTheTime(@CurrentUser() u: JwtUser, @Query('limit') limit?: string) {
     const n = Number(limit);
     return this.stacks.forUser(u.userId, Number.isFinite(n) ? Math.min(Math.max(n, 1), 6) : 3);
+  }
+
+  /**
+   * The standing rhythms each part of this life is still missing.
+   *
+   * The lens cards used to read these off the end of the domain ladder, whose
+   * rungs are written as buttons for a page that supplies the missing noun —
+   * so purpose offered "Give it a standing hour" and career offered an
+   * instruction to work less. Rhythms have their own catalog now, and this
+   * puts that catalog into the reader's own vocabulary.
+   */
+  @Get('rhythms')
+  missingRhythms(@CurrentUser() u: JwtUser) {
+    return this.rhythms.forUser(u.userId);
   }
 
   // ---- the timeline ------------------------------------------------------

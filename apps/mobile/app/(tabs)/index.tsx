@@ -29,7 +29,7 @@ import { levelProgress } from '@/theme';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
-import { rhythmRungFor } from '@priority/scoring-engine';
+import { rhythmFor } from '@priority/scoring-engine';
 
 /** Days each desired cadence represents — for the "people waiting" glance. */
 const CADENCE_DAYS: Record<string, number> = {
@@ -285,6 +285,30 @@ export default function Today() {
   });
 
   /**
+   * The rhythms each part of this life is still missing, in its own words.
+   *
+   * The catalog is twelve domains × three fixed sentences and cannot know that
+   * "an hour a week on what comes next" means three old colleagues for someone
+   * who wrote at onboarding that they are trying to get out, and a
+   * certification for someone who wants to stay and go deeper. Those answers
+   * were collected on day one and had never been read on this path.
+   *
+   * Prefetched for every domain rather than on tap, because a lens should open
+   * finished. The local catalog answers instantly from cached habits either
+   * way, so this only ever upgrades the wording.
+   */
+  const { data: craftedRhythms } = useQuery({
+    queryKey: ['life-rhythms'],
+    queryFn: () => api<{
+      rhythms: Array<{
+        key: string; domainType: string; title: string; perWeek: number; because: string;
+      }>;
+      source: 'ai' | 'catalog';
+    }>('/life-os/rhythms'),
+    staleTime: 30 * 60_000,
+  });
+
+  /**
    * Twelve weeks of sky, so the picture can show direction instead of only
    * position. Cheap, cached, and the screen is fully usable without it.
    */
@@ -442,6 +466,10 @@ export default function Today() {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['habits'] });
+      /* A domain that now holds a rhythm is no longer asking for one, so the
+         crafted set has to be re-cut around it. Without this the next lens
+         would still offer what was just agreed to. */
+      qc.invalidateQueries({ queryKey: ['life-rhythms'] });
       invalidate();
     },
   });
@@ -649,13 +677,22 @@ export default function Today() {
     const mine = (allHabits ?? []).filter((h: any) => h.domainType === picked);
     const active = mine.filter((h: any) => h.isActive !== false);
     if (active.length) return { kind: 'kept' as const, habits: active };
-    const rung = rhythmRungFor(picked, mine.map((h: any) => h.title));
-    return rung ? { kind: 'offer' as const, rung } : null;
+    /* The server's wording for this domain when it has one, the catalog's
+       otherwise. Identical choice either way — the engine picks the rhythm on
+       both sides and only the language differs — so an offline lens is a
+       plainer offer rather than a missing one. */
+    const crafted = (craftedRhythms?.rhythms ?? []).find((r: any) => (
+      r.domainType === picked && !mine.some((h: any) => (
+        h.title.trim().toLowerCase() === String(r.title).trim().toLowerCase()
+      ))
+    ));
+    const rhythm = crafted ?? rhythmFor(picked, mine.map((h: any) => h.title));
+    return rhythm ? { kind: 'offer' as const, rhythm } : null;
   })();
 
   /** Agreed to this session, before the refetch has caught up. */
   const justStartedHere = rhythmHere?.kind === 'offer'
-    && startedHere.includes(rhythmHere.rung.title);
+    && startedHere.includes(rhythmHere.rhythm.title);
 
   /**
    * The lens.
@@ -880,29 +917,35 @@ export default function Today() {
                     </Text>
                   </View>
                 ))
-              ) : startedHere.includes(rhythmHere.rung.title) ? (
+              ) : startedHere.includes(rhythmHere.rhythm.title) ? (
                 <Text style={[s.heldMore, { color: obs.brass }]}>
-                  Added — {rhythmHere.rung.recurring!.perWeek} a week, starting now.
+                  Added — {rhythmHere.rhythm.perWeek} a week, starting now.
                 </Text>
               ) : (
-                <Pressable
-                  disabled={startRhythm.isPending}
-                  onPress={() => {
-                    setStartedHere((p) => [...p, rhythmHere.rung.title]);
-                    startRhythm.mutate({
-                      domainType: picked!,
-                      title: rhythmHere.rung.title,
-                      perWeek: rhythmHere.rung.recurring!.perWeek,
-                    }, {
-                      onError: () => setStartedHere((p) => p.filter((t) => t !== rhythmHere.rung.title)),
-                    });
-                  }}
-                  style={({ pressed }) => [s.rhythmOffer, pressed && { opacity: 0.7 }]}
-                >
-                  <Ionicons name="repeat" size={14} color={obs.brass} />
-                  <Text style={[obsType.body, { flex: 1 }]}>{rhythmHere.rung.label}</Text>
-                  <Tick color={obs.brass}>{rhythmHere.rung.recurring!.perWeek}/wk</Tick>
-                </Pressable>
+                <>
+                  <Pressable
+                    disabled={startRhythm.isPending}
+                    onPress={() => {
+                      setStartedHere((p) => [...p, rhythmHere.rhythm.title]);
+                      startRhythm.mutate({
+                        domainType: picked!,
+                        title: rhythmHere.rhythm.title,
+                        perWeek: rhythmHere.rhythm.perWeek,
+                      }, {
+                        onError: () => setStartedHere((p) => p.filter((t) => t !== rhythmHere.rhythm.title)),
+                      });
+                    }}
+                    style={({ pressed }) => [s.rhythmOffer, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="repeat" size={14} color={obs.brass} />
+                    <Text style={[obsType.body, { flex: 1 }]}>{rhythmHere.rhythm.title}</Text>
+                    <Tick color={obs.brass}>{rhythmHere.rhythm.perWeek}/wk</Tick>
+                  </Pressable>
+                  {/* What this rhythm is for, in this domain's own terms. Its
+                      absence is what made three domains offer three lines that
+                      could have been swapped without anyone noticing. */}
+                  <Text style={s.heldMore}>{rhythmHere.rhythm.because}</Text>
+                </>
               )}
             </View>
           </Rise>
