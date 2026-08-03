@@ -6,6 +6,7 @@ import { LifeDocumentService } from './life-document.service';
 import { LifeTimelineService } from './life-timeline.service';
 import { LifeOrganismService } from './life-organism.service';
 import { StacksService } from './stacks.service';
+import { FocusService } from './focus.service';
 
 /**
  * The Life OS host module.
@@ -17,8 +18,11 @@ import { StacksService } from './stacks.service';
   controllers: [LifeOsController],
   providers: [
     LifeOsService, LifeOsJobs, LifeDocumentService,
-    LifeTimelineService, LifeOrganismService, StacksService,
+    LifeTimelineService, LifeOrganismService, StacksService, FocusService,
   ],
-  exports: [LifeOsService, LifeDocumentService, LifeTimelineService, LifeOrganismService, StacksService],
+  exports: [
+    LifeOsService, LifeDocumentService, LifeTimelineService,
+    LifeOrganismService, StacksService, FocusService,
+  ],
 })
 export class LifeOsModule {}

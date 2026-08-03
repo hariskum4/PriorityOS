@@ -18,11 +18,18 @@ import {
   Domain, DOMAINS, EngineContext, EngineRegistry, CycleResult,
   runCycleWith, cycleUsedProfound,
   decisionEngine, regretEngine, goalEngine, predictionEngine, knowledgeEngine,
-  domainGraph, LifeGraph, evaluateDecision, classifyCapture,
+  relationshipEngine, habitEngine, timeEngine,
+  domainGraph, personalGraph, LifeGraph, evaluateDecision, classifyCapture,
+  overdueRatio as relationshipOverdue, focusPlan, focusScore,
+  type RelationshipRecord, type HabitRecord, type ClosingWindow, type FocusPlan,
 } from '@priority/life-os';
 import {
   DomainType, LifeDomain, DOMAIN_TO_LIFE, LIFE_TO_DOMAIN, domainForRelationType,
 } from '@priority/types';
+import {
+  estimateTimeReality, lifeWindows, weeklyAllocation,
+  type HealthStatus, type LocationType,
+} from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { weekOf } from '../common/time';
 
@@ -43,6 +50,8 @@ const DOMAIN_MAP = DOMAIN_TO_LIFE as Record<string, Domain>;
 
 /** How many delivered observation ids to remember. Bounded on purpose. */
 const SEEN_WINDOW = 400;
+/** Trailing window for a rhythm's rate. Matches HabitsService exactly. */
+const RATE_WINDOW_DAYS = 28;
 /** Weeks of history handed to the trend engines. */
 const HISTORY_WEEKS = 16;
 
@@ -138,7 +147,14 @@ export class LifeOsService {
    */
   private readonly registry = new EngineRegistry()
     .register(regretEngine)
+    /* The moat, and for most of this product's life an empty slot: the
+       relationship graph is the one thing no competitor holds and no engine
+       was reading it. A job seeker with a friend two streets away was told to
+       mentor a stranger. */
+    .register(relationshipEngine)
+    .register(timeEngine)
     .register(goalEngine)
+    .register(habitEngine)
     .register(predictionEngine)
     .register(knowledgeEngine)
     .register(decisionEngine);
@@ -161,7 +177,7 @@ export class LifeOsService {
 
     const [
       user, prefs, domainRows, samples, goals, relationships,
-      journal, knowledge, decisions, answers, state,
+      journal, knowledge, decisions, habits, answers, state,
     ] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId } }),
       this.prisma.userPreferences.findUnique({ where: { userId } }),
@@ -187,6 +203,20 @@ export class LifeOsService {
       }),
       this.prisma.knowledgeItem.findMany({ where: { userId } }),
       this.prisma.decision.findMany({ where: { userId, status: 'open' } }),
+      /* Rhythms, with the trailing window the habit engine measures against.
+         The scoring engine has always known a habit's rate; the life model
+         never did, so it could see health starving and not notice that the
+         walk meant to feed it stopped three weeks ago. */
+      this.prisma.habit.findMany({
+        where: { userId, isActive: true },
+        include: {
+          logs: {
+            where: { completedAt: { gte: new Date(now.getTime() - RATE_WINDOW_DAYS * DAY_MS) } },
+            orderBy: { completedAt: 'desc' },
+            select: { completedAt: true },
+          },
+        },
+      }),
       this.prisma.onboardingAnswer.findMany({
         where: { userId, key: 'priorityRanking' },
       }),
@@ -281,6 +311,92 @@ export class LifeOsService {
         ageDays: Math.floor((now.getTime() - j.createdAt.getTime()) / DAY_MS),
       }));
 
+    // ---- the people, as the relationship engine reads them ---------------
+    const age = user.dob
+      ? Math.floor((now.getTime() - user.dob.getTime()) / (365.25 * DAY_MS))
+      : null;
+
+    const relationshipRecords: RelationshipRecord[] = relationships.map((r) => {
+      const last = r.contactLogs.length
+        ? r.contactLogs[r.contactLogs.length - 1].occurredAt
+        : r.lastContactAt;
+      /* Quality years, from the same engine the Time tab quotes, so the two
+         surfaces can never name different numbers for the same person. */
+      const window = r.age != null
+        ? estimateTimeReality({
+          personAge: r.age,
+          personLabel: r.name,
+          personHealthStatus: (r.healthStatus as HealthStatus) ?? undefined,
+          personLocationType: (r.locationType as LocationType) ?? undefined,
+          userWorkHoursPerWeek: user.workHoursPerWeek ?? undefined,
+          currentVisitsPerYear: 1,
+          region: user.country ?? undefined,
+        }).qualityYears
+        : null;
+      return {
+        id: r.id,
+        name: r.name,
+        relationType: r.relationType,
+        domain: DOMAIN_MAP[domainForRelationType(r.relationType)] ?? 'relationships',
+        closeness: Number(r.closenessScore ?? 5),
+        desiredCadence: r.desiredCallFrequency,
+        lastContactAt: last ?? null,
+        wantsMoreTime: r.wantsMoreTime,
+        windowYears: window,
+        healthConcern: r.healthStatus != null && r.healthStatus !== 'good',
+        momentsRecent: r.contactLogs.length,
+      };
+    });
+
+    // ---- rhythms ---------------------------------------------------------
+    const habitRecords: HabitRecord[] = habits.map((h) => {
+      const last = h.logs[0]?.completedAt ?? null;
+      return {
+        id: h.id,
+        title: h.title,
+        domain: DOMAIN_MAP[h.domainType] ?? 'health',
+        targetPerWeek: h.targetPerWeek,
+        perWeek: Math.round((h.logs.length / (RATE_WINDOW_DAYS / 7)) * 10) / 10,
+        windowDays: RATE_WINDOW_DAYS,
+        daysSinceKept: last ? Math.floor((now.getTime() - last.getTime()) / DAY_MS) : null,
+        createdAt: h.createdAt,
+      };
+    });
+
+    // ---- the week's budget, and what closes on its own schedule ----------
+    const freeHours = age != null
+      ? lifeWindows({ age, workHoursPerWeek: user.workHoursPerWeek ?? 45 }).freeTime.freeHoursPerWeek
+      : 0;
+    /* What the person's own ranking would need if every domain got its share.
+       Compared against the hours that exist, never against an ideal. */
+    const claimedHours = freeHours > 0
+      ? weeklyAllocation(
+        freeHours,
+        domainRows
+          .filter((d) => toNumber(d.importanceScore) > 0)
+          .map((d) => ({ domainType: d.domainType, importance: toNumber(d.importanceScore) })),
+      ).allotments.reduce((sum, a) => sum + a.hours, 0)
+      : 0;
+
+    /**
+     * The windows a season of focus is not allowed to postpone.
+     *
+     * Only people the app can actually say something about: an age it was
+     * given, and a window short enough to matter. Silence where it does not
+     * know, rather than a guess dressed as a warning.
+     */
+    const closingWindows: ClosingWindow[] = relationshipRecords
+      .filter((r) => r.windowYears != null)
+      .map((r) => ({
+        subjectId: `person:${r.id}`,
+        label: r.name,
+        domain: r.domain,
+        qualityYears: r.windowYears!,
+        because: r.healthConcern
+          ? `You told us their health has been a worry.`
+          : `Their age, and the pace you currently see them at.`,
+      }));
+
     // ---- goals ----------------------------------------------------------
     // Completed missions attached to a goal are its progress events; that is
     // already how the app records "something moved".
@@ -355,6 +471,13 @@ export class LifeOsService {
       priorObservations: [],
       data: {
         regret: { attentionHistory, contacts, unsaid, valueRanking },
+        relationship: { relationships: relationshipRecords },
+        habit: { habits: habitRecords },
+        time: {
+          freeHoursPerWeek: freeHours,
+          claimedHoursPerWeek: claimedHours,
+          closingWindows,
+        },
         goal: { goals: goalRecords },
         prediction: { attentionHistory, energyWeekly, contactGaps },
         knowledge: { items, targets },
@@ -396,6 +519,29 @@ export class LifeOsService {
       lastProfoundAt: state?.lastProfoundAt ?? null,
       seenObservationIds: (state?.seenObservationIds as string[]) ?? [],
     });
+
+    /**
+     * The declared season, applied.
+     *
+     * Reordering rather than filtering, and after the orchestrator rather than
+     * inside it: a season changes which of today's true things is said first,
+     * and is not allowed to change what is true or to suppress anything. A
+     * quietened domain holding something genuinely urgent still surfaces —
+     * `focusScore` narrows the odds, it does not close the door.
+     */
+    const plan = await this.focusPlanFor(userId, context, now);
+    if (plan && !plan.expired) {
+      const rank = (domain: Domain | null, i: number) =>
+        -focusScore(1000 - i, domain, plan);
+      result.proposals = [...result.proposals]
+        .map((p, i) => ({ p, k: rank(p.domain, i) }))
+        .sort((a, b) => a.k - b.k)
+        .map((x) => x.p);
+      result.observations = [...result.observations]
+        .map((o, i) => ({ o, k: rank(o.domain, i) }))
+        .sort((a, b) => a.k - b.k)
+        .map((x) => x.o);
+    }
 
     // A broken engine must never take down someone's morning, but it must not
     // pass unnoticed either.
@@ -439,9 +585,25 @@ export class LifeOsService {
   // The graph
   // -------------------------------------------------------------------------
 
-  /** This person's domain graph, at current standing. */
+  /**
+   * This person's graph — the people and rhythms in it, not only the domains.
+   *
+   * It used to return `domainGraph`: eight abstractions with the same fifteen
+   * edges for every user, which could say "career is reaching relationships"
+   * but never "the reason it reaches you is Amma, who is 66 and four months
+   * unheard-from". The second sentence is the product.
+   */
   async graphFor(userId: string): Promise<LifeGraph> {
-    const ctx = await this.buildContext(userId);
+    return this.graphFromContext(await this.buildContext(userId));
+  }
+
+  /**
+   * The same graph, from a context already assembled.
+   *
+   * Split out because the cycle needs both and `buildContext` is the expensive
+   * call — running it twice to draw one graph was a real cost on the hot path.
+   */
+  graphFromContext(ctx: EngineContext): LifeGraph {
     const present = new Set(ctx.domains.map((d) => d.domain));
     const states = DOMAINS
       .filter((d) => present.has(d))
@@ -455,7 +617,73 @@ export class LifeOsService {
             : s.attention;
         })(),
       }));
-    return domainGraph(states);
+
+    const rels = (ctx.data.relationship as { relationships: RelationshipRecord[] } | undefined)
+      ?.relationships ?? [];
+    const habitData = (ctx.data.habit as { habits: HabitRecord[] } | undefined)?.habits ?? [];
+    const goalData = (ctx.data.goal as { goals: Array<{ id: string; title: string; domain: Domain }> } | undefined)
+      ?.goals ?? [];
+
+    return personalGraph({
+      domains: states,
+      people: rels.map((r) => ({
+        id: r.id,
+        name: r.name,
+        domain: r.domain,
+        closeness: r.closeness,
+        overdueRatio: relationshipOverdue(r, ctx.now),
+        windowYears: r.windowYears,
+      })),
+      habits: habitData.map((h) => ({
+        id: h.id,
+        title: h.title,
+        domain: h.domain,
+        keptRate: h.targetPerWeek > 0
+          ? Math.round(Math.min(h.perWeek / h.targetPerWeek, 1.5) * 100)
+          : 100,
+      })),
+      goals: goalData.map((g) => ({
+        id: g.id, title: g.title, domain: g.domain, momentum: 50,
+      })),
+    });
+  }
+
+  /**
+   * The season this person declared, as a plan — or null when none is running.
+   *
+   * Lives here rather than only in FocusService so the cycle can reorder
+   * without a second full context build, and so both callers get the same
+   * floor: what a focus may not postpone is read off the Time engine's own
+   * closing windows, never recomputed alongside it.
+   */
+  async focusPlanFor(
+    userId: string,
+    ctx: EngineContext,
+    now: Date,
+  ): Promise<FocusPlan | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { focusDomain: true, focusUntil: true, focusStartedAt: true, focusReason: true },
+    });
+    if (!user?.focusDomain || !user.focusUntil) return null;
+    const domain = user.focusDomain as Domain;
+    if (!DOMAINS.includes(domain)) return null;
+
+    const closingWindows =
+      (ctx.data.time as { closingWindows?: ClosingWindow[] } | undefined)?.closingWindows ?? [];
+
+    return focusPlan({
+      focus: {
+        domain,
+        startedAt: user.focusStartedAt ?? now,
+        until: user.focusUntil,
+        reason: user.focusReason ?? undefined,
+      },
+      now,
+      domains: ctx.domains.map((d) => d.domain),
+      closingWindows,
+      graph: this.graphFromContext(ctx),
+    });
   }
 
   /**

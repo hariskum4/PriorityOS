@@ -479,6 +479,97 @@ are easy to get wrong —
   off the offer made the row silently vanish on tap, which is what a failure
   looks like.
 
+# 9d. The kernel's engines, and the graph of one life
+
+`packages/life-os` declares fourteen engine slots. For most of this product's
+life **five were filled** — and the empty ones included `relationship`, which
+is the only thing in this app no competitor has.
+
+The cost was measurable. A job seeker built as a test — career at importance
+88, attention 0, a friend two streets away and a father of 74 — was offered
+*"Mentor someone for one hour a month"*, *"Read about money for the length of
+one commute"* (they had no commute) and no mission at all. The engine that
+could have said "call your father" was not registered.
+
+`relationship`, `time` and `habit` are now live. Design notes worth keeping:
+
+- **The relationship engine speaks about one person per cycle.** Fourteen
+  overdue friendships is a list, and a list is what makes someone close the
+  app. It ranks by closeness and lateness and *never lets either reach the
+  copy* — nobody is told where they came in a ranking of people.
+- **Lateness is measured against the cadence the person chose**, not a house
+  default. A fortnight is nothing for a quarterly friend and a long time for a
+  parent called daily; an engine that cannot tell those apart nags the wrong
+  person every time.
+- **The habit engine never reports a miss.** A stopped rhythm is described as
+  the wrong *size* — the proposal halves it — because streak-shame is the
+  documented cause of the what-the-hell effect (§2 of RESEARCH_NOTES). It also
+  says when something is being *kept*, since success is otherwise met with
+  silence.
+- **The time engine owns the constraint** — an impossible week is stated as a
+  sum, not a shortcoming — and it computes `nonPostponable()`, the windows that
+  close whether or not anyone is paying attention. That list is the floor
+  Focus is not allowed to overrule.
+
+## The graph holds people now
+
+`NodeKind` has always allowed `person`, `goal`, `habit`, `place`. Only `domain`
+nodes were ever built, so an entire life was eight abstractions joined by the
+same fifteen edges for every user — the population's graph wearing someone's
+name. `personalGraph()` adds the rest, with edges in **both directions**:
+losing touch with Amma *is* family drifting, and a starved family domain is how
+someone stops calling. One direction makes a taxonomy; both make a model.
+
+The difference is what an explanation can now say:
+
+```
+career → relationships : "Work rarely asks permission before taking evenings."
+relationships → Divya  : "When relationships goes quiet, Divya is usually
+                          who stops hearing from you."
+```
+
+A person's standing decays as a reciprocal of how overdue they are, never to
+zero. A linear penalty was tried first and saturated — every person who had
+not been logged in a while sat at exactly 0, and a graph where everyone scores
+the same cannot rank anything.
+
+# 9e. Focus — a declared season, and what it may not postpone
+
+`suggestSeason` picked a 90-day emphasis and nothing downstream read it: the
+app chose it, it had no end date, and it was not persisted. Focus is the
+version a person declares and the system obeys.
+
+The naive form of this feature — pick a domain, grey out the other eleven — is
+the app endorsing exactly the imbalance it exists to detect. Four properties
+separate it from a filter:
+
+1. **It re-weights, never zeroes.** Everything quietened keeps about a third of
+   its place. The focus/dimmed ratio is ~4.5×, and that number is load-bearing:
+   the first attempt used 1.9 against 0.2, and at that spread something *nine
+   times* more urgent in a quietened domain still lost to a routine task in the
+   chosen one. That is silencing wearing the word "quietening".
+2. **It ends.** `focusUntil` is required and refused outside 7–365 days. A
+   season with no end is neglect with a nicer name.
+3. **It prices the trade before it is agreed to**, in the person's own hours —
+   *"finances goes from about 23h a week to 8h, for 13 weeks, deliberately"* —
+   via `GET /life-os/focus/preview`.
+4. **It cannot postpone what will not wait.** Two sources of protection: the
+   time engine's closing windows, and the graph itself. A career season cannot
+   quieten relationships, because `career → relationships` is −0.5 in the
+   influence model — a focus known to take from somewhere may not also silence
+   the warning about it. The reason shown is read off the edge, never generated.
+
+Verified end to end: choosing career ranks the career proposal first **and
+leaves "Call Appa — not a text" on the screen**, because his window is five
+years and protection outranks the season.
+
+**On replacing this with LLM agents:** the kernel contract already rules it
+out — *"explain why is a data lookup and not a second LLM call that might
+invent a reason"*. Determinism is a product feature here ("the same context
+always produces the same day"), the 700+ engine tests exist because engines are
+pure functions, and the app is offline-first. The LLM's correct job is the one
+it already has: narrating over the deterministic model in `ai-prompts`.
+
 # 10. AI Engine
 
 Use **hybrid intelligence**:

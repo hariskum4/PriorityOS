@@ -262,3 +262,154 @@ export function domainGraph(states: Array<{ domain: Domain; state: number }>): L
   const edges = DEFAULT_DOMAIN_EDGES.filter((e) => known.has(e.from) && known.has(e.to));
   return LifeGraph.from(nodes, edges);
 }
+
+// ---------------------------------------------------------------------------
+// The graph of one life, rather than of lives in general
+// ---------------------------------------------------------------------------
+
+/**
+ * `NodeKind` has always allowed people, goals, habits and places. Until now
+ * only `domain` nodes were ever built, so an entire life reduced to eight
+ * abstractions with the same fifteen edges between them for every user — the
+ * population's graph wearing a person's name.
+ *
+ * That matters more here than anywhere else in the codebase. A domain-only
+ * graph can say "career is reaching relationships"; it cannot say "the reason
+ * this reaches you is Amma, who is 66 and four months unheard-from". The
+ * second sentence is the product.
+ */
+
+export interface GraphPerson {
+  id: string;
+  name: string;
+  /** Which part of the life this person mostly lives in. */
+  domain: Domain;
+  /** 0..10, as the People tab holds it. */
+  closeness: number;
+  /**
+   * How far past their own agreed rhythm they are. 1 = due, 2 = twice as long
+   * as agreed. Drives the node's standing, not the edge weight — a neglected
+   * relationship is not a weaker one.
+   */
+  overdueRatio?: number;
+  /** Quality-years left with them, when the time engine can say. */
+  windowYears?: number | null;
+}
+
+export interface GraphGoal {
+  id: string;
+  title: string;
+  domain: Domain;
+  /** 0..100 from the goal engine. */
+  momentum: number;
+}
+
+export interface GraphHabit {
+  id: string;
+  title: string;
+  domain: Domain;
+  /** 0..100 — kept against what was agreed. */
+  keptRate: number;
+}
+
+export interface PersonalGraphInput {
+  domains: Array<{ domain: Domain; state: number }>;
+  people?: GraphPerson[];
+  goals?: GraphGoal[];
+  habits?: GraphHabit[];
+}
+
+/** Closeness 10 is a load-bearing relationship; 1 is an acquaintance. */
+const CLOSENESS_TO_WEIGHT = 0.07;
+/** A goal pulls on its domain about as hard as it is actually moving. */
+const GOAL_WEIGHT = 0.45;
+/** A rhythm is the mechanism by which a domain gets fed at all. */
+const HABIT_WEIGHT = 0.5;
+
+const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1);
+const clampState = (n: number) => Math.round(Math.min(Math.max(n, 0), 100));
+
+/**
+ * The whole life as a graph: domains, and the people, goals and rhythms that
+ * actually constitute them.
+ *
+ * Edges run both ways on purpose. A person influences their domain (losing
+ * touch with Amma *is* family drifting) and the domain influences the person
+ * (a starved family domain is how someone stops calling). One direction alone
+ * makes the graph a taxonomy; both make it a model.
+ */
+export function personalGraph(input: PersonalGraphInput): LifeGraph {
+  const nodes: GraphNode[] = input.domains.map((s) => ({
+    id: s.domain,
+    kind: 'domain',
+    label: s.domain,
+    domain: s.domain,
+    state: clampState(s.state),
+  }));
+  const domainIds = new Set(nodes.map((n) => n.id));
+  const edges: GraphEdge[] = DEFAULT_DOMAIN_EDGES.filter(
+    (e) => domainIds.has(e.from) && domainIds.has(e.to),
+  );
+
+  for (const p of input.people ?? []) {
+    if (!domainIds.has(p.domain)) continue;
+    const id = `person:${p.id}`;
+    /**
+     * Standing is how well this particular tie is being kept — 1.0 overdue is
+     * exactly on rhythm, 2.0 is twice as long as they agreed to leave it.
+     *
+     * A reciprocal rather than a subtraction, because a linear penalty
+     * saturated: at a steep enough slope everyone who had not been logged in
+     * a while sat at exactly 0, and a graph where every person scores the same
+     * cannot rank anything. This decays and never quite reaches zero — which
+     * is also the truer statement about a relationship.
+     */
+    const overdue = Math.max(p.overdueRatio ?? 1, 1);
+    nodes.push({
+      id,
+      kind: 'person',
+      label: p.name,
+      domain: p.domain,
+      state: clampState(100 / (1 + (overdue - 1) * 0.9)),
+    });
+    const weight = clamp01(Math.max(p.closeness, 0) * CLOSENESS_TO_WEIGHT);
+    edges.push({
+      from: id,
+      to: p.domain,
+      weight,
+      rationale: `${p.name} is most of what ${p.domain} means to you.`,
+    });
+    edges.push({
+      from: p.domain,
+      to: id,
+      weight: weight * 0.8,
+      rationale: `When ${p.domain} goes quiet, ${p.name} is usually who stops hearing from you.`,
+    });
+  }
+
+  for (const g of input.goals ?? []) {
+    if (!domainIds.has(g.domain)) continue;
+    const id = `goal:${g.id}`;
+    nodes.push({ id, kind: 'goal', label: g.title, domain: g.domain, state: clampState(g.momentum) });
+    edges.push({
+      from: id,
+      to: g.domain,
+      weight: GOAL_WEIGHT,
+      rationale: `“${g.title}” is the thing you said would move ${g.domain}.`,
+    });
+  }
+
+  for (const h of input.habits ?? []) {
+    if (!domainIds.has(h.domain)) continue;
+    const id = `habit:${h.id}`;
+    nodes.push({ id, kind: 'habit', label: h.title, domain: h.domain, state: clampState(h.keptRate) });
+    edges.push({
+      from: id,
+      to: h.domain,
+      weight: HABIT_WEIGHT,
+      rationale: `“${h.title}” is how ${h.domain} actually gets fed, week to week.`,
+    });
+  }
+
+  return LifeGraph.from(nodes, edges);
+}

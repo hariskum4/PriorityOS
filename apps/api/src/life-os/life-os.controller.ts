@@ -6,7 +6,7 @@
  * all in the kernel, where it can be tested.
  */
 import {
-  Body, Controller, Get, Param, Patch, Post, Query, UseGuards,
+  Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards,
 } from '@nestjs/common';
 import { Domain } from '@priority/life-os';
 import { JwtGuard } from '../auth/jwt.guard';
@@ -16,6 +16,7 @@ import { LifeDocumentService } from './life-document.service';
 import { LifeTimelineService } from './life-timeline.service';
 import { LifeOrganismService } from './life-organism.service';
 import { StacksService } from './stacks.service';
+import { FocusService } from './focus.service';
 
 @UseGuards(JwtGuard)
 @Controller('life-os')
@@ -26,6 +27,7 @@ export class LifeOsController {
     private timeline: LifeTimelineService,
     private organism: LifeOrganismService,
     private stacks: StacksService,
+    private focusSvc: FocusService,
   ) {}
 
   /**
@@ -92,18 +94,72 @@ export class LifeOsController {
     return this.lifeOs.buildContext(u.userId);
   }
 
-  /** The domain influence graph at current standing. */
+  /**
+   * The influence graph at current standing — the whole of it.
+   *
+   * It used to return `ofKind('domain')` and the risks, with no edges at all,
+   * which made the graph impossible to inspect from outside: the couplings
+   * that are the entire point were computed, used, and never shown. Nodes now
+   * include the people, rhythms and goals the graph actually holds.
+   */
   @Get('graph')
   async graph(@CurrentUser() u: JwtUser) {
     const graph = await this.lifeOs.graphFor(u.userId);
+    const nodes = [
+      ...graph.ofKind('domain'),
+      ...graph.ofKind('person'),
+      ...graph.ofKind('goal'),
+      ...graph.ofKind('habit'),
+    ];
     return {
-      nodes: graph.ofKind('domain'),
+      nodes,
+      edges: nodes.flatMap((n) => graph.neighbours(n.id)),
       risks: graph.loadBearingRisks().map((r) => ({
         domain: r.node.id,
+        label: r.node.label,
         state: r.node.state,
         dependents: r.dependents,
       })),
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Focus — a declared season
+  // -------------------------------------------------------------------------
+
+  /** The season currently running, with what it is costing. Null when none. */
+  @Get('focus')
+  focus(@CurrentUser() u: JwtUser) {
+    return this.focusSvc.current(u.userId);
+  }
+
+  /**
+   * What choosing this would cost, without choosing it.
+   *
+   * The trade is priced before it is agreed to. Discovering six weeks later
+   * that a friendship went quiet is the failure this endpoint exists to stop.
+   */
+  @Get('focus/preview')
+  previewFocus(
+    @CurrentUser() u: JwtUser,
+    @Query('domain') domain: Domain,
+    @Query('days') days?: string,
+  ) {
+    return this.focusSvc.preview(u.userId, domain, days ? Number(days) : undefined);
+  }
+
+  @Post('focus')
+  chooseFocus(
+    @CurrentUser() u: JwtUser,
+    @Body() body: { domain: Domain; days?: number; reason?: string },
+  ) {
+    return this.focusSvc.choose(u.userId, body);
+  }
+
+  /** Ending one early is as legitimate as letting it run out. */
+  @Delete('focus')
+  endFocus(@CurrentUser() u: JwtUser) {
+    return this.focusSvc.end(u.userId);
   }
 
   /** Why one part of this life is reaching another. */

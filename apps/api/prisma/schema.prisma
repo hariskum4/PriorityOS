@@ -36,6 +36,14 @@ model User {
   workStartHour       Int?
   workEndHour         Int?
   commuteMinutes      Int?
+  // A declared season: one part of life the person chose to concentrate on,
+  // and the date it ends. `suggestSeason` picked one before this and nothing
+  // read it; a focus without an end date is neglect with a nicer name, so the
+  // two columns travel together and the system counts the second one down.
+  focusDomain         String?
+  focusUntil          DateTime?
+  focusStartedAt      DateTime?
+  focusReason         String?
   maritalStatus       String?
   childrenCount       Int       @default(0)
   livesAwayFromParents Boolean  @default(false)
