@@ -653,6 +653,10 @@ export default function Today() {
     return rung ? { kind: 'offer' as const, rung } : null;
   })();
 
+  /** Agreed to this session, before the refetch has caught up. */
+  const justStartedHere = rhythmHere?.kind === 'offer'
+    && startedHere.includes(rhythmHere.rung.title);
+
   /**
    * The lens.
    *
@@ -856,8 +860,14 @@ export default function Today() {
             <View style={s.held}>
               <View style={s.heldHead}>
                 <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
+                {/* The heading has to answer the tap too. It read
+                    `rhythmHere.kind`, which only flips once the refetch lands,
+                    so the moment after agreeing to a rhythm the panel said
+                    "No rhythm here yet" directly above "Added — 1 a week,
+                    starting now". A card contradicting itself reads as a
+                    failure, and the rhythm really had been created. */}
                 <Tick color={activeColor}>
-                  {rhythmHere.kind === 'kept' ? 'Rhythm here' : 'No rhythm here yet'}
+                  {rhythmHere.kind === 'kept' || justStartedHere ? 'Rhythm here' : 'No rhythm here yet'}
                 </Tick>
               </View>
               {rhythmHere.kind === 'kept' ? (

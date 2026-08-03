@@ -42,6 +42,15 @@ export interface DayShapeInput {
   /** Hour work begins, 0–23 in the person's own timezone. */
   workStartHour?: number | null;
   workEndHour?: number | null;
+  /**
+   * The week, as onboarding already collected it.
+   *
+   * Used to derive the length of a working day when nobody has said when work
+   * starts and stops. Assuming a flat nine-to-five for a person who told us
+   * they work sixty hours is the app ignoring an answer it already has — and
+   * for someone who said zero it invents a job they do not have.
+   */
+  workHoursPerWeek?: number | null;
   /** One way, in minutes. Ignored when work is remote. */
   commuteMinutes?: number | null;
   workType?: string | null;
@@ -138,13 +147,35 @@ function describeGap(minutes: number): string {
   return `${Math.round(minutes)} minutes`;
 }
 
+/**
+ * How long a working day is, when only the week is known.
+ *
+ * Spread over five days and capped at fourteen hours, because past that the
+ * arithmetic stops describing a day and starts describing a spreadsheet. Zero
+ * hours means no working day at all, which the shape then draws as free.
+ */
+function derivedWorkHours(perWeek: number | null | undefined): number | null {
+  if (absent(perWeek)) return null;
+  const n = Number(perWeek);
+  if (n <= 0) return 0;
+  return Math.min(Math.max(n / 5, 1), 14);
+}
+
 export function dayShape(input: DayShapeInput = {}): DayShape {
-  const isWorkday = input.isWorkday !== false;
   const remote = (input.workType ?? '').toLowerCase() === 'remote';
 
   const stated = input.workStartHour != null && input.workEndHour != null;
+  /* Their own week, before any house default. Someone who said sixty hours
+     should not be shown a nine-to-five, and someone who said zero should not
+     be shown a working day at all. */
+  const derivedHours = stated ? null : derivedWorkHours(input.workHoursPerWeek);
+  const noWorkAtAll = derivedHours === 0;
+  const isWorkday = input.isWorkday !== false && !noWorkAtAll;
+
   const workStart = clampHour(input.workStartHour, ASSUMED.workStart) * HOUR;
-  let workEnd = clampHour(input.workEndHour, ASSUMED.workEnd) * HOUR;
+  let workEnd = derivedHours != null && derivedHours > 0
+    ? workStart + Math.round(derivedHours * HOUR)
+    : clampHour(input.workEndHour, ASSUMED.workEnd) * HOUR;
   /* A shift ending before it starts is a night shift, not bad data. */
   if (workEnd <= workStart) workEnd += DAY_MINUTES;
 
@@ -265,7 +296,11 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   const assumptions = [
     stated
       ? `Built from the hours you gave: work ${formatSpan(workStart, workEnd)}${commute ? `, ${commute} minutes each way` : ''}`
-      : `No work hours set — this assumes ${formatSpan(ASSUMED.workStart * HOUR, ASSUMED.workEnd * HOUR)}`,
+      : noWorkAtAll
+        ? 'You said you are not working right now, so nothing here is blocked out for it'
+        : derivedHours != null
+          ? `Spread from the ~${Math.round(Number(input.workHoursPerWeek))}h week you gave — about ${Math.round(derivedHours)}h a day, guessed to start at ${formatClock(ASSUMED.workStart * HOUR)}. Set the hours if that is wrong`
+          : `No work hours set — this assumes ${formatSpan(ASSUMED.workStart * HOUR, ASSUMED.workEnd * HOUR)}`,
     'The shape of a typical working day, not a plan for today — nothing here knows about your meetings',
     'Sleep comes from your quiet hours',
   ];

@@ -822,6 +822,9 @@ export default function TimeReality() {
   const shape = dayShape({
     workStartHour: me.workStartHour,
     workEndHour: me.workEndHour,
+    /* Already answered at onboarding. Asking again for something the profile
+       holds is how a "three questions, once" card becomes a form. */
+    workHoursPerWeek: me.workHoursPerWeek,
     commuteMinutes: me.commuteMinutes,
     workType: me.workType,
     sleepHour: prefs?.quietHoursStart,
@@ -1088,15 +1091,22 @@ export default function TimeReality() {
                   <View style={{ flex: 1 }} />
                   <Pressable onPress={() => setEditingDay((v) => !v)}>
                     <Text style={[type.faint, { color: colors.amber }]}>
-                      {dayHoursKnown ? 'edit' : 'set hours'}
+                      {editingDay ? 'done' : dayHoursKnown ? 'adjust' : 'set hours'}
                     </Text>
                   </Pressable>
                 </View>
 
-                {editingDay || !dayHoursKnown ? (
+                {/* Collapsed unless asked for, even before anything is set.
+                    The shape is drawn from the week they already gave at
+                    onboarding, so three rows of chips greeting someone who has
+                    answered nothing new is a form where a read-out should be —
+                    and the card is worth reading before it is worth editing. */}
+                {editingDay ? (
                   <View style={{ gap: space(3) }}>
                     <Text style={type.faint}>
-                      Three things, once. Nothing to keep up to date afterwards.
+                      {dayHoursKnown
+                        ? 'Change these and the shape below moves with them.'
+                        : 'Only the start really matters — the length comes from the week you already gave.'}
                     </Text>
                     {([
                       { key: 'workStartHour', label: 'Work starts', opts: [6, 7, 8, 9, 10], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
@@ -1124,9 +1134,7 @@ export default function TimeReality() {
                         </View>
                       </View>
                     ))}
-                    {dayHoursKnown ? (
-                      <Button title="Done" small kind="ghost" onPress={() => setEditingDay(false)} />
-                    ) : null}
+                    <Button title="Done" small kind="ghost" onPress={() => setEditingDay(false)} />
                   </View>
                 ) : null}
 

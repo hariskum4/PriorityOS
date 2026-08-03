@@ -151,6 +151,42 @@ describe('it never claims to know more than it does', () => {
     expect(s.framingText).not.toMatch(/nothing left at all/);
   });
 
+  /**
+   * Onboarding asks how many hours a week someone works and nothing had ever
+   * read it here, so a person who said sixty was shown a nine-to-five and a
+   * person who said zero was shown a job they do not have.
+   */
+  it('derives the day from the week the person already gave', () => {
+    const long = dayShape({ workHoursPerWeek: 60, sleepHour: 23, wakeHour: 7, suggestion: null });
+    const work = long.blocks.find((b) => b.kind === 'work')!;
+    // 60/5 = 12h, starting from the assumed 9am.
+    expect(formatSpan(work.startMinutes, work.endMinutes)).toBe('9 am–9 pm');
+    expect(long.assumptions.join(' ')).toMatch(/~60h week/);
+  });
+
+  it('a shorter week gives a shorter day, not the same one', () => {
+    const short = dayShape({ workHoursPerWeek: 20, sleepHour: 23, wakeHour: 7, suggestion: null });
+    const work = short.blocks.find((b) => b.kind === 'work')!;
+    expect(formatSpan(work.startMinutes, work.endMinutes)).toBe('9 am–1 pm');
+  });
+
+  it('nobody who said they are not working gets a working day drawn', () => {
+    const none = dayShape({ workHoursPerWeek: 0, sleepHour: 23, wakeHour: 7, suggestion: null });
+    expect(kinds(none)).not.toContain('work');
+    expect(kinds(none)).not.toContain('commute');
+    expect(none.assumptions.join(' ')).toMatch(/not working right now/);
+  });
+
+  it('stated hours still beat the derived ones', () => {
+    const both = dayShape({
+      workStartHour: 7, workEndHour: 15, workHoursPerWeek: 60,
+      sleepHour: 23, wakeHour: 6, suggestion: null,
+    });
+    const work = both.blocks.find((b) => b.kind === 'work')!;
+    expect(formatSpan(work.startMinutes, work.endMinutes)).toBe('7 am–3 pm');
+    expect(both.basis).toBe('stated');
+  });
+
   it('an empty string is unset too', () => {
     const s = dayShape({
       workStartHour: '' as any, workEndHour: '' as any, suggestion: null,
