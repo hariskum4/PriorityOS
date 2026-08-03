@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, RefreshControl, StyleSheet,
-  Animated, PanResponder,
+  Animated, PanResponder, type GestureResponderHandlers,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -81,8 +81,14 @@ const DAY_TYPE_KEY = 'priority-day-type-v1';
 const NUDGE_KEY = 'priority-day-nudges-v1';
 const DURATION_KEY = 'priority-day-durations-v1';
 
-/** One step of "earlier" or "later". Big enough to matter, small enough to aim. */
-const NUDGE_STEP = 30;
+/**
+ * One step of "earlier" or "later".
+ *
+ * A quarter hour rather than a half, because this is the only stepper now and
+ * it has to be able to land on the time somebody actually means. Coarse moves
+ * are the drag's job.
+ */
+const TIME_STEP = 15;
 
 /** How long a thing might take. A call is rarely the fifteen minutes it costs to start. */
 const LENGTHS = [15, 30, 45, 60, 90, 120];
@@ -193,7 +199,11 @@ function DraggableBlock({
   block: DayBlock;
   offset: number;
   onMove: (offsetMinutes: number) => void;
-  children: React.ReactNode;
+  children: (drag: {
+    handlers: GestureResponderHandlers;
+    dragging: boolean;
+    preview: number | null;
+  }) => React.ReactNode;
 }) {
   const dy = useRef(new Animated.Value(0)).current;
   const [dragging, setDragging] = useState(false);
@@ -204,10 +214,23 @@ function DraggableBlock({
      would go on reporting the first render's start time forever. */
   const pan = useMemo(
     () => PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      /* A few pixels of travel before this takes over, so the card can still
-         be scrolled past with a finger that happens to start on a block. */
-      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 4,
+      /**
+       * These go on a grip, not on the whole block, and that is the point.
+       *
+       * A block that is draggable everywhere is fighting two other gestures
+       * for the same finger: the tap that opens its editor, and the scroll
+       * that carries the page. Claiming the responder on touch broke
+       * scrolling; claiming it on movement broke it differently; claiming it
+       * on the capture phase lost to the Pressable that had already taken it.
+       * All three are the same mistake — one surface asked to mean three
+       * things.
+       *
+       * A grip means exactly one thing, so it can take the responder the
+       * moment it is touched and never has to negotiate for it.
+       */
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => { setDragging(true); setPreview(block.startMinutes); },
       onPanResponderMove: (e, g) => {
         dy.setValue(g.dy);
@@ -230,18 +253,12 @@ function DraggableBlock({
 
   return (
     <Animated.View
-      {...pan.panHandlers}
       style={[
         { transform: [{ translateY: dy }] },
         dragging && { opacity: 0.9, zIndex: 10 },
       ]}
     >
-      {children}
-      {dragging && preview != null ? (
-        <Text style={[type.faint, { color: colors.amber, textAlign: 'center', paddingBottom: 4 }]}>
-          {formatClock(preview)} — let go to put it here
-        </Text>
-      ) : null}
+      {children({ handlers: pan.panHandlers, dragging, preview })}
     </Animated.View>
   );
 }
@@ -663,8 +680,8 @@ export default function TimeReality() {
         .catch(() => {});
     }
   };
-  /** Which row has its length picker open. One at a time. */
-  const [sizing, setSizing] = useState<string | null>(null);
+  /** Which placed thing is open for editing. One at a time. */
+  const [openBlock, setOpenBlock] = useState<string | null>(null);
 
   /**
    * Putting an hour on the record.
@@ -1531,14 +1548,19 @@ export default function TimeReality() {
                     one suggestion is the only thing drawn in brass. */}
                 <View style={{ gap: 2 }}>
                   {shape.blocks.map((b: DayBlock, i: number) => {
-                    const row = (
-                      <View
-                        style={[
-                          s.dayRow,
-                          b.kind === 'suggested' && s.dayRowOn,
-                          b.kind === 'sleep' && { opacity: 0.45 },
-                        ]}
-                      >
+                    const key = `${b.kind}-${b.startMinutes}-${i}`;
+                    /* By position rather than by clock. Both lists are built in
+                       time order, so the nth placed block is the nth placement
+                       by construction — where matching on `startMinutes` holds
+                       only until two things share a minute. */
+                    const p = b.kind === 'suggested'
+                      ? shape.placements[
+                        shape.blocks.slice(0, i).filter((x: DayBlock) => x.kind === 'suggested').length
+                      ]
+                      : undefined;
+
+                    const face = (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                         <Text style={[type.faint, s.dayTime]}>
                           {formatSpan(b.startMinutes, b.endMinutes)}
                         </Text>
@@ -1561,22 +1583,31 @@ export default function TimeReality() {
                             ))}
                           </View>
                         ) : null}
+                        {p ? (
+                          <Ionicons
+                            name={openBlock === p.key ? 'chevron-up' : 'chevron-down'}
+                            size={13}
+                            color={colors.textDim}
+                          />
+                        ) : null}
                       </View>
                     );
-                    const key = `${b.kind}-${b.startMinutes}-${i}`;
-                    /* Only the placed things move. Work, sleep and the hours
-                       that are already yours are facts about the day, and a
-                       fact that slides under a finger is a toy. */
-                    /* By position rather than by clock. Both lists are built in
-                       time order, so the nth placed block is the nth placement
-                       by construction — where matching on `startMinutes` holds
-                       only until two things share a minute. */
-                    const p = b.kind === 'suggested'
-                      ? shape.placements[
-                        shape.blocks.slice(0, i).filter((x: DayBlock) => x.kind === 'suggested').length
-                      ]
-                      : undefined;
-                    if (!p) return <React.Fragment key={key}>{row}</React.Fragment>;
+
+                    /* Only the placed things move or open. Work, sleep and the
+                       hours that are already yours are facts about the day, and
+                       a fact that slides under a finger is a toy. */
+                    if (!p) {
+                      return (
+                        <View key={key} style={[s.dayRow, b.kind === 'sleep' && { opacity: 0.45 }]}>
+                          {face}
+                        </View>
+                      );
+                    }
+
+                    const open = openBlock === p.key;
+                    const done = scheduled.includes(p.key);
+                    const mins = p.endMinutes - p.startMinutes;
+
                     return (
                       <DraggableBlock
                         key={key}
@@ -1584,7 +1615,99 @@ export default function TimeReality() {
                         offset={p.nudgedBy}
                         onMove={(offset) => moveTo(p.key, offset)}
                       >
-                        {row}
+                        {({ handlers, dragging, preview }) => (
+                        /* Everything about this hour, on the hour itself.
+                           The controls used to live in a second list below the
+                           day, which meant reading a row, finding its twin,
+                           and working on the copy — two places showing the
+                           same thing, and the one you could touch was not the
+                           one you were looking at. */
+                        <View style={[
+                          s.dayRow, s.dayRowOn,
+                          { flexDirection: 'column', alignItems: 'stretch', gap: space(3) },
+                          dragging && { borderColor: colors.amber },
+                        ]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            {/* The grip. Its only job is to be dragged, which
+                                is what lets it take the finger the instant it
+                                is touched without arguing with the tap or the
+                                scroll. */}
+                            <View {...handlers} style={s.grip}>
+                              <Ionicons name="reorder-two-outline" size={16} color={colors.textDim} />
+                            </View>
+                            <Pressable style={{ flex: 1 }} onPress={() => setOpenBlock(open ? null : p.key)}>
+                              {face}
+                            </Pressable>
+                          </View>
+                          {dragging && preview != null ? (
+                            <Text style={[type.faint, { color: colors.amber, textAlign: 'center' }]}>
+                              {formatClock(preview)} — let go to put it here
+                            </Text>
+                          ) : null}
+                          {open ? (
+                            <View style={s.blockEdit}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
+                                <Text style={[type.faint, { width: 46 }]}>Starts</Text>
+                                <Pressable
+                                  onPress={() => moveTo(p.key, p.nudgedBy - TIME_STEP)}
+                                  hitSlop={8}
+                                  style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
+                                >
+                                  <Ionicons name="chevron-back" size={13} color={colors.textDim} />
+                                </Pressable>
+                                <Text style={[type.body, { color: colors.amber, fontWeight: '700', minWidth: 74, textAlign: 'center' }]}>
+                                  {formatClock(p.startMinutes)}
+                                </Text>
+                                <Pressable
+                                  onPress={() => moveTo(p.key, p.nudgedBy + TIME_STEP)}
+                                  hitSlop={8}
+                                  style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
+                                >
+                                  <Ionicons name="chevron-forward" size={13} color={colors.textDim} />
+                                </Pressable>
+                                <Text style={type.faint}>or drag it</Text>
+                              </View>
+                              {/* The engine sizes a proposal by what it costs to
+                                  *start* — fifteen minutes for a call, because
+                                  the barrier is picking up the phone and not the
+                                  talking. Nobody rings their father for a quarter
+                                  of an hour, and the day should hold what was
+                                  really claimed. */}
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2), flexWrap: 'wrap' }}>
+                                <Text style={[type.faint, { width: 46 }]}>Takes</Text>
+                                {LENGTHS.map((n) => {
+                                  const on = mins === n;
+                                  return (
+                                    <Pressable
+                                      key={n}
+                                      onPress={() => setDuration(p.key, n)}
+                                      style={[s.chip, on && s.chipOn]}
+                                    >
+                                      <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                                        {n < 60 ? `${n}m` : `${n / 60}h`}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                              <Button
+                                small
+                                kind={done ? 'ghost' : 'primary'}
+                                disabled={done || scheduleBlock.isPending}
+                                title={done ? 'On your list' : 'Put it on the list'}
+                                onPress={() => scheduleBlock.mutate({
+                                  key: p.key,
+                                  action: p.action,
+                                  reason: p.reason,
+                                  domains: p.domains,
+                                  startMinutes: p.startMinutes,
+                                  minutes: mins,
+                                })}
+                              />
+                            </View>
+                          ) : null}
+                        </View>
+                        )}
                       </DraggableBlock>
                     );
                   })}
@@ -1597,83 +1720,6 @@ export default function TimeReality() {
                     a fact about next Tuesday, so it lives and dies with the
                     day. "Put it on the list" is the only thing here that
                     writes anything down. */}
-                {shape.placements.map((p) => {
-                  const done = scheduled.includes(p.key);
-                  const mins = p.endMinutes - p.startMinutes;
-                  return (
-                    <View key={p.key} style={{ gap: space(2) }}>
-                      <View style={s.dayControls}>
-                        <Text style={[type.faint, { flex: 1 }]} numberOfLines={1}>
-                          {formatClock(p.startMinutes)} · {p.action}
-                        </Text>
-                        {/* The same move as the drag, for a hand that would
-                            rather tap. Both go through the offset the engine
-                            reported, so neither can walk away from the day. */}
-                        <Pressable
-                          onPress={() => moveTo(p.key, p.nudgedBy - NUDGE_STEP)}
-                          hitSlop={8}
-                          style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
-                        >
-                          <Ionicons name="chevron-up" size={13} color={colors.textDim} />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => moveTo(p.key, p.nudgedBy + NUDGE_STEP)}
-                          hitSlop={8}
-                          style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
-                        >
-                          <Ionicons name="chevron-down" size={13} color={colors.textDim} />
-                        </Pressable>
-                        <Pressable
-                          onPress={() => setSizing(sizing === p.key ? null : p.key)}
-                          style={({ pressed }) => [s.chip, pressed && { opacity: 0.7 }]}
-                        >
-                          <Text style={type.faint}>{mins < 60 ? `${mins}m` : `${mins / 60}h`}</Text>
-                        </Pressable>
-                        <Pressable
-                          disabled={done || scheduleBlock.isPending}
-                          onPress={() => scheduleBlock.mutate({
-                            key: p.key,
-                            action: p.action,
-                            reason: p.reason,
-                            domains: p.domains,
-                            startMinutes: p.startMinutes,
-                            minutes: mins,
-                          })}
-                          style={({ pressed }) => [s.chip, done && s.chipOn, pressed && { opacity: 0.7 }]}
-                        >
-                          <Text style={[type.faint, done && { color: colors.amber, fontWeight: '700' }]}>
-                            {done ? 'on the list' : 'put it on the list'}
-                          </Text>
-                        </Pressable>
-                      </View>
-                      {/* How long it is actually going to take. The engine
-                          sizes a call by what it costs to start — fifteen
-                          minutes, because the barrier is picking up the phone.
-                          Nobody rings their father for a quarter of an hour,
-                          and the day should reserve what was really claimed. */}
-                      {sizing === p.key ? (
-                        <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap', paddingHorizontal: 9 }}>
-                          <Text style={[type.faint, { paddingTop: 7 }]}>How long:</Text>
-                          {LENGTHS.map((n) => {
-                            const on = mins === n;
-                            return (
-                              <Pressable
-                                key={n}
-                                onPress={() => { setDuration(p.key, n); setSizing(null); }}
-                                style={[s.chip, on && s.chipOn]}
-                              >
-                                <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
-                                  {n < 60 ? `${n}m` : `${n / 60}h`}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
-
                 <Text style={type.serif}>{shape.framingText}</Text>
                 <Text style={type.faint}>{dayNotes.join('. ')}.</Text>
               </Card>
@@ -2357,10 +2403,15 @@ const s = StyleSheet.create({
     backgroundColor: alpha(colors.amber, 0.06),
   },
   dayTime: { width: 96 },
-  /** One row of controls per placed thing — move it, or write it down. */
-  dayControls: {
-    flexDirection: 'row', alignItems: 'center', gap: space(2),
-    paddingHorizontal: 9,
+  /** The one surface on a block whose only meaning is "drag me". */
+  grip: {
+    width: 28, alignItems: 'center', justifyContent: 'center',
+    alignSelf: 'stretch', marginLeft: -4,
+  },
+  /** The editor that opens inside a placed block. */
+  blockEdit: {
+    gap: space(3), paddingTop: space(3),
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line,
   },
   nudge: {
     width: 26, height: 26, borderRadius: 13,
