@@ -1,5 +1,8 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, Pressable, RefreshControl, StyleSheet } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import {
+  View, Text, ScrollView, Pressable, RefreshControl, StyleSheet,
+  Animated, PanResponder,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -76,9 +79,24 @@ const CADENCE_DAYS: Record<string, number> = {
  */
 const DAY_TYPE_KEY = 'priority-day-type-v1';
 const NUDGE_KEY = 'priority-day-nudges-v1';
+const DURATION_KEY = 'priority-day-durations-v1';
 
 /** One step of "earlier" or "later". Big enough to matter, small enough to aim. */
 const NUDGE_STEP = 30;
+
+/** How long a thing might take. A call is rarely the fifteen minutes it costs to start. */
+const LENGTHS = [15, 30, 45, 60, 90, 120];
+
+/**
+ * How far a finger has to travel to move something by an hour.
+ *
+ * Two minutes to the pixel: a quarter of an hour is about eight, which is
+ * enough to feel deliberate and small enough that a whole evening is one
+ * comfortable swipe. Dragging snaps to the quarter hour, because nobody means
+ * 7:23.
+ */
+const MINUTES_PER_PX = 2;
+const DRAG_SNAP = 15;
 
 const DAY_TYPE_LABELS: Array<{ key: DayType; label: string }> = [
   { key: 'usual', label: 'usual' },
@@ -151,6 +169,80 @@ function Section({
       </Pressable>
       {open ? children : null}
     </View>
+  );
+}
+
+/**
+ * A placed thing you can pick up and move.
+ *
+ * The chevrons work and are the wrong primary gesture for a time: nobody
+ * thinks about their evening in units of "one tap earlier". Dragging is how
+ * every calendar anybody already uses says the same thing, so the block moves
+ * under the finger and shows the hour it will land on while it does.
+ *
+ * Deliberately not a proportional timeline. Laying the day out to scale is the
+ * usual way to make a drag mean something, and it would render a fifteen-minute
+ * call as an eight-pixel sliver with its reason unreadable — which is most of
+ * what this card is for. So the layout stays a readable list, the gesture maps
+ * travel to minutes at a fixed rate, and the live time is the feedback rather
+ * than the position. Released, the whole day re-forms around the new hour.
+ */
+function DraggableBlock({
+  block, offset, onMove, children,
+}: {
+  block: DayBlock;
+  offset: number;
+  onMove: (offsetMinutes: number) => void;
+  children: React.ReactNode;
+}) {
+  const dy = useRef(new Animated.Value(0)).current;
+  const [dragging, setDragging] = useState(false);
+  const [preview, setPreview] = useState<number | null>(null);
+
+  /* Rebuilt only when the anchor moves. A PanResponder captured in a ref
+     keeps the closure it was made with, so one built on the first render
+     would go on reporting the first render's start time forever. */
+  const pan = useMemo(
+    () => PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      /* A few pixels of travel before this takes over, so the card can still
+         be scrolled past with a finger that happens to start on a block. */
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 4,
+      onPanResponderGrant: () => { setDragging(true); setPreview(block.startMinutes); },
+      onPanResponderMove: (e, g) => {
+        dy.setValue(g.dy);
+        const step = Math.round((g.dy * MINUTES_PER_PX) / DRAG_SNAP) * DRAG_SNAP;
+        setPreview(block.startMinutes + step);
+      },
+      onPanResponderRelease: (_e, g) => {
+        const step = Math.round((g.dy * MINUTES_PER_PX) / DRAG_SNAP) * DRAG_SNAP;
+        dy.setValue(0);
+        setDragging(false);
+        setPreview(null);
+        if (step !== 0) onMove(offset + step);
+      },
+      onPanResponderTerminate: () => {
+        dy.setValue(0); setDragging(false); setPreview(null);
+      },
+    }),
+    [block.startMinutes, offset, onMove, dy],
+  );
+
+  return (
+    <Animated.View
+      {...pan.panHandlers}
+      style={[
+        { transform: [{ translateY: dy }] },
+        dragging && { opacity: 0.9, zIndex: 10 },
+      ]}
+    >
+      {children}
+      {dragging && preview != null ? (
+        <Text style={[type.faint, { color: colors.amber, textAlign: 'center', paddingBottom: 4 }]}>
+          {formatClock(preview)} — let go to put it here
+        </Text>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -515,17 +607,64 @@ export default function TimeReality() {
       .catch(() => {});
     return () => { alive = false; };
   }, [me?.id]);
-  const nudge = (key: string, byMinutes: number) => {
-    setNudges((prev) => {
-      const next = { ...prev, [key]: (prev[key] ?? 0) + byMinutes };
-      if (me?.id) {
-        AsyncStorage
-          .setItem(NUDGE_KEY, JSON.stringify({ userId: me.id, date: localDayKey(), nudges: next }))
-          .catch(() => {});
-      }
-      return next;
-    });
+  const saveNudges = (next: Record<string, number>) => {
+    setNudges(next);
+    if (me?.id) {
+      AsyncStorage
+        .setItem(NUDGE_KEY, JSON.stringify({ userId: me.id, date: localDayKey(), nudges: next }))
+        .catch(() => {});
+    }
   };
+  /**
+   * Move something to an offset, measured from where the shape would have put
+   * it — never by adding to what is already stored.
+   *
+   * Adding to the stored value looked identical and was not. Once a thing had
+   * been pushed past the end of the day the offset kept growing while the day
+   * kept clamping it, so the next three taps of "earlier" each subtracted from
+   * a number the day had already refused and nothing on screen moved. The
+   * caller passes the offset the engine reported actually taking effect, so
+   * every tap is one step from wherever the thing is really sitting.
+   */
+  const moveTo = (key: string, offsetMinutes: number) =>
+    saveNudges({ ...nudges, [key]: offsetMinutes });
+
+  /**
+   * How long each thing is actually going to take.
+   *
+   * The engine sizes a proposal by what it costs to *start* — fifteen minutes
+   * for a call, because the barrier is picking up the phone and not the
+   * talking. That is the right number for deciding to do it and the wrong one
+   * for a day: nobody rings their father for a quarter of an hour. Overriding
+   * it changes the arithmetic honestly, because the shape then reserves what
+   * was actually claimed and spaces the rest of the day around it.
+   */
+  const [durations, setDurations] = useState<Record<string, number>>({});
+  React.useEffect(() => {
+    if (!me?.id) return;
+    let alive = true;
+    AsyncStorage.getItem(DURATION_KEY)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        const saved = JSON.parse(raw);
+        if (saved?.userId === me.id && saved?.date === localDayKey() && saved?.durations) {
+          setDurations(saved.durations);
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [me?.id]);
+  const setDuration = (key: string, minutes: number) => {
+    const next = { ...durations, [key]: minutes };
+    setDurations(next);
+    if (me?.id) {
+      AsyncStorage
+        .setItem(DURATION_KEY, JSON.stringify({ userId: me.id, date: localDayKey(), durations: next }))
+        .catch(() => {});
+    }
+  };
+  /** Which row has its length picker open. One at a time. */
+  const [sizing, setSizing] = useState<string | null>(null);
 
   /**
    * Putting an hour on the record.
@@ -1035,7 +1174,11 @@ export default function TimeReality() {
       reason: st.reason || undefined,
       fromCycle: false,
     })),
-  ].filter((s, i, all) => all.findIndex((o) => o.action === s.action) === i);
+  ]
+    .filter((s, i, all) => all.findIndex((o) => o.action === s.action) === i)
+    /* Their length wins over the engine's sizing, so the day reserves what was
+       actually claimed and spaces everything else around it. */
+    .map((s) => (durations[s.key] ? { ...s, minutes: durations[s.key] } : s));
 
   const shape = dayShape({
     workStartHour: me.workStartHour,
@@ -1387,39 +1530,64 @@ export default function TimeReality() {
                 {/* The day as a column of blocks. Fixed things are quiet; the
                     one suggestion is the only thing drawn in brass. */}
                 <View style={{ gap: 2 }}>
-                  {shape.blocks.map((b: DayBlock, i: number) => (
-                    <View
-                      key={`${b.kind}-${b.startMinutes}-${i}`}
-                      style={[
-                        s.dayRow,
-                        b.kind === 'suggested' && s.dayRowOn,
-                        b.kind === 'sleep' && { opacity: 0.45 },
-                      ]}
-                    >
-                      <Text style={[type.faint, s.dayTime]}>
-                        {formatSpan(b.startMinutes, b.endMinutes)}
-                      </Text>
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <Text
-                          style={[
-                            type.body,
-                            b.kind === 'suggested' && { color: colors.amber, fontWeight: '600' },
-                            (b.kind === 'open' || b.kind === 'sleep') && type.dim,
-                          ]}
-                        >
-                          {b.label}
+                  {shape.blocks.map((b: DayBlock, i: number) => {
+                    const row = (
+                      <View
+                        style={[
+                          s.dayRow,
+                          b.kind === 'suggested' && s.dayRowOn,
+                          b.kind === 'sleep' && { opacity: 0.45 },
+                        ]}
+                      >
+                        <Text style={[type.faint, s.dayTime]}>
+                          {formatSpan(b.startMinutes, b.endMinutes)}
                         </Text>
-                        {b.note ? <Text style={type.faint}>{b.note}</Text> : null}
-                      </View>
-                      {b.domains?.length ? (
-                        <View style={{ flexDirection: 'row', gap: 3 }}>
-                          {b.domains.slice(0, 3).map((d: string) => (
-                            <DomainDot key={d} domain={d} size={7} />
-                          ))}
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <Text
+                            style={[
+                              type.body,
+                              b.kind === 'suggested' && { color: colors.amber, fontWeight: '600' },
+                              (b.kind === 'open' || b.kind === 'sleep') && type.dim,
+                            ]}
+                          >
+                            {b.label}
+                          </Text>
+                          {b.note ? <Text style={type.faint}>{b.note}</Text> : null}
                         </View>
-                      ) : null}
-                    </View>
-                  ))}
+                        {b.domains?.length ? (
+                          <View style={{ flexDirection: 'row', gap: 3 }}>
+                            {b.domains.slice(0, 3).map((d: string) => (
+                              <DomainDot key={d} domain={d} size={7} />
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                    const key = `${b.kind}-${b.startMinutes}-${i}`;
+                    /* Only the placed things move. Work, sleep and the hours
+                       that are already yours are facts about the day, and a
+                       fact that slides under a finger is a toy. */
+                    /* By position rather than by clock. Both lists are built in
+                       time order, so the nth placed block is the nth placement
+                       by construction — where matching on `startMinutes` holds
+                       only until two things share a minute. */
+                    const p = b.kind === 'suggested'
+                      ? shape.placements[
+                        shape.blocks.slice(0, i).filter((x: DayBlock) => x.kind === 'suggested').length
+                      ]
+                      : undefined;
+                    if (!p) return <React.Fragment key={key}>{row}</React.Fragment>;
+                    return (
+                      <DraggableBlock
+                        key={key}
+                        block={b}
+                        offset={p.nudgedBy}
+                        onMove={(offset) => moveTo(p.key, offset)}
+                      >
+                        {row}
+                      </DraggableBlock>
+                    );
+                  })}
                 </View>
 
                 {/* The controls, one row per placed thing.
@@ -1431,41 +1599,77 @@ export default function TimeReality() {
                     writes anything down. */}
                 {shape.placements.map((p) => {
                   const done = scheduled.includes(p.key);
+                  const mins = p.endMinutes - p.startMinutes;
                   return (
-                    <View key={p.key} style={s.dayControls}>
-                      <Text style={[type.faint, { flex: 1 }]} numberOfLines={1}>
-                        {formatClock(p.startMinutes)} · {p.action}
-                      </Text>
-                      <Pressable
-                        onPress={() => nudge(p.key, -NUDGE_STEP)}
-                        hitSlop={8}
-                        style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
-                      >
-                        <Ionicons name="chevron-up" size={13} color={colors.textDim} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => nudge(p.key, NUDGE_STEP)}
-                        hitSlop={8}
-                        style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
-                      >
-                        <Ionicons name="chevron-down" size={13} color={colors.textDim} />
-                      </Pressable>
-                      <Pressable
-                        disabled={done || scheduleBlock.isPending}
-                        onPress={() => scheduleBlock.mutate({
-                          key: p.key,
-                          action: p.action,
-                          reason: p.reason,
-                          domains: p.domains,
-                          startMinutes: p.startMinutes,
-                          minutes: p.endMinutes - p.startMinutes,
-                        })}
-                        style={({ pressed }) => [s.chip, done && s.chipOn, pressed && { opacity: 0.7 }]}
-                      >
-                        <Text style={[type.faint, done && { color: colors.amber, fontWeight: '700' }]}>
-                          {done ? 'on the list' : 'put it on the list'}
+                    <View key={p.key} style={{ gap: space(2) }}>
+                      <View style={s.dayControls}>
+                        <Text style={[type.faint, { flex: 1 }]} numberOfLines={1}>
+                          {formatClock(p.startMinutes)} · {p.action}
                         </Text>
-                      </Pressable>
+                        {/* The same move as the drag, for a hand that would
+                            rather tap. Both go through the offset the engine
+                            reported, so neither can walk away from the day. */}
+                        <Pressable
+                          onPress={() => moveTo(p.key, p.nudgedBy - NUDGE_STEP)}
+                          hitSlop={8}
+                          style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
+                        >
+                          <Ionicons name="chevron-up" size={13} color={colors.textDim} />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => moveTo(p.key, p.nudgedBy + NUDGE_STEP)}
+                          hitSlop={8}
+                          style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
+                        >
+                          <Ionicons name="chevron-down" size={13} color={colors.textDim} />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => setSizing(sizing === p.key ? null : p.key)}
+                          style={({ pressed }) => [s.chip, pressed && { opacity: 0.7 }]}
+                        >
+                          <Text style={type.faint}>{mins < 60 ? `${mins}m` : `${mins / 60}h`}</Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={done || scheduleBlock.isPending}
+                          onPress={() => scheduleBlock.mutate({
+                            key: p.key,
+                            action: p.action,
+                            reason: p.reason,
+                            domains: p.domains,
+                            startMinutes: p.startMinutes,
+                            minutes: mins,
+                          })}
+                          style={({ pressed }) => [s.chip, done && s.chipOn, pressed && { opacity: 0.7 }]}
+                        >
+                          <Text style={[type.faint, done && { color: colors.amber, fontWeight: '700' }]}>
+                            {done ? 'on the list' : 'put it on the list'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      {/* How long it is actually going to take. The engine
+                          sizes a call by what it costs to start — fifteen
+                          minutes, because the barrier is picking up the phone.
+                          Nobody rings their father for a quarter of an hour,
+                          and the day should reserve what was really claimed. */}
+                      {sizing === p.key ? (
+                        <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap', paddingHorizontal: 9 }}>
+                          <Text style={[type.faint, { paddingTop: 7 }]}>How long:</Text>
+                          {LENGTHS.map((n) => {
+                            const on = mins === n;
+                            return (
+                              <Pressable
+                                key={n}
+                                onPress={() => { setDuration(p.key, n); setSizing(null); }}
+                                style={[s.chip, on && s.chipOn]}
+                              >
+                                <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                                  {n < 60 ? `${n}m` : `${n / 60}h`}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      ) : null}
                     </View>
                   );
                 })}

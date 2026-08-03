@@ -530,6 +530,53 @@ describe('the reader can move a placement', () => {
     expect(a.placedIn).toEqual(b.placedIn);
   });
 
+  /**
+   * The number is the caller's only way to ask where a thing actually sits,
+   * and the caller adds its next step to it. Reported against the wrong
+   * origin, three taps of "earlier" moved nothing at all: the stored offset
+   * had been clamped away and each tap was adding to a number the day had
+   * already refused.
+   */
+  it('reports the move it actually made, not the one that was asked for', () => {
+    // 6–11pm holds an hour, so ten hours later clamps to a four-hour move.
+    const s = dayShape({
+      ...nineToFive, suggestion: { ...walkWithMum, key: 'walk' },
+      nudges: { walk: 10 * 60 },
+    });
+    expect(s.placements[0].nudgedBy).toBe(4 * 60);
+    // And feeding that back in, plus one step, lands exactly one step away.
+    const back = dayShape({
+      ...nineToFive, suggestion: { ...walkWithMum, key: 'walk' },
+      nudges: { walk: s.placements[0].nudgedBy - 30 },
+    });
+    expect(formatSpan(back.placedIn!.startMinutes, back.placedIn!.endMinutes))
+      .toBe('9:30 pm–10:30 pm');
+  });
+
+  it('measures a move that crossed into another stretch from where it began', () => {
+    const morningPerson = {
+      workStartHour: 12, workEndHour: 20, commuteMinutes: 0, workType: 'remote',
+      sleepHour: 23, wakeHour: 5,
+      suggestion: { ...walkWithMum, key: 'walk', minutes: 60 },
+    };
+    const moved = dayShape({ ...morningPerson, nudges: { walk: 15 * 60 } });
+    // 5am to 8pm is fifteen hours, and that is what it should report — not
+    // the nothing it moved within the evening stretch it landed in.
+    expect(moved.placements[0].nudgedBy).toBe(15 * 60);
+  });
+
+  it('is stable when its own answer is fed back to it', () => {
+    let nudge = 0;
+    for (let i = 0; i < 5; i++) {
+      const s = dayShape({
+        ...nineToFive, suggestion: { ...walkWithMum, key: 'walk' },
+        nudges: { walk: nudge },
+      });
+      nudge = s.placements[0].nudgedBy;
+    }
+    expect(nudge).toBe(0);
+  });
+
   it('survives a nonsense nudge', () => {
     for (const n of [NaN, Infinity, -Infinity, 1e9, 'later' as any]) {
       const s = dayShape({

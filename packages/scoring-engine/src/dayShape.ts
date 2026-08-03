@@ -489,10 +489,21 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
        free stretch moves it there rather than stopping at the edge of this
        one; the day is theirs, and "later" sometimes means after work. */
     const key = (s.key ?? s.action).trim();
+    /**
+     * Where it would have gone unaided, kept before anything moves it.
+     *
+     * `nudgedBy` used to be measured against `host.startMinutes` *after* the
+     * host had been reassigned, so a move that reached another free stretch
+     * reported its offset within the new one. The number is the caller's only
+     * way to ask "where is this actually sitting" — and a caller that adds its
+     * next step to a wrong answer walks the thing somewhere neither of them
+     * intended.
+     */
+    const naturalStart = startAt;
     const shift = Math.round(Number(nudges[key]) || 0);
     let nudgedBy = 0;
     if (shift) {
-      const target = startAt + shift;
+      const target = naturalStart + shift;
       const reachable = roomy.find(
         (g) => target >= g.startMinutes && target + need <= g.endMinutes,
       );
@@ -502,7 +513,7 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       } else {
         startAt = Math.min(Math.max(target, host.startMinutes), host.endMinutes - need);
       }
-      nudgedBy = startAt - (observedRoom ? observedAt! : host.startMinutes);
+      nudgedBy = startAt - naturalStart;
       if (nudgedBy !== 0) placedBy = 'front-of-gap';
     }
 
