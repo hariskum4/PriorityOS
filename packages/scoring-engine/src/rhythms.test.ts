@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { rhythmsFor, rhythmFor, rhythmByKey, rhythmDomains } from './rhythms';
+import {
+  rhythmsFor, rhythmFor, rhythmByKey, rhythmDomains, availableRhythms,
+} from './rhythms';
 
 const ALL = rhythmDomains();
 
@@ -127,6 +129,68 @@ describe('it stops rather than looping', () => {
   it('a rhythm someone ended is not handed back', () => {
     const ended = rhythmsFor('friends')[0].title;
     expect(rhythmFor('friends', [ended])?.title).not.toBe(ended);
+  });
+});
+
+/**
+ * Two surfaces create habits and they name the same promise differently.
+ * "Strength training twice a week" comes from the healthspan card; "One
+ * strength session a week" is the catalog's version of it. A title match
+ * cannot see that, so somebody lifting twice a week was being offered a
+ * strength rhythm as though they had none — the app failing to notice what
+ * they were already doing.
+ */
+describe('a commitment already kept under another name', () => {
+  const strengthRhythm = rhythmsFor('health').find((r) => r.key === 'health.strength')!;
+  const sleepRhythm = rhythmsFor('health').find((r) => r.key === 'health.sleep')!;
+
+  it('is not offered again from the catalog', () => {
+    const left = availableRhythms('health', ['Strength training twice a week']);
+    expect(left.map((r) => r.key)).not.toContain(strengthRhythm.key);
+  });
+
+  it('recognises the sleep lever too', () => {
+    const left = availableRhythms('health', ['Protecting 7–8 hours of sleep']);
+    expect(left.map((r) => r.key)).not.toContain(sleepRhythm.key);
+  });
+
+  it('still offers everything the lever does not cover', () => {
+    const left = availableRhythms('health', ['Strength training twice a week']);
+    expect(left.map((r) => r.key)).toContain('health.move');
+  });
+
+  it('leaves a domain with nothing left when every lever is kept', () => {
+    const left = availableRhythms('health', [
+      'Move three times a week',
+      'Strength training twice a week',
+      'Protecting 7–8 hours of sleep',
+    ]);
+    expect(left).toEqual([]);
+    expect(rhythmFor('health', [
+      'Move three times a week',
+      'Strength training twice a week',
+      'Protecting 7–8 hours of sleep',
+    ])).toBeNull();
+  });
+
+  it('does not suppress a rhythm that classifies as nothing', () => {
+    // "Move three times a week" is not one of the levers, so holding a lever
+    // must not quietly remove it.
+    const left = availableRhythms('health', ['Protecting 7–8 hours of sleep']);
+    expect(left.map((r) => r.key)).toContain('health.move');
+  });
+
+  it('applies to a generated rhythm as much as a catalog one', () => {
+    const generated = {
+      key: 'gen.health.lift', title: 'Lift weights on Tuesday and Friday',
+      perWeek: 2, minutes: 45, because: 'Because it is the lever that lasts',
+    };
+    const left = availableRhythms('health', ['Strength training twice a week'], [generated]);
+    expect(left.map((r) => r.key)).not.toContain('gen.health.lift');
+  });
+
+  it('is unaffected for somebody holding nothing', () => {
+    expect(availableRhythms('health')).toHaveLength(rhythmsFor('health').length);
   });
 });
 

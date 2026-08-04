@@ -34,6 +34,7 @@
  */
 
 import type { Setting } from './setting';
+import { classifyLever, type LeverKey } from './lifeStrategy';
 
 /**
  * Where in a day this kind of thing belongs.
@@ -360,7 +361,7 @@ export function rhythmsFor(domainType: string): Rhythm[] {
  * honest answer is null, and the caller says nothing rather than looping to
  * the top and pretending the last six weeks did not happen.
  */
-export function rhythmFor(
+export function availableRhythms(
   domainType: string,
   taken: Iterable<string> = [],
   /**
@@ -372,11 +373,49 @@ export function rhythmFor(
    * away, leaves a reader with exactly the app that shipped.
    */
   extra: Rhythm[] = [],
-): Rhythm | null {
+): Rhythm[] {
   const norm = (s: string) => s.trim().toLowerCase();
-  const takenSet = new Set([...taken].map(norm));
-  return [...extra, ...rhythmsFor(domainType)]
-    .find((r) => !takenSet.has(norm(r.title))) ?? null;
+  const takenTitles = [...taken];
+  const takenSet = new Set(takenTitles.map(norm));
+
+  /**
+   * Levers already being kept, whatever they happen to be called.
+   *
+   * This app creates habits from two places that name the same commitment
+   * differently. "Strength training twice a week" comes from the healthspan
+   * card; "One strength session a week" is the catalog's version of the same
+   * promise. Matching on the title cannot see that, so somebody lifting twice
+   * a week was being offered a strength rhythm as though they had none — the
+   * app not noticing what they were already doing, which is the fastest way
+   * to teach a reader it is not paying attention.
+   *
+   * The other direction has always worked: the healthspan card reads habits
+   * through this same classifier, so a catalog rhythm correctly marks its
+   * lever as held. Only the offering was blind.
+   */
+  const heldLevers = new Set(
+    takenTitles.map((t) => classifyLever(t)).filter(Boolean) as LeverKey[],
+  );
+
+  return [...extra, ...rhythmsFor(domainType)].filter((r) => {
+    if (takenSet.has(norm(r.title))) return false;
+    const lever = classifyLever(r.title);
+    return !lever || !heldLevers.has(lever);
+  });
+}
+
+/**
+ * The rhythm a domain is still asking for, if it has one left to give.
+ *
+ * The first of what is available — see `availableRhythms` for what "still
+ * has to give" actually means, which is more than a title comparison.
+ */
+export function rhythmFor(
+  domainType: string,
+  taken: Iterable<string> = [],
+  extra: Rhythm[] = [],
+): Rhythm | null {
+  return availableRhythms(domainType, taken, extra)[0] ?? null;
 }
 
 /**

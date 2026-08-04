@@ -75,8 +75,7 @@ export interface WeeklyAllocation {
   moveText: string | null;
 }
 
-import { rhythmsFor } from './rhythms';
-import { classifyLever } from './lifeStrategy';
+import { availableRhythms } from './rhythms';
 
 const MIN_HOURS = 0.5; // the "nothing at zero" floor
 
@@ -132,21 +131,6 @@ export function weeklyAllocation(
     held.set(c.domainType, row);
   }
 
-  const taken = new Set(takenTitles.map((t) => t.trim().toLowerCase()));
-  /**
-   * Levers already being kept, whatever they were called.
-   *
-   * The two habit-creating surfaces name the same commitment differently:
-   * "Strength training twice a week" from the healthspan card and "One
-   * strength session a week" from the catalog are one thing, and a title
-   * match cannot see it. Counting the catalog's copy as still on offer would
-   * credit somebody with room they would have to duplicate themselves to
-   * reach — and this number is the basis of a sentence telling them whether
-   * a gap can be closed at all.
-   */
-  const heldLevers = new Set(
-    takenTitles.map((t) => classifyLever(t)).filter(Boolean) as string[],
-  );
   let allotments: Allotment[] = active
     .map((w) => {
       const hours = roundHalf(MIN_HOURS + (remainder * w.importance) / weightSum);
@@ -155,12 +139,10 @@ export function weeklyAllocation(
       /* Everything the catalog still has for this domain, on top of what is
          already held. Nothing about the person's willingness — only what the
          app is in a position to offer them. */
-      const spare = rhythmsFor(w.domainType)
-        .filter((r) => !taken.has(r.title.trim().toLowerCase()))
-        .filter((r) => {
-          const lever = classifyLever(r.title);
-          return !lever || !heldLevers.has(lever);
-        })
+      /* The same "what is left" the offering itself uses, so the card can
+         never promise room that nothing would actually offer — including the
+         case where a lever is already being kept under a different name. */
+      const spare = availableRhythms(w.domainType, takenTitles)
         .reduce((s, r) => s + (r.perWeek * r.minutes) / 60, 0);
       return {
         domainType: w.domainType,
