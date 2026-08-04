@@ -164,11 +164,24 @@ export class OnboardingService {
     const topDomain = top3[0] ?? 'family';
     const topReality = currentReality[topDomain];
 
+    /**
+     * The opening line has to match the number it quotes.
+     *
+     * It used to say "that distance is the whole story" for every score,
+     * so someone who rated their top domain 5/5 was told their perfect
+     * score was a distance — two lines above a drift warning naming the
+     * same domain. A 5 is not a gap, and saying so is how the reader
+     * learns the app is reading their answers rather than reciting.
+     */
     const narrativeParts: string[] = [];
     narrativeParts.push(
-      typeof topReality === 'number'
-        ? `You put ${topDomain} first — and rated yourself ${topReality}/5 on actually living it. That distance is the whole story, and it's closable.`
-        : `You put ${topDomain} first. Priority's job is to make your weeks agree with that.`,
+      typeof topReality !== 'number'
+        ? `You put ${topDomain} first. Priority's job is to make your weeks agree with that.`
+        : topReality <= 2
+          ? `You put ${topDomain} first — and rated yourself ${topReality}/5 on actually living it. That distance is the whole story, and it's closable.`
+          : topReality >= 4
+            ? `You put ${topDomain} first, and you are already living it ${topReality}/5. That is worth protecting rather than fixing — the work is holding it there while the rest catches up.`
+            : `You put ${topDomain} first and rated it ${topReality}/5 — the honest middle, where most weeks sit. Priority's job is to move it.`,
     );
     if (postponing) {
       narrativeParts.push(`You told us what keeps sliding: "${postponing.slice(0, 70)}". Not someday — this week, one small step.`);
@@ -189,8 +202,14 @@ export class OnboardingService {
         headline: person ? `A plan with ${person} in it` : 'What you said, next to what you do',
         narrative: narrativeParts.join(' '),
         topPriorities: top3,
+        // "You flagged X" described a screen that no longer exists: drift is
+        // derived from the 1-5 scores now, so the warning quotes the number
+        // they actually gave. A domain they named without ranking has no
+        // score to quote, and is described as what it was — named.
         driftWarning: neglected.length
-          ? `You flagged ${neglected[0]} as drifting — that's the gap that compounds quietly. It gets first attention.`
+          ? typeof currentReality[neglected[0]] === 'number'
+            ? `You rated ${neglected[0]} ${currentReality[neglected[0]]}/5 — that's the gap that compounds quietly. It gets first attention.`
+            : `You named ${neglected[0]} as slipping — that's the gap that compounds quietly. It gets first attention.`
           /**
            * Day one has no drift DATA — which is not the same as no drift.
            * The old fallback ("nothing is drifting — rare, and worth

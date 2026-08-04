@@ -15,7 +15,7 @@ import { testPrisma, truncateAll } from './db';
 import { RelationshipsService } from '../src/relationships/relationships.service';
 import { MissionsService } from '../src/missions/missions.service';
 import { AuthJobsService } from '../src/auth/auth.jobs';
-import { normalizeDomains } from '../src/onboarding/onboarding.service';
+import { normalizeDomains, OnboardingService } from '../src/onboarding/onboarding.service';
 import { ttlToMs } from '../src/common/env';
 import { CreateRelationshipDto } from '../src/relationships/relationships.dto';
 import { CreateJournalEntryDto } from '../src/journal/journal.dto';
@@ -223,5 +223,64 @@ describe('refresh tokens die on schedule', () => {
     expect(ttlToMs('900', 0)).toBe(900_000); // bare number = seconds, as jsonwebtoken reads it
     expect(ttlToMs('nonsense', 123)).toBe(123);
     expect(ttlToMs(undefined, 123)).toBe(123);
+  });
+});
+
+/**
+ * The Life Reveal used to open with "rated yourself 5/5 on actually living
+ * it — that distance is the whole story" for every score, because the
+ * sentence was written for the drifting case and applied to all of them.
+ * Onboarding could also produce the score and the contradiction together:
+ * the old "what's drifting?" screen asked the same question the 1-5 scores
+ * had just answered, and nothing reconciled the two.
+ */
+describe('the reveal reads the number it quotes', () => {
+  const reveal = async (reality: Record<string, number>, neglected: string[] = []) => {
+    const svc = new OnboardingService(
+      prisma,
+      scoringStub as never,
+      { regenerateForUser: async () => {} } as never,
+      aiStub as never,
+      analyticsStub as never,
+    );
+    await svc.saveAnswers(userId, [
+      { section: 'values', key: 'priorityRanking', value: ['health', 'family', 'career'] },
+      { section: 'values', key: 'currentReality', value: reality },
+      { section: 'values', key: 'neglectedDomains', value: neglected },
+    ]);
+    return (await svc.complete(userId)).reveal as { narrative: string; driftWarning: string };
+  };
+
+  it('does not call a top score a distance', async () => {
+    const r = await reveal({ health: 5, family: 5, career: 5 });
+    expect(r.narrative).toContain('already living it 5/5');
+    expect(r.narrative).not.toContain('That distance is the whole story');
+  });
+
+  it('still names the gap when the score is genuinely low', async () => {
+    const r = await reveal({ health: 2, family: 4, career: 3 }, ['health']);
+    expect(r.narrative).toContain('2/5');
+    expect(r.narrative).toContain('That distance is the whole story');
+    expect(r.driftWarning).toContain('You rated health 2/5');
+  });
+
+  it('does not claim they flagged a screen that no longer exists', async () => {
+    const r = await reveal({ health: 1, family: 4, career: 3 }, ['health']);
+    expect(r.driftWarning).not.toContain('flagged');
+  });
+
+  it('describes an unscored slipping area as named, not rated', async () => {
+    const r = await reveal({ health: 4, family: 4, career: 3 }, ['friends']);
+    expect(r.driftWarning).toContain('You named friends as slipping');
+  });
+
+  it('calls the middle the middle', async () => {
+    const r = await reveal({ health: 3, family: 3, career: 3 });
+    expect(r.narrative).toContain('the honest middle');
+  });
+
+  it('a fully-lived top domain is never also the drift warning', async () => {
+    const r = await reveal({ health: 5, family: 5, career: 5 });
+    expect(r.driftWarning).not.toContain('health');
   });
 });

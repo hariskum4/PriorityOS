@@ -51,17 +51,29 @@ describe('weekEcho', () => {
 });
 
 describe('driftEcho', () => {
-  it('names the said-versus-lived gap when a top-3 domain drifts', () => {
+  it('names the said-versus-lived gap, citing the score they just gave', () => {
     const echo = driftEcho({
-      ranking: ['family', 'health', 'career'], neglected: ['health'], labelOf,
+      ranking: ['family', 'health', 'career'],
+      neglected: ['health'],
+      reality: { family: 4, health: 2, career: 3 },
+      labelOf,
     });
     expect(echo?.line).toContain('Health');
     expect(echo?.line).toContain('#2');
+    expect(echo?.line).toContain('2/5');
+  });
+
+  it('still reads without the scores to hand', () => {
+    const echo = driftEcho({
+      ranking: ['family', 'health'], neglected: ['health'], labelOf,
+    });
+    expect(echo?.line).toContain('#2');
+    expect(echo?.line).not.toContain('/5');
   });
 
   it('receives an unranked drift quietly, with a next step', () => {
     const echo = driftEcho({ ranking: ['family'], neglected: ['friends'], labelOf });
-    expect(echo?.line).toContain('the hard part');
+    expect(echo?.line).toContain('first small step');
     expect(echo?.line).not.toContain('#');
   });
 

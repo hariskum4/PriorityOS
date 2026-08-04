@@ -35,6 +35,7 @@ export * from './relationshipSanity';
 export * from './feelings';
 export * from './lifeQuestions';
 export * from './microReveals';
+export * from './drift';
 
 // ---------------------------------------------------------------------------
 // Config

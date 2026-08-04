@@ -66,39 +66,44 @@ export function weekEcho(input: WeekEchoInput): MicroReveal | null {
 
 export interface DriftEchoInput {
   ranking: string[];
+  /** Drifting domains, worst gap first — from `driftFromReality`. */
   neglected: string[];
+  /** The 1–5 scores, so the echo can cite the number they just gave. */
+  reality?: Record<string, number>;
   /** Display name for a domain key; keys are shown raw without it. */
   labelOf?: (domain: string) => string;
 }
 
 /**
- * Saying "family matters most" and "family is drifting" in the same
- * sitting is the entire diagnosis this product exists for — it should not
- * pass in silence. The general case gets a quieter receipt: naming a
- * drift is the hard part, and the person who just did it is owed the
- * assurance that something happens next.
+ * Ranking something first and then scoring it 2/5 is the entire diagnosis
+ * this product exists for — it should not pass in silence. The quieter
+ * case still gets a receipt: the person has just admitted something, and
+ * is owed the assurance that something happens next.
  */
 export function driftEcho(input: DriftEchoInput): MicroReveal | null {
   const { ranking, neglected } = input;
   if (neglected.length === 0) return null;
   const labelOf = input.labelOf ?? ((d: string) => d);
 
-  const highest = neglected
+  const top = neglected
     .map((d) => ({ d, idx: ranking.indexOf(d) }))
     .filter((x) => x.idx >= 0)
     .sort((a, b) => a.idx - b.idx)[0];
+  const score = top ? input.reality?.[top.d] : undefined;
 
-  if (highest && highest.idx <= 2) {
+  if (top && top.idx <= 2) {
     return {
-      line:
-        `You ranked ${labelOf(highest.d)} #${highest.idx + 1} and named it drifting in the same breath. ` +
-        `That gap — said versus lived — is exactly what Priority works on.`,
+      line: score
+        ? `You ranked ${labelOf(top.d)} #${top.idx + 1} and scored it ${score}/5. ` +
+          `That gap — said against lived — is exactly what Priority works on.`
+        : `${labelOf(top.d)} is #${top.idx + 1} for you and among the least lived. ` +
+          `That gap — said against lived — is exactly what Priority works on.`,
     };
   }
   return {
     line:
-      'Named, which is the hard part. Nothing on this list stays invisible from here — ' +
-      'each one gets a first small step, not a lecture.',
+      'Nothing here stays invisible from now on — each one gets a first small step, ' +
+      'not a lecture.',
   };
 }
 

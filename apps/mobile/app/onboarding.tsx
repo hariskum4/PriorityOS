@@ -18,6 +18,8 @@ import {
   somedayEcho,
   revealLedger,
   freeTimeBudget,
+  driftFromReality,
+  DRIFT_SCORE_MAX,
   type MicroReveal,
   type RevealLedger,
 } from '@priority/scoring-engine';
@@ -62,19 +64,25 @@ const PLACE_LABELS: Record<string, string> = {
   different_city: 'another city', abroad: 'abroad',
 };
 
-const QUESTION_STEPS = 7; // life context, rank, reality, drift, postponing, person, feeling
+const QUESTION_STEPS = 7; // life context, rank, reality+drift, postponing, person, feeling
 
 /**
  * Lanes (activation research: first value in <3 min ≈ 2x retention).
  *  - fast:   rank → one person → the someday check → Reveal. ~90 seconds.
- *  - full:   the original seven questions, for people who want depth now.
+ *  - full:   the depth questions, for people who want them now.
  *  - deepen: entered from Today after a fast start — only the skipped
  *            depth questions, then a regenerated (richer) Life Reveal.
+ *
+ * Step 4 used to sit between 3 and 5, asking which domains were drifting
+ * — the same question step 3 had just asked as a 1–5 score, with nothing
+ * reconciling the two answers. Drift is now derived from the scores, so
+ * the screen is gone rather than duplicated. Step numbers are unchanged
+ * on purpose: they key the saved answers and the analytics.
  */
 const LANES: Record<'fast' | 'full' | 'deepen', number[]> = {
   fast: [2, 6, 5],
-  full: [0.5, 1, 2, 3, 4, 5, 6, 7],
-  deepen: [0.5, 1, 3, 4, 7],
+  full: [0.5, 1, 2, 3, 5, 6, 7],
+  deepen: [0.5, 1, 3, 7],
 };
 
 const WORK_TYPES: Record<string, string> = {
@@ -126,7 +134,14 @@ export default function Onboarding() {
   const [awayFromParents, setAwayFromParents] = useState<string>('');
   const [ranking, setRanking] = useState<string[]>([]);
   const [reality, setReality] = useState<Record<string, number>>({}); // 1..5
-  const [neglected, setNeglected] = useState<string[]>([]);
+  /** Domains they never ranked but say are slipping — the only drift input. */
+  const [alsoSlipping, setAlsoSlipping] = useState<string[]>([]);
+  /**
+   * Drifting is not a separate answer — it is what a 1 or a 2 means. Asking
+   * again on its own screen let someone rate a domain 5/5 and then flag it
+   * as drifting, and the Life Reveal printed both.
+   */
+  const neglected = driftFromReality({ ranking, reality, alsoSlipping });
   const [person, setPerson] = useState({ name: '', relationType: 'mother' as string });
   const [personAge, setPersonAge] = useState<string>('');
   const [locationType, setLocationType] = useState<string>('different_city');
@@ -228,8 +243,8 @@ export default function Onboarding() {
     ? 0
     : workHours ? parseInt(workHours, 10) : null;
   const weekFact = weekEcho({ workHoursPerWeek: statedHours, workType });
-  const driftFact = driftEcho({ ranking, neglected, labelOf: domainLabel });
   const somedayFact = somedayEcho(postponing);
+  const driftFact = driftEcho({ ranking, neglected, reality, labelOf: domainLabel });
 
   const [reveal, setReveal] = useState<any>(null);
   const [insights, setInsights] = useState<any[]>([]);
@@ -393,15 +408,14 @@ export default function Onboarding() {
           </View>
           <Text style={[type.display, { textAlign: 'center' }]}>First, the honest part</Text>
           <Text style={[type.serif, { textAlign: 'center', color: colors.textDim }]}>
-            Three questions if you're in a hurry. Seven if you're not.{'\n'}
+            Three questions if you're in a hurry. Six if you're not.{'\n'}
             Either way, we show you the gap between the life you describe and the life your time describes.
           </Text>
           <View style={{ gap: space(3), marginTop: space(4) }}>
             {[
               ['briefcase-outline', 'Tell us how your weeks actually work'],
               ['podium-outline', 'Rank what actually matters to you'],
-              ['speedometer-outline', 'Score how you are living it today'],
-              ['trending-down-outline', 'Admit what has been drifting'],
+              ['speedometer-outline', 'Score how you are living each one today'],
               ['hourglass-outline', 'Name the thing you keep postponing'],
               ['heart-outline', 'Name one person you want to show up for'],
               ['sunny-outline', 'Choose how you want to feel in a week'],
@@ -565,17 +579,29 @@ export default function Onboarding() {
       {step === 3 && (
         <>
           <Text style={type.display}>And honestly — how are you living them?</Text>
-          <Text style={type.dim}>For each area you ranked: 1 means barely present in your weeks, 5 means fully lived.</Text>
+          <Text style={type.dim}>
+            For each area you ranked: 1 means barely present in your weeks, 5 means fully lived.
+            Anything at {DRIFT_SCORE_MAX} or below we'll treat as drifting — no need to tell us twice.
+          </Text>
           <View style={{ gap: space(4), marginVertical: space(3) }}>
             {ranking.map((d) => {
               const c = domainColor(d);
               const score = reality[d] ?? 0;
+              const drifting = score > 0 && score <= DRIFT_SCORE_MAX;
               return (
                 <View key={d} style={{ gap: space(2) }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <DomainDot domain={d} size={10} />
                     <Text style={type.heading}>{DOMAIN_LABELS[d]}</Text>
                     {score > 0 && <Text style={[type.faint, { color: c }]}>{score}/5</Text>}
+                    {/* The derivation, made visible: this is why the app will
+                        call it drifting later, shown at the moment it decides. */}
+                    {drifting && (
+                      <View style={s.driftTag}>
+                        <Ionicons name="trending-down" size={11} color={colors.rose} />
+                        <Text style={[type.faint, { color: colors.rose }]}>drifting</Text>
+                      </View>
+                    )}
                   </View>
                   <View style={{ flexDirection: 'row', gap: space(2) }}>
                     {[1, 2, 3, 4, 5].map((n) => (
@@ -599,43 +625,49 @@ export default function Onboarding() {
               );
             })}
           </View>
+
+          {/* The one thing the merged screen would otherwise lose: a domain
+              that never made the ranking but still nags. Kept to a row, not a
+              screen — nobody ranks twelve things and means all of them. */}
+          {ranking.length > 0 && (
+            <View style={{ gap: space(2) }}>
+              <Label>Anything else slipping?</Label>
+              <Text style={type.faint}>Areas you didn't rank, but that still nag at you. Optional.</Text>
+              <View style={s.chips}>
+                {DOMAINS.filter((d) => !ranking.includes(d)).map((d) => {
+                  const on = alsoSlipping.includes(d);
+                  return (
+                    <Pressable
+                      key={d}
+                      onPress={() => toggle(alsoSlipping, setAlsoSlipping, d, 2)}
+                      accessibilityRole="button"
+                      accessibilityLabel={DOMAIN_LABELS[d]}
+                      accessibilityState={{ selected: on }}
+                      style={({ pressed }) => [
+                        s.chip,
+                        on && s.chipRisk,
+                        pressed && { transform: [{ scale: 0.96 }] },
+                      ]}
+                    >
+                      {on && <Ionicons name="trending-down" size={13} color={colors.rose} />}
+                      <Text style={[type.body, on && { color: colors.rose, fontWeight: '700' }]}>
+                        {DOMAIN_LABELS[d]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* Constant key: mounts (and fades) once, then updates in place
+              rather than re-animating on every score change. */}
+          {driftFact && <EchoCard key="drift" echo={driftFact} />}
           <Button
             title={nextTitle}
             onPress={next}
             disabled={busy || ranking.some((d) => !reality[d])}
           />
-        </>
-      )}
-
-      {step === 4 && (
-        <>
-          <Text style={type.display}>What's drifting?</Text>
-          <Text style={type.dim}>The areas you keep saying "next month" about. This stays between us.</Text>
-          <View style={s.chips}>
-            {DOMAINS.map((d) => {
-              const on = neglected.includes(d);
-              return (
-                <Pressable
-                  key={d}
-                  onPress={() => toggle(neglected, setNeglected, d, 4)}
-                  style={({ pressed }) => [
-                    s.chip,
-                    on && s.chipRisk,
-                    pressed && { transform: [{ scale: 0.96 }] },
-                  ]}
-                >
-                  {on && <Ionicons name="trending-down" size={13} color={colors.rose} />}
-                  <Text style={[type.body, on && { color: colors.rose, fontWeight: '700' }]}>
-                    {DOMAIN_LABELS[d]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          {/* Constant key: mounts (and fades) once on the first admission,
-              then updates in place rather than re-animating every toggle. */}
-          {driftFact && <EchoCard key="drift" echo={driftFact} />}
-          <Button title={neglected.length ? nextTitle : 'Nothing is drifting'} onPress={next} disabled={busy} />
         </>
       )}
 
@@ -911,6 +943,9 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, ledger, o
   onDone: () => void;
 }) {
   const top3 = (reveal.topPriorities ?? ranking).slice(0, 3);
+  /** Share of stated importance carried by rank position i, 0..100. */
+  const rankedCount = Math.max(ranking.length, top3.length, 1);
+  const rankedShare = (i: number) => Math.round((100 * (rankedCount - i)) / rankedCount);
   const visits = insights.find((i) => i.kind === 'visits_remaining');
   const callDelta = insights.find((i) => i.kind === 'calls_per_year');
 
@@ -1000,8 +1035,12 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, ledger, o
                 <Text style={[type.heading, { textTransform: 'capitalize', flex: 1 }]}>{d}</Text>
                 {reality[d] && <Text style={type.faint}>living it {reality[d]}/5</Text>}
               </View>
+              {/* "You say" was `90 - i * 15`: everyone's #1 read 90 and their
+                  #2 read 75, whatever they had answered. It is now their own
+                  ranking — #1 of n fills the bar, #n gets 1/n of it — so the
+                  gap this screen dramatises is one they actually made. */}
               <GapBar
-                importance={90 - i * 15}
+                importance={rankedShare(i)}
                 attention={(reality[d] ?? 0) * 20}
                 color={domainColor(d)}
               />
@@ -1183,6 +1222,11 @@ const s = StyleSheet.create({
   },
   chipOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
   chipRisk: { borderColor: colors.rose, backgroundColor: colors.roseSoft },
+  driftTag: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: colors.roseSoft, borderRadius: 999,
+    paddingVertical: 2, paddingHorizontal: 8,
+  },
   rankBadge: {
     width: 18, height: 18, borderRadius: 9,
     alignItems: 'center', justifyContent: 'center',
