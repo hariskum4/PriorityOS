@@ -12,6 +12,14 @@ import {
   asksAboutCalls,
   parseAge,
   feelingOptions,
+  lifeQuestions,
+  weekEcho,
+  driftEcho,
+  somedayEcho,
+  revealLedger,
+  freeTimeBudget,
+  type MicroReveal,
+  type RevealLedger,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { track } from '@/services/analytics';
@@ -203,6 +211,26 @@ export default function Onboarding() {
   }, [feelings, feeling]);
   const [style, setStyle] = useState<string>('balanced');
 
+  /**
+   * Which of the life questions this life can actually answer. The gate is
+   * age, not "student" — adult students marry and raise children; what a
+   * sixteen-year-old must not be offered is "married" and "3+ children".
+   */
+  const plan = lifeQuestions(userAge, workType);
+
+  /**
+   * Micro-reveals: every answer buys the person a fact about themselves,
+   * shown while the answer is still warm. All deterministic — the same
+   * engine the Time tab runs, so nothing here waits on a server or a model.
+   */
+  const domainLabel = (d: string) => DOMAIN_LABELS[d] ?? d;
+  const statedHours = NO_WORK_HOURS.has(workType)
+    ? 0
+    : workHours ? parseInt(workHours, 10) : null;
+  const weekFact = weekEcho({ workHoursPerWeek: statedHours, workType });
+  const driftFact = driftEcho({ ranking, neglected, labelOf: domainLabel });
+  const somedayFact = somedayEcho(postponing);
+
   const [reveal, setReveal] = useState<any>(null);
   const [insights, setInsights] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
@@ -263,8 +291,11 @@ export default function Onboarding() {
           // week for retired/non-working users, wrecking their free-time math.
           workHoursPerWeek:
             NO_WORK_HOURS.has(workType) ? 0 : workHours ? parseInt(workHours, 10) : undefined,
-          maritalStatus: marital || undefined,
-          childrenCount: parseInt(children, 10) || 0,
+          // Questions the plan withheld must not leak stale answers — someone
+          // who picked "married" and then corrected their age to 17 has no
+          // visible answer left, so none may be submitted either.
+          maritalStatus: plan.askMarital ? marital || undefined : undefined,
+          childrenCount: plan.askChildren ? parseInt(children, 10) || 0 : 0,
           livesAwayFromParents: awayFromParents === 'yes',
           motivationStyle: style,
         },
@@ -454,26 +485,33 @@ export default function Onboarding() {
                 onPick={setWorkHours}
               />
             )}
+            {plan.askMarital && (
+              <PickRow
+                label="At home you are"
+                options={Object.keys(MARITAL)}
+                display={MARITAL}
+                value={marital}
+                onPick={setMarital}
+              />
+            )}
+            {plan.askChildren && (
+              <PickRow
+                label="Children"
+                options={['0', '1', '2', '3']}
+                display={{ '0': 'none', '3': '3+' }}
+                value={children}
+                onPick={setChildren}
+              />
+            )}
             <PickRow
-              label="At home you are"
-              options={Object.keys(MARITAL)}
-              display={MARITAL}
-              value={marital}
-              onPick={setMarital}
-            />
-            <PickRow
-              label="Children"
-              options={['0', '1', '2', '3']}
-              display={{ '0': 'none', '3': '3+' }}
-              value={children}
-              onPick={setChildren}
-            />
-            <PickRow
-              label="Do you live away from your parents?"
+              label={plan.awayLabel}
               options={['yes', 'no']}
               value={awayFromParents}
               onPick={setAwayFromParents}
             />
+            {/* Keyed so a changed week fades in again — a corrected answer
+                should land its corrected number, not silently swap a digit. */}
+            {weekFact && <EchoCard key={`${workType}-${workHours}`} echo={weekFact} />}
             <Button
               title={nextTitle}
               onPress={next}
@@ -594,6 +632,9 @@ export default function Onboarding() {
               );
             })}
           </View>
+          {/* Constant key: mounts (and fades) once on the first admission,
+              then updates in place rather than re-animating every toggle. */}
+          {driftFact && <EchoCard key="drift" echo={driftFact} />}
           <Button title={neglected.length ? nextTitle : 'Nothing is drifting'} onPress={next} disabled={busy} />
         </>
       )}
@@ -616,6 +657,7 @@ export default function Onboarding() {
               value={postponingDomain}
               onPick={setPostponingDomain}
             />
+            {somedayFact && <EchoCard key="someday" echo={somedayFact} />}
             {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
             <Button title={nextTitle} onPress={next} disabled={busy || !postponing.trim()} />
             <Pressable onPress={() => { if (!busy) next(); }}>
@@ -751,6 +793,17 @@ export default function Onboarding() {
           reality={reality}
           feeling={feeling}
           person={person.name ? { ...person, callFrequency, desired, visitFrequency } : null}
+          ledger={revealLedger({
+            freeHoursPerWeek: workType && statedHours != null
+              ? freeTimeBudget(statedHours, workType).freeHoursPerWeek
+              : null,
+            ranking,
+            neglectedCount: neglected.length,
+            personName: person.name.trim() || null,
+            goalTitle: postponing.trim() ? deriveGoalTitle(postponing).title : null,
+            feeling: feeling || null,
+            labelOf: domainLabel,
+          })}
           onDone={() => router.replace('/(tabs)')}
         />
       )}
@@ -783,6 +836,28 @@ function PickRow({ label, options, value, onPick, display }: {
         })}
       </View>
     </View>
+  );
+}
+
+/**
+ * A micro-reveal, landed while the answer that earned it is still warm.
+ * One number or one mirrored phrase and a single line — anything longer
+ * is a lecture, and the reader is mid-form.
+ */
+function EchoCard({ echo }: { echo: MicroReveal }) {
+  return (
+    <Stage delay={150}>
+      <Card accent={colors.amberSoft} style={{ gap: space(1) }}>
+        {echo.stat && (
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <Text style={[type.stat, { fontSize: 34, color: colors.amber }]}>~{echo.stat.value}</Text>
+            <Text style={[type.dim, { flexShrink: 1 }]}>{echo.stat.unit}</Text>
+          </View>
+        )}
+        {echo.quote && <Text style={type.serif}>“{echo.quote}”</Text>}
+        <Text style={type.faint}>{echo.line}</Text>
+      </Card>
+    </Stage>
   );
 }
 
@@ -825,13 +900,14 @@ function CountUp({ value, color, delay }: { value: number; color: string; delay:
   );
 }
 
-function Reveal({ reveal, insights, ranking, reality, feeling, person, onDone }: {
+function Reveal({ reveal, insights, ranking, reality, feeling, person, ledger, onDone }: {
   reveal: any;
   insights: any[];
   ranking: string[];
   reality: Record<string, number>;
   feeling: string;
   person: { name: string; relationType: string; callFrequency: string; desired: string; visitFrequency: string } | null;
+  ledger: RevealLedger | null;
   onDone: () => void;
 }) {
   const top3 = (reveal.topPriorities ?? ranking).slice(0, 3);
@@ -1037,6 +1113,26 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, onDone }:
             </Text>
           )}
         </Card>
+      </Stage>
+
+      {/* The receipt: what the minutes just spent actually produced, and the
+          one checkable reason to come back — a plan in motion, not a pitch. */}
+      <Stage delay={6600}>
+        {ledger && (
+          <Card style={{ backgroundColor: colors.surfaceSunken, gap: space(2) }}>
+            <Label>The trade</Label>
+            <Text style={type.dim}>{ledger.intro}</Text>
+            {ledger.lines.map((l) => (
+              <View key={l} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+                <Ionicons name="checkmark-circle-outline" size={15} color={colors.amber} style={{ marginTop: 2 }} />
+                <Text style={[type.body, { flex: 1 }]}>{l}</Text>
+              </View>
+            ))}
+            <Text style={[type.serif, { color: colors.textDim, marginTop: space(1) }]}>
+              {ledger.promise}
+            </Text>
+          </Card>
+        )}
         <Button title="Start living it" onPress={onDone} />
         <ShareRevealButton
           data={{

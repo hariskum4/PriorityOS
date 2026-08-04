@@ -33,6 +33,8 @@ export * from './domainLadder';
 export * from './rhythms';
 export * from './relationshipSanity';
 export * from './feelings';
+export * from './lifeQuestions';
+export * from './microReveals';
 
 // ---------------------------------------------------------------------------
 // Config
