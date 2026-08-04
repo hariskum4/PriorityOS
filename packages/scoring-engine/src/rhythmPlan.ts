@@ -223,23 +223,50 @@ export interface PreferredTimeInput {
   when?: TimeOfDay;
   /** Minutes from midnight this rhythm is observed to happen at, if known. */
   observedMinutes?: number | null;
+  /**
+   * The hour they moved it to themselves. Beats the reading for the same
+   * reason a chosen weekday does: a correction the app then recalculates
+   * over is a question it asked and ignored.
+   */
+  chosenMinutes?: number | null;
 }
 
+/** Where an hour came from, so copy above this can say it without guessing. */
+export type TimeSource = 'chosen' | 'observed' | 'catalog' | 'none';
+
+export interface PreferredTime {
+  minutes: number | null;
+  source: TimeSource;
+}
+
+const intoDay = (m: number) => ((Math.round(m) % 1440) + 1440) % 1440;
+const usable = (m: unknown): m is number =>
+  typeof m === 'number' && Number.isFinite(m);
+
 /**
- * The minute of the day to aim for, or null to leave it to the day shape.
+ * The minute of the day to aim for, and why.
  *
- * What somebody does beats what the activity usually wants: a reader whose
- * ticks say nine at night gets nine at night for their walk, because that is
- * a fact about them and `morning` is only a fact about walks.
+ * Three tiers, most personal first. What they chose beats what they do,
+ * and what they do beats what the activity usually wants: a reader whose
+ * ticks say nine at night gets nine at night for their walk, because that
+ * is a fact about them and `morning` is only a fact about walks.
  */
-export function preferredMinutes(input: PreferredTimeInput): number | null {
-  if (input.when === 'work') return null;
-  if (typeof input.observedMinutes === 'number' && Number.isFinite(input.observedMinutes)) {
-    return ((Math.round(input.observedMinutes) % 1440) + 1440) % 1440;
+export function preferredTime(input: PreferredTimeInput): PreferredTime {
+  if (input.when === 'work') return { minutes: null, source: 'none' };
+  if (usable(input.chosenMinutes)) {
+    return { minutes: intoDay(input.chosenMinutes), source: 'chosen' };
+  }
+  if (usable(input.observedMinutes)) {
+    return { minutes: intoDay(input.observedMinutes), source: 'observed' };
   }
   const when = input.when ?? 'any';
-  if (when === 'any') return null;
-  return ANCHOR[when];
+  if (when === 'any') return { minutes: null, source: 'none' };
+  return { minutes: ANCHOR[when], source: 'catalog' };
+}
+
+/** The hour alone, for callers with nothing to say about where it came from. */
+export function preferredMinutes(input: PreferredTimeInput): number | null {
+  return preferredTime(input).minutes;
 }
 
 /** Whether this rhythm should be offered a slot in the day's free time. */

@@ -33,6 +33,7 @@ import {
   rhythmWeekdays,
   rhythmDueToday,
   preferredMinutes,
+  preferredTime,
   isPlaceable,
   weekPlan,
   WEEK_COLUMNS,
@@ -100,6 +101,18 @@ const DURATION_KEY = 'priority-day-durations-v1';
  * for. Device-local for now, like the rest of this file's memory.
  */
 const RHYTHM_DAYS_KEY = 'priority-rhythm-days-v1';
+/**
+ * The hour a rhythm was moved to, and kept.
+ *
+ * Moving anything else is a correction to today — the school run is at four
+ * *this* Tuesday — and dies with the day. A rhythm is the one thing on the
+ * card that recurs, so dragging one is not a note about today at all: it is
+ * the reader answering the question the frequency never did. Storing it
+ * beside the weekday choice is what makes the learning go both ways.
+ */
+const RHYTHM_HOURS_KEY = 'priority-rhythm-hours-v1';
+/** Placement keys for standing commitments, so a move can be recognised. */
+const RHYTHM_PREFIX = 'rhythm:';
 
 /**
  * One step of "earlier" or "later".
@@ -668,8 +681,26 @@ export default function TimeReality() {
    * caller passes the offset the engine reported actually taking effect, so
    * every tap is one step from wherever the thing is really sitting.
    */
-  const moveTo = (key: string, offsetMinutes: number) =>
+  /**
+   * A standing commitment moved is not a note about today.
+   *
+   * Everything else on this card is corrected for one Tuesday and forgotten
+   * by Wednesday, which is right for a school run and wrong for the one kind
+   * of thing that recurs by definition. So a rhythm's move is converted into
+   * the hour itself and kept — and the day-only nudge is dropped in the same
+   * breath, or tomorrow the shape would start from the newly-stored hour and
+   * then shift it by the same offset all over again.
+   */
+  const moveTo = (key: string, offsetMinutes: number, naturalStart?: number) => {
+    if (key.startsWith(RHYTHM_PREFIX) && naturalStart != null) {
+      setRhythmHour(key.slice(RHYTHM_PREFIX.length), naturalStart + offsetMinutes);
+      const rest = { ...nudges };
+      delete rest[key];
+      saveNudges(rest);
+      return;
+    }
     saveNudges({ ...nudges, [key]: offsetMinutes });
+  };
 
   /**
    * How long each thing is actually going to take.
@@ -741,6 +772,41 @@ export default function TimeReality() {
     if (me?.id) {
       AsyncStorage
         .setItem(RHYTHM_DAYS_KEY, JSON.stringify({ userId: me.id, days: all }))
+        .catch(() => {});
+    }
+  };
+
+  /** The hour each rhythm was moved to, by habit id. Outlives the day. */
+  const [rhythmHours, setRhythmHours] = useState<Record<string, number>>({});
+  React.useEffect(() => {
+    if (!me?.id) return;
+    let alive = true;
+    AsyncStorage.getItem(RHYTHM_HOURS_KEY)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        const saved = JSON.parse(raw);
+        if (saved?.userId === me.id && saved?.hours) setRhythmHours(saved.hours);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [me?.id]);
+  const setRhythmHour = (habitId: string, minutes: number) => {
+    const next = { ...rhythmHours, [habitId]: ((Math.round(minutes) % 1440) + 1440) % 1440 };
+    setRhythmHours(next);
+    if (me?.id) {
+      AsyncStorage
+        .setItem(RHYTHM_HOURS_KEY, JSON.stringify({ userId: me.id, hours: next }))
+        .catch(() => {});
+    }
+  };
+  /** Hand the hour back to the engine — the reset the strip offers. */
+  const clearRhythmHour = (habitId: string) => {
+    const next = { ...rhythmHours };
+    delete next[habitId];
+    setRhythmHours(next);
+    if (me?.id) {
+      AsyncStorage
+        .setItem(RHYTHM_HOURS_KEY, JSON.stringify({ userId: me.id, hours: next }))
         .catch(() => {});
     }
   };
@@ -1076,7 +1142,7 @@ export default function TimeReality() {
         });
         if (!due || !isPlaceable(catalog?.when)) return null;
         return {
-          key: `rhythm:${h.id}`,
+          key: `${RHYTHM_PREFIX}${h.id}`,
           action: h.title,
           minutes: catalog?.minutes ?? 30,
           domains: [h.domainType].filter(Boolean),
@@ -1084,11 +1150,12 @@ export default function TimeReality() {
           at: preferredMinutes({
             when: catalog?.when,
             observedMinutes: habitHours[h.id]?.minutes ?? null,
+            chosenMinutes: rhythmHours[h.id] ?? null,
           }),
         };
       })
       .filter((r: any): r is NonNullable<typeof r> => r != null);
-  }, [habits, habitHours, rhythmDays]);
+  }, [habits, habitHours, rhythmDays, rhythmHours]);
 
   /**
    * The same rhythms laid across a week rather than a day.
@@ -1116,6 +1183,13 @@ export default function TimeReality() {
           thisWeek: (h.logs ?? []).map((l: any) => l.completedAt),
           prefersWeekend: catalog?.prefersWeekend,
           override: rhythmDays[h.id] as any,
+          /* The hour and where it came from, so the row can say whether
+             Priority worked it out or the reader did. */
+          time: preferredTime({
+            when: catalog?.when,
+            observedMinutes: habitHours[h.id]?.minutes ?? null,
+            chosenMinutes: rhythmHours[h.id] ?? null,
+          }),
         };
       });
     const rows = weekPlan(entries);
@@ -1123,9 +1197,15 @@ export default function TimeReality() {
     return rows.map((r, i) => {
       const habitId = entries[i].habitId;
       const h: any = byId.get(habitId);
-      return { ...r, key: habitId, title: h?.title ?? '', domain: h?.domainType ?? 'growth' };
+      return {
+        ...r,
+        key: habitId,
+        title: h?.title ?? '',
+        domain: h?.domainType ?? 'growth',
+        time: entries[i].time,
+      };
     });
-  }, [habits, rhythmDays]);
+  }, [habits, rhythmDays, rhythmHours, habitHours]);
 
   const age = ageFromDob(me?.dob);
   const birthYear = me?.dob ? new Date(me.dob).getUTCFullYear() : null;
@@ -1840,7 +1920,7 @@ export default function TimeReality() {
                         key={key}
                         block={b}
                         offset={p.nudgedBy}
-                        onMove={(offset) => moveTo(p.key, offset)}
+                        onMove={(offset) => moveTo(p.key, offset, p.startMinutes - p.nudgedBy)}
                       >
                         {({ handlers, dragging, preview }) => (
                         /* Everything about this hour, on the hour itself.
@@ -1876,7 +1956,7 @@ export default function TimeReality() {
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
                                 <Text style={[type.faint, { width: 46 }]}>Starts</Text>
                                 <Pressable
-                                  onPress={() => moveTo(p.key, p.nudgedBy - TIME_STEP)}
+                                  onPress={() => moveTo(p.key, p.nudgedBy - TIME_STEP, p.startMinutes - p.nudgedBy)}
                                   hitSlop={8}
                                   style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
                                 >
@@ -1886,7 +1966,7 @@ export default function TimeReality() {
                                   {formatClock(p.startMinutes)}
                                 </Text>
                                 <Pressable
-                                  onPress={() => moveTo(p.key, p.nudgedBy + TIME_STEP)}
+                                  onPress={() => moveTo(p.key, p.nudgedBy + TIME_STEP, p.startMinutes - p.nudgedBy)}
                                   hitSlop={8}
                                   style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
                                 >
@@ -1986,6 +2066,26 @@ export default function TimeReality() {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <DomainDot domain={row.domain} size={8} />
                         <Text style={[type.body, { flex: 1 }]} numberOfLines={1}>{row.title}</Text>
+                        {/* The hour, and only when it was earned rather than
+                            assumed. A catalog default said out loud reads as
+                            a claim about this person that nothing supports. */}
+                        {row.time.minutes != null && row.time.source !== 'catalog' && (
+                          <Pressable
+                            onPress={() => row.time.source === 'chosen' && clearRhythmHour(row.key)}
+                            accessibilityRole={row.time.source === 'chosen' ? 'button' : undefined}
+                            accessibilityLabel={
+                              row.time.source === 'chosen'
+                                ? `${row.title} at ${formatClock(row.time.minutes)}, tap to reset`
+                                : undefined
+                            }
+                            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                          >
+                            <Text style={[type.faint, { color: colors.amber }]}>
+                              {formatClock(row.time.minutes)}
+                              {row.time.source === 'chosen' ? ' ×' : ''}
+                            </Text>
+                          </Pressable>
+                        )}
                         <Text style={type.faint}>
                           {row.doneThisWeek}/{row.perWeek}
                         </Text>
@@ -2035,6 +2135,11 @@ export default function TimeReality() {
                     {weekRows.some((r) => r.basis === 'chosen')
                       ? ' Some you chose yourself.'
                       : ''}
+                    {weekRows.some((r) => r.time.source === 'chosen')
+                      ? ' An hour with a × beside it is one you moved — tap it to hand that back too.'
+                      : weekRows.some((r) => r.time.source === 'observed')
+                        ? ' An hour shown is where you actually keep it.'
+                        : ''}
                   </Text>
                 </Card>
               )}

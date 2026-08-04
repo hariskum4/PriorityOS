@@ -502,8 +502,14 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       : 'front-of-gap';
 
     /* Within a few minutes of the front, the front is the answer — a "Yours"
-       row eight minutes long is a crumb drawn as an opportunity. */
-    if (startAt - host.startMinutes < MIN_USEFUL_GAP) {
+       row eight minutes long is a crumb drawn as an opportunity.
+
+       Never against an hour the thing actually asked for, though. A rhythm
+       moved to 7:15 in a stretch beginning at 7 would be tidied back to 7
+       and the reader would press "later" and watch nothing move — which is
+       the same failure as the nudge that silently clamped, arrived at from
+       the other direction. A stated hour is worth more than a tidy edge. */
+    if (own == null && startAt - host.startMinutes < MIN_USEFUL_GAP) {
       startAt = host.startMinutes;
       placedBy = 'front-of-gap';
     }

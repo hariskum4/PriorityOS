@@ -813,3 +813,45 @@ describe('a suggestion can ask for its own hour', () => {
     expect(s.framingText).not.toMatch(FORBIDDEN);
   });
 });
+
+/**
+ * The reader moves a rhythm, and the day agrees.
+ *
+ * Pressing "later" and watching nothing move is the same failure as the
+ * nudge that clamped in silence — arrived at from the other side, via a
+ * tidying rule that outranked an answer.
+ */
+describe('an hour that was asked for is not tidied away', () => {
+  const walkAt = (at: number) => ({
+    key: 'rhythm:health.move',
+    action: 'Move three times a week',
+    minutes: 40,
+    domains: ['health'],
+    at,
+  });
+
+  it('honours a quarter past, even at the front of the stretch', () => {
+    // Morning stretch runs 7–8:30; 7:15 is inside the tidy-away window.
+    const s = dayShape({ ...nineToFive, suggestions: [walkAt(7 * 60 + 15)] });
+    expect(formatClock(s.placedIn!.startMinutes)).toBe('7:15 am');
+    expect(s.placedBy).toBe('preferred');
+  });
+
+  it('still tidies a placement the engine chose itself', () => {
+    const s = dayShape({
+      ...nineToFive,
+      suggestion: walkWithMum,
+      activeAt: { minutes: 18 * 60 + 10, sampleSize: 9, days: 6 },
+    });
+    // Evening begins at 6pm; a reading ten minutes in is not a real gap.
+    expect(formatClock(s.placedIn!.startMinutes)).toBe('6 pm');
+    expect(s.placedBy).toBe('front-of-gap');
+  });
+
+  it('leaves the minutes before it as the reader’s own, not a hole', () => {
+    const s = dayShape({ ...nineToFive, suggestions: [walkAt(7 * 60 + 15)] });
+    for (let i = 1; i < s.blocks.length; i++) {
+      expect(s.blocks[i].startMinutes).toBe(s.blocks[i - 1].endMinutes);
+    }
+  });
+});

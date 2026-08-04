@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   rhythmWeekdays, rhythmDueToday, preferredMinutes, isPlaceable, type Weekday,
-  weekPlan, WEEK_COLUMNS, WEEKDAY_INITIALS,
+  weekPlan, WEEK_COLUMNS, WEEKDAY_INITIALS, preferredTime,
 } from './rhythmPlan';
 
 /** A date on a known weekday, local time. 2026-08-03 is a Monday. */
@@ -229,5 +229,43 @@ describe('weekPlan', () => {
 
   it('is empty for someone with no rhythms', () => {
     expect(weekPlan([], MON)).toEqual([]);
+  });
+});
+
+describe('preferredTime — where an hour came from', () => {
+  it('what they chose beats what they do', () => {
+    const t = preferredTime({
+      when: 'morning', observedMinutes: 21 * 60, chosenMinutes: 6 * 60,
+    });
+    expect(t).toEqual({ minutes: 6 * 60, source: 'chosen' });
+  });
+
+  it('what they do beats what the activity wants', () => {
+    const t = preferredTime({ when: 'morning', observedMinutes: 21 * 60 });
+    expect(t).toEqual({ minutes: 21 * 60, source: 'observed' });
+  });
+
+  it('falls back to the activity, and names it as such', () => {
+    expect(preferredTime({ when: 'evening' })).toEqual({ minutes: 19 * 60, source: 'catalog' });
+  });
+
+  it('says nothing rather than inventing an hour', () => {
+    expect(preferredTime({ when: 'any' })).toEqual({ minutes: null, source: 'none' });
+    expect(preferredTime({})).toEqual({ minutes: null, source: 'none' });
+  });
+
+  it('still refuses to place a working-day rhythm, however it was moved', () => {
+    expect(preferredTime({ when: 'work', chosenMinutes: 9 * 60 }))
+      .toEqual({ minutes: null, source: 'none' });
+  });
+
+  it('brings a chosen hour past midnight back into the day', () => {
+    expect(preferredTime({ chosenMinutes: 25 * 60 })).toEqual({ minutes: 60, source: 'chosen' });
+    expect(preferredTime({ chosenMinutes: -30 })).toEqual({ minutes: 23 * 60 + 30, source: 'chosen' });
+  });
+
+  it('ignores a chosen hour that is not a number', () => {
+    const t = preferredTime({ when: 'morning', chosenMinutes: null });
+    expect(t.source).toBe('catalog');
   });
 });
