@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { suggestStacks, domainsCovered, shortfallsCovered, type StackPerson } from './timeStacking';
 import { domainShares } from './alignment';
+import { lifeShape } from './lifeShape';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted/i;
 
@@ -385,6 +386,56 @@ describe('domains that lend the hour rather than gain one', () => {
       expect(s.action).not.toMatch(FORBIDDEN);
       expect(s.framing).not.toMatch(FORBIDDEN);
       expect(s.reason).not.toMatch(FORBIDDEN);
+    }
+  });
+});
+
+describe('a suggestion has to fit the life it lands in', () => {
+  // Nisha, verbatim: homemaker, one child, career ranked first because the
+  // thing she keeps postponing is her own business. The app told her to turn
+  // her commute into an audiobook.
+  const HOMEMAKER = lifeShape('homemaker');
+
+  it('never offers a homemaker a commute or an inbox', () => {
+    const keys = suggestStacks(REAL_LIFE, PEOPLE, ALL, [], HOMEMAKER).map((s) => s.key);
+    expect(keys).not.toContain('commute_learn');
+    expect(keys).not.toContain('career_first_hour');
+    expect(keys).not.toContain('walk_meeting');
+  });
+
+  it('replaces the commute with the dead time she actually has', () => {
+    const keys = suggestStacks(REAL_LIFE, PEOPLE, ALL, [], HOMEMAKER).map((s) => s.key);
+    expect(keys).toContain('chore_learn');
+  });
+
+  it('career for a self-directed life means the thing being built, not the inbox', () => {
+    const careerShort = shares([
+      ['career', 70, 5], ['purpose', 40, 10], ['health', 30, 60],
+    ]);
+    const out = suggestStacks(careerShort, PEOPLE, ALL, [], HOMEMAKER);
+    expect(out.map((s) => s.key)).toContain('build_first_hour');
+  });
+
+  it('an employee keeps the inbox move and is not offered the founder hour', () => {
+    const office = lifeShape('office_9_5');
+    const keys = suggestStacks(REAL_LIFE, PEOPLE, ALL, [], office).map((s) => s.key);
+    expect(keys).toContain('commute_learn');
+    expect(keys).toContain('career_first_hour');
+    expect(keys).not.toContain('build_first_hour');
+  });
+
+  it('no stated shape gates nothing — unknown is not "has nothing"', () => {
+    const keys = suggestStacks(REAL_LIFE, PEOPLE, ALL).map((s) => s.key);
+    expect(keys).toContain('commute_learn');
+    expect(keys).toContain('career_first_hour');
+  });
+
+  it('nothing left in the catalog assumes a workplace without declaring it', () => {
+    // The two that slipped through in words rather than keys: "at work this
+    // month" and "the length of one commute" read fine on an office life and
+    // false on Nisha's. Reworded, they are true of anyone.
+    for (const s of suggestStacks(REAL_LIFE, PEOPLE, ALL, [], HOMEMAKER)) {
+      expect(s.action).not.toMatch(/commute|inbox|at work|office/i);
     }
   });
 });

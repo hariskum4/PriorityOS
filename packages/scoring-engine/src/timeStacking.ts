@@ -31,6 +31,7 @@
  */
 
 import type { DomainShare } from './alignment';
+import type { LifeShape } from './lifeShape';
 
 /** The relationships a stack can be built around. */
 export type PersonRole = 'parent' | 'child' | 'partner' | 'friend';
@@ -70,6 +71,15 @@ export interface Stack {
    * and still gets the generic wording.
    */
   role?: PersonRole;
+  /**
+   * What this life must contain for the action to exist at all.
+   *
+   * Same rule as `role`, one level up: a commute suggestion to someone who
+   * never leaves for work is the app describing a life they do not have. A
+   * homemaker was told to turn her commute into an audiobook — the commute
+   * was invented by the catalog, not lived by her.
+   */
+  needs?: Array<keyof LifeShape>;
 }
 
 /** Someone real, and how far past the rhythm they asked for. */
@@ -122,14 +132,15 @@ const ANONYMOUS: Record<PersonRole, string> = {
 const CATALOG: Stack[] = [
   { key: 'walk_call_parent', action: 'Take your walk while calling {who}', domains: ['health', 'family'], framing: 'Movement and a real conversation in the same 20 minutes.', role: 'parent' },
   { key: 'cook_with_kid', action: 'Cook dinner with {who}, no screens', domains: ['children', 'health'], framing: 'A shared ritual that also feeds you both well.', role: 'child' },
-  { key: 'commute_learn', action: 'Turn your commute into an audiobook or course', domains: ['growth', 'experiences'], framing: 'Reclaimed dead time becomes the skill you keep postponing.' },
+  { key: 'commute_learn', action: 'Turn your commute into an audiobook or course', domains: ['growth', 'experiences'], framing: 'Reclaimed dead time becomes the skill you keep postponing.', needs: ['hasCommute'] },
+  { key: 'chore_learn', action: 'Put an audiobook on while cooking or folding', domains: ['growth', 'experiences'], framing: 'The chores take the hour either way; you keep the ideas.' },
   { key: 'workout_friend', action: 'Train with {who} once a week', domains: ['health', 'friends'], framing: 'Accountability and the friendship, in one slot.', role: 'friend' },
   { key: 'weekend_trip_family', action: 'Plan a weekend trip with the family', domains: ['family', 'experiences'], framing: 'A memory and time together, from the same weekend.' },
   { key: 'gratitude_partner', action: 'Share one gratitude with {who} at night', domains: ['partner', 'reflection'], framing: 'Presence and inner practice in sixty seconds.', role: 'partner' },
   { key: 'teach_skill', action: 'Teach someone the thing you are learning', domains: ['growth', 'impact'], framing: 'Learning sticks when you give it away.' },
   { key: 'creative_with_kid', action: 'Make something with {who} — draw, build, record', domains: ['purpose', 'children'], framing: 'Your creative practice, and their childhood, at once.', role: 'child' },
   { key: 'volunteer_family', action: 'Volunteer together as a family', domains: ['impact', 'family'], framing: 'Contribution that your kids will remember you for.' },
-  { key: 'walk_meeting', action: 'Take one work call as a walking meeting', domains: ['career', 'health'], hosts: ['career'], framing: 'The work still happens; your body stops paying for it.' },
+  { key: 'walk_meeting', action: 'Take one work call as a walking meeting', domains: ['career', 'health'], hosts: ['career'], framing: 'The work still happens; your body stops paying for it.', needs: ['hasDeskJob'] },
   { key: 'money_date', action: 'A monthly money review with {who}', domains: ['finance', 'partner'], framing: 'Shared clarity beats separate anxiety.', role: 'partner' },
   { key: 'nature_reflect', action: 'A quiet walk outdoors, phone in your pocket', domains: ['health', 'reflection'], framing: 'The cheapest reset there is — moving and thinking.' },
 
@@ -154,7 +165,12 @@ const CATALOG: Stack[] = [
   { key: 'purpose_walk', action: 'Walk and think through the thing you keep postponing', domains: ['purpose', 'health'], framing: 'The work you never start gets its hour, and your body gets it too.' },
   { key: 'purpose_tell_friend', action: 'Tell {who} what you are actually trying to build', domains: ['purpose', 'friends'], framing: 'Saying it out loud is how it stops being a secret.', role: 'friend' },
   { key: 'friend_cook', action: 'Cook for {who} instead of meeting at a restaurant', domains: ['friends', 'health'], framing: 'Longer, cheaper, and you both eat better for it.', role: 'friend' },
-  { key: 'career_first_hour', action: 'Give the first thirty minutes of work to the skill, not the inbox', domains: ['career', 'growth'], framing: 'The compounding half of the job, before the day takes it.' },
+  { key: 'career_first_hour', action: 'Give the first thirty minutes of work to the skill, not the inbox', domains: ['career', 'growth'], framing: 'The compounding half of the job, before the day takes it.', needs: ['hasDeskJob'] },
+  /* The same protected hour, for a life whose day answers to no employer —
+     the homemaker who wrote "I will have my own business", the student, the
+     founder. Career here is the thing being built, not a job being kept. */
+  { key: 'build_first_hour', action: 'Give the first quiet hour of the day to the thing you want to build', domains: ['career', 'purpose'], framing: 'The plan you keep postponing starts as one protected hour, before the day fills.', needs: ['selfDirectedWork'] },
+  { key: 'school_run_talk', action: 'Make the school run a real conversation with {who}', domains: ['children', 'family'], framing: 'The trip happens anyway; the conversation is the upgrade.', role: 'child' },
 
   /* Career, where the hour is actually career.
      Once a walking meeting stopped counting as career time, a life short on
@@ -162,10 +178,10 @@ const CATALOG: Stack[] = [
      whatever was broadly useful. These are moves where the work itself is
      different afterwards, and none of them need a person we have not been
      told about. */
-  { key: 'career_write_up', action: 'Write up one thing you learned at work this month', domains: ['career', 'growth', 'reflection'], framing: 'The month stops blurring, and it is there when someone asks what you did.' },
+  { key: 'career_write_up', action: 'Write up one thing you learned this month', domains: ['career', 'growth', 'reflection'], framing: 'The month stops blurring, and it is there when someone asks what you did.' },
   { key: 'career_show_work', action: 'Spend an hour on work that would show someone what you can do', domains: ['career', 'purpose'], framing: 'Proof travels further than a description of yourself.' },
   { key: 'finance_small_review', action: 'Cancel or renegotiate one recurring cost this week', domains: ['finance', 'reflection'], framing: 'Ten minutes once, instead of a worry every month.' },
-  { key: 'finance_read', action: 'Read about money for the length of one commute', domains: ['finance', 'growth'], framing: 'A subject that compounds faster than almost anything else you could read.' },
+  { key: 'finance_read', action: 'Read about money for fifteen minutes', domains: ['finance', 'growth'], framing: 'A subject that compounds faster than almost anything else you could read.' },
 ];
 
 /**
@@ -213,12 +229,16 @@ function pct(n: number): string {
  *                agreed to do is not a suggestion any more — offering it again
  *                is how a card becomes wallpaper. Matched on the rendered text,
  *                which is what a caller has: the title it wrote down.
+ * @param shape   What this life contains (`lifeShape`). Omitted means unknown,
+ *                and unknown keeps everything available — absence of an answer
+ *                is not an answer.
  */
 export function suggestStacks(
   needs: DomainShare[],
   people: StackPerson[] = [],
   limit = 3,
   exclude: string[] = [],
+  shape?: LifeShape,
 ): StackSuggestion[] {
   const short = new Map<string, DomainShare>();
   for (const n of needs) if (n.shortfall > 0) short.set(n.domainType, n);
@@ -235,6 +255,7 @@ export function suggestStacks(
    * person is chosen.
    */
   const available = CATALOG
+    .filter((st) => !st.needs || !shape || st.needs.every((c) => shape[c]))
     .filter((st) => !st.role || !knowPeople || pickPerson(st.role, people))
     .map((st) => {
       const person = st.role ? pickPerson(st.role, people) : null;

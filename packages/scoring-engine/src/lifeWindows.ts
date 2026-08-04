@@ -14,6 +14,7 @@
  */
 
 import { softRound } from './timeReality';
+import { lifeShape } from './lifeShape';
 
 // Generous by design: a 100-year horizon (people are living longer, and a
 // tool that tells an 80-year-old their life is spent is both wrong and
@@ -24,6 +25,12 @@ const MIN_HORIZON_YEARS = 15;
 const SLEEP_HOURS_PER_NIGHT = 7.5;
 /** Commute, chores, errands, admin — the invisible tax on a week. */
 const LIFE_OVERHEAD_HOURS_PER_WEEK = 24;
+/**
+ * When the stated hours ARE the household — a homemaker — the 24h overhead
+ * would count the same cooking and errands twice. What is genuinely left
+ * over is the personal slice: their own admin, appointments, upkeep.
+ */
+const CARE_WORK_OVERHEAD_HOURS_PER_WEEK = 8;
 const WORKING_WEEKS_PER_YEAR = 48;
 
 // ---------------------------------------------------------------------------
@@ -36,17 +43,21 @@ export interface FreeTimeBudget {
   detail: string;
 }
 
-export function freeTimeBudget(workHoursPerWeek = 45): FreeTimeBudget {
+export function freeTimeBudget(workHoursPerWeek = 45, workType?: string | null): FreeTimeBudget {
+  const careWork = lifeShape(workType).careWorkIsWork;
+  const overhead = careWork ? CARE_WORK_OVERHEAD_HOURS_PER_WEEK : LIFE_OVERHEAD_HOURS_PER_WEEK;
   const perWeek = Math.max(
-    Math.round(168 - SLEEP_HOURS_PER_NIGHT * 7 - workHoursPerWeek - LIFE_OVERHEAD_HOURS_PER_WEEK),
+    Math.round(168 - SLEEP_HOURS_PER_NIGHT * 7 - workHoursPerWeek - overhead),
     4,
   );
   return {
     freeHoursPerWeek: perWeek,
     freeHoursPerYear: softRound(perWeek * 52),
-    detail:
-      `168 hours a week, minus sleep, ${workHoursPerWeek} working hours, and the ` +
-      `invisible tax of commutes and chores. What remains is the life part of your life.`,
+    detail: careWork
+      ? `168 hours a week, minus sleep, the ${workHoursPerWeek} hours the household takes, `
+        + `and your own admin. What remains is the life part of your life.`
+      : `168 hours a week, minus sleep, ${workHoursPerWeek} working hours, and the `
+        + `invisible tax of commutes and chores. What remains is the life part of your life.`,
   };
 }
 
@@ -156,6 +167,7 @@ export interface LifeWindowsInput {
   age: number;
   workHoursPerWeek?: number;
   plannedWorkYearsMore?: number;
+  workType?: string | null;
 }
 
 export interface LifeWindowsResult {
@@ -170,15 +182,18 @@ export interface LifeWindowsResult {
 export function lifeWindows(input: LifeWindowsInput): LifeWindowsResult {
   const work = input.workHoursPerWeek ?? 45;
   const moreYears = input.plannedWorkYearsMore ?? Math.min(Math.max(60 - input.age, 5), 40);
+  const careWork = lifeShape(input.workType).careWorkIsWork;
   return {
     yearsToHorizon: yearsToHorizon(input.age),
     weekendsRemaining: weekendsRemaining(input.age),
-    freeTime: freeTimeBudget(work),
+    freeTime: freeTimeBudget(work, input.workType),
     career: careerWindow(input.age, moreYears, work),
     body: bodyWindows(input.age),
     assumptions: [
       `A ${PLANNING_HORIZON_AGE}-year planning horizon that extends as you approach it — a lens for deciding, not a countdown`,
-      'Free time assumes ~7.5h sleep and ~24h/week of commute, chores and admin',
+      careWork
+        ? 'Free time assumes ~7.5h sleep; your household hours count as the work of the week, plus ~8h personal admin'
+        : 'Free time assumes ~7.5h sleep and ~24h/week of commute, chores and admin',
       'Body windows are broad population patterns; individuals routinely beat them',
       'Every number moves the moment your patterns move',
     ],

@@ -20,6 +20,25 @@ describe('free time budget', () => {
   it('never returns zero even for brutal schedules', () => {
     expect(freeTimeBudget(100).freeHoursPerWeek).toBeGreaterThanOrEqual(4);
   });
+
+  it('does not charge a homemaker the chores overhead on top of the household hours', () => {
+    // Her stated hours ARE the cooking and errands; the 24h "commute, chores
+    // and admin" tax would count the same washing-up twice. What stays out is
+    // the personal slice: 168 - 52.5 sleep - 45 household - 8 own admin.
+    const f = freeTimeBudget(45, 'homemaker');
+    expect(f.freeHoursPerWeek).toBe(63);
+    expect(f.detail).toMatch(/household/);
+    expect(f.detail).not.toMatch(/commutes/);
+  });
+
+  it('an office life keeps the full overhead and the old numbers', () => {
+    expect(freeTimeBudget(45, 'office_9_5').freeHoursPerWeek).toBe(47);
+  });
+
+  it('the assumptions name the household when the household is the work', () => {
+    const w = lifeWindows({ age: 30, workHoursPerWeek: 45, workType: 'homemaker' });
+    expect(w.assumptions.join(' ')).toMatch(/household hours count as the work/);
+  });
 });
 
 describe('weekends remaining', () => {

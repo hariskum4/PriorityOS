@@ -72,10 +72,25 @@ const LANES: Record<'fast' | 'full' | 'deepen', number[]> = {
 const WORK_TYPES: Record<string, string> = {
   office_9_5: '9–5 office', remote: 'remote', shift: 'shift work',
   business: 'business owner', freelance: 'freelancer', student: 'student', homemaker: 'homemaker',
-  not_working: 'not working',
+  // "not working" used to be one option, and it flattened three different
+  // lives into a shrug. A retiree, a job-seeker and someone on a career
+  // break want very different things from a tool about time.
+  retired: 'retired', between_jobs: 'between jobs', career_break: 'career break',
 };
+/** Work types whose weeks have no employer hours to count. */
+const NO_WORK_HOURS = new Set(['retired', 'between_jobs', 'career_break', 'not_working']);
 const WORK_HOURS: Record<string, string> = {
   '35': 'under 40 h', '45': '40–50 h', '55': '50–60 h', '65': '60+ h',
+};
+/**
+ * The hours question a given life can actually answer. "Hours in a typical
+ * week" asked of a homemaker has no right answer — the work has no edge, so
+ * she either shrugs or writes down a guess the free-time math then treats as
+ * gospel. Asking what the household takes is a real number.
+ */
+const HOURS_LABEL: Record<string, string> = {
+  homemaker: 'Hours a week the household takes from you',
+  student: 'Hours of classes and study in a typical week',
 };
 const MARITAL: Record<string, string> = {
   single: 'single', married: 'married', partnered: 'with a partner',
@@ -247,7 +262,7 @@ export default function Onboarding() {
           // let the Time tab's ?? 45 fallback quietly assume a 45h work
           // week for retired/non-working users, wrecking their free-time math.
           workHoursPerWeek:
-            workType === 'not_working' ? 0 : workHours ? parseInt(workHours, 10) : undefined,
+            NO_WORK_HOURS.has(workType) ? 0 : workHours ? parseInt(workHours, 10) : undefined,
           maritalStatus: marital || undefined,
           childrenCount: parseInt(children, 10) || 0,
           livesAwayFromParents: awayFromParents === 'yes',
@@ -424,9 +439,9 @@ export default function Onboarding() {
               value={workType}
               onPick={setWorkType}
             />
-            {workType !== 'not_working' && (
+            {!NO_WORK_HOURS.has(workType) && (
               <PickRow
-                label="Hours in a typical week"
+                label={HOURS_LABEL[workType] ?? 'Hours in a typical week'}
                 options={Object.keys(WORK_HOURS)}
                 display={WORK_HOURS}
                 value={workHours}
@@ -458,7 +473,7 @@ export default function Onboarding() {
               onPress={next}
               disabled={
                 busy || !userAge || !workType || !awayFromParents ||
-                (workType !== 'not_working' && !workHours)
+                (!NO_WORK_HOURS.has(workType) && !workHours)
               }
             />
           </View>

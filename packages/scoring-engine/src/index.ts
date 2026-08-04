@@ -23,6 +23,7 @@ export * from './lifeWindows';
 export * from './timeArithmetic';
 export * from './countables';
 export * from './timeStacking';
+export * from './lifeShape';
 export * from './allocation';
 export * from './dayShape';
 export * from './activeHour';

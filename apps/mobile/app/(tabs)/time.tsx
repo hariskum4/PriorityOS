@@ -20,6 +20,7 @@ import {
   estimateCostOfWaiting,
   estimateCreativeCompounding,
   suggestStacks,
+  lifeShape,
   shortfallsCovered,
   domainShares,
   weeklyAllocation,
@@ -1001,6 +1002,7 @@ export default function TimeReality() {
     age,
     workHoursPerWeek: me.workHoursPerWeek ?? 45,
     plannedWorkYearsMore: moreYears,
+    workType: me.workType,
   });
   const money = estimateCostOfWaiting({
     monthlyAmount: parseInt(monthly, 10) || 0,
@@ -1122,7 +1124,7 @@ export default function TimeReality() {
         return Date.now() - new Date(m.completedAt).getTime() < RESUGGEST_AFTER_DAYS * 86_400_000;
       })
       .map((m: any) => m.title),
-  ]);
+  ], lifeShape(me.workType, me.commuteMinutes));
   /* Anything already agreed to is gone from here, whether or not the server
      has caught up — the list is what is still on offer, never a history. */
   const offered: StackSuggestion[] = craftedStacks?.stacks?.length
@@ -1564,7 +1566,12 @@ export default function TimeReality() {
                       { key: 'workStartHour', label: 'Work starts', opts: [6, 7, 8, 9, 10], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
                       { key: 'workEndHour', label: 'Work ends', opts: [15, 16, 17, 18, 19, 21], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
                       { key: 'commuteMinutes', label: 'Commute each way', opts: [0, 15, 30, 45, 60, 90], fmt: (n: number) => (n === 0 ? 'none' : `${n}m`) },
-                    ] as const).map((row) => (
+                    ] as const)
+                      /* Judged on the work type alone, not the stored minutes:
+                         an office worker who set commute to 0 must keep the row
+                         to set it back; a homemaker has no row to need. */
+                      .filter((row) => row.key !== 'commuteMinutes' || lifeShape(me.workType).hasCommute)
+                      .map((row) => (
                       <View key={row.key} style={{ gap: 6 }}>
                         <Text style={type.dim}>{row.label}:</Text>
                         <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>

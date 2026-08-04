@@ -31,6 +31,7 @@ import { Injectable } from '@nestjs/common';
 import { STACK_CRAFT } from '@priority/ai-prompts';
 import {
   domainShares,
+  lifeShape,
   suggestStacks,
   shortfallsCovered,
   type StackPerson,
@@ -94,7 +95,7 @@ export class StacksService {
         select: {
           profession: true, workType: true, workHoursPerWeek: true, city: true,
           country: true, maritalStatus: true, childrenCount: true, dob: true,
-          livesAwayFromParents: true, motivationStyle: true,
+          livesAwayFromParents: true, motivationStyle: true, commuteMinutes: true,
         },
       }),
     ]);
@@ -120,7 +121,10 @@ export class StacksService {
     });
 
     const exclude = [...pending, ...done].map((m) => m.title);
-    const engine = suggestStacks(shares, stackPeople, limit, exclude);
+    // Same gate the catalog's `role` applies to people, applied to the life:
+    // no commute suggestions for someone who never leaves for work.
+    const shape = lifeShape(user?.workType, user?.commuteMinutes);
+    const engine = suggestStacks(shares, stackPeople, limit, exclude, shape);
     const shortDomains = shares.filter((s) => s.shortfall > 0);
 
     const base: StacksResponse = {
