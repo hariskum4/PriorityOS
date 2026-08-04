@@ -33,27 +33,40 @@ function useServerReachable(): boolean {
   const [reachable, setReachable] = React.useState(true);
 
   React.useEffect(() => {
+    let cancelled = false;
+    /**
+     * Off the render phase, always.
+     *
+     * The cache notifies its subscribers synchronously, and a query first
+     * subscribes *during* the render of whichever screen mounted it — so
+     * setting state directly from here is a cross-component update mid-render,
+     * which React warns about and which can tear the two components apart for
+     * a frame. A microtask puts it back on the ordinary update path.
+     */
+    const mark = (next: boolean) => {
+      Promise.resolve().then(() => { if (!cancelled) setReachable(next); });
+    };
     const unsubQueries = qc.getQueryCache().subscribe((event) => {
       const state = event?.query?.state;
       if (!state) return;
-      if (state.status === 'success') setReachable(true);
+      if (state.status === 'success') mark(true);
       // `fetchFailureReason` is set on the *first* failed attempt, where
       // `status` only turns to 'error' once the retries are exhausted. With
       // two retries and backoff that is seven seconds of a screen showing
       // confident stale numbers before it admits anything is wrong.
       else if (isOfflineError(state.fetchFailureReason) || isOfflineError(state.error)) {
-        setReachable(false);
+        mark(false);
       }
     });
     const unsubMutations = qc.getMutationCache().subscribe((event) => {
       const state = event?.mutation?.state;
       if (!state) return;
-      if (state.status === 'success') setReachable(true);
+      if (state.status === 'success') mark(true);
       else if (isOfflineError(state.failureReason) || isOfflineError(state.error)) {
-        setReachable(false);
+        mark(false);
       }
     });
-    return () => { unsubQueries(); unsubMutations(); };
+    return () => { cancelled = true; unsubQueries(); unsubMutations(); };
   }, [qc]);
 
   /**
