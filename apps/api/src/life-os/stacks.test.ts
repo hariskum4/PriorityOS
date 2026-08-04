@@ -55,7 +55,11 @@ function fakeAi(reply?: unknown) {
   } as any;
 }
 
-const svc = (prisma: any, ai: any) => new StacksService(prisma, ai);
+/** No personal catalog — the state these tests describe. */
+const fakeBlueprint = (stacks: any[] = []) => ({ stacksFor: async () => stacks } as any);
+
+const svc = (prisma: any, ai: any, personal: any[] = []) =>
+  new StacksService(prisma, ai, fakeBlueprint(personal));
 
 describe('steal the time, with a model in the loop', () => {
   it('serves the catalog wording when AI is off', async () => {

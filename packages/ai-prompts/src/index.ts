@@ -130,6 +130,61 @@ Respond ONLY with JSON: {"rhythms": [{"key": string, "title": string, "because":
   buildUser: (ctx) => JSON.stringify(ctx),
 };
 
+/**
+ * The Life Blueprint — a catalog written for one person.
+ *
+ * Every other template in this file rewrites strings inside a slot the engine
+ * already decided. This one is the opposite and is the only one of its kind:
+ * it proposes whole entries, and something else decides whether they may
+ * exist. That something is `judgeBlueprint` in the scoring engine — pure,
+ * offline, and the actual contract. Nothing below is enforcement; it is a
+ * description of what tends to get through, written down so the model is not
+ * guessing at a bar it cannot see.
+ *
+ * Which is why this asks for far more than it needs. A judge that has to
+ * accept what it is given is not a judge, so over-generating is the design:
+ * twelve candidates yielding four good ones is a success, and four candidates
+ * yielding four is a suspiciously lucky day. The failure mode this avoids is
+ * the one where a model, told it has exactly three slots, pads with whatever
+ * fills them.
+ *
+ * `perWeek` and `minutes` ARE in this response shape, unlike RHYTHM_CRAFT
+ * where they are deliberately absent. That is not a relaxation — it is why
+ * the judge exists. A model that can set a cadence can set a cadence nobody
+ * agreed to, and the bounds are checked in code rather than trusted here.
+ */
+export const BLUEPRINT_CRAFT: PromptTemplate = {
+  system: `You write a personal catalog for Priority: the standing rhythms and time-stacking actions that belong to ONE person's actual life, given what they have told us about it.
+
+A rhythm is a small repeating commitment that keeps one part of a life from drifting — something they do every week from now on, not a task that can be finished.
+A stack is a single concrete action that serves two or three parts of a life at once, for someone who does not have separate hours for each.
+
+Propose MANY candidates — 10 to 14 rhythms and 8 to 12 stacks. Most will be discarded by a validator; that is expected and correct. Quantity here, quality control elsewhere. Never pad to hit a number: if this life genuinely only supports six good rhythms, send six.
+
+WHAT MAKES ONE WORTH SENDING
+- It could only have been written for THIS person. "Move three times a week" is already in the built-in catalog and will be discarded. "Twenty minutes on the fretboard before the house wakes up" is the job.
+- It uses their own vocabulary — their profession, their studies, what they said they keep postponing, the goals they have written down.
+- You are given \`existing\`: rhythms this person already has or already declined. Never restate one, in any wording.
+
+HARD RULES — anything breaking one is discarded unread
+- Never name a person. Not even a name that appears in the context. Write \`{who}\` where a name belongs; a real one is filled in later. Do not use a possessive form of any name.
+- Never assume a commute, an inbox, a desk, an office, colleagues, a manager or annual leave unless the profile explicitly shows that life. A person who works at home does not have a commute to reclaim.
+- Never invent a hobby, pet, illness, job, place, child or habit that is not in the context.
+- Never mention death, dying, lifespan, running out of time, or "before it's too late". Never guilt: no "you never", no "you should have". No exclamation marks anywhere.
+- Never give medical, clinical, dietary or investment instruction — no diagnoses, dosages, calorie targets, weight targets, or what to buy or hold.
+- A rhythm must not be an errand. No deadlines, no dates, no years, nothing that could be completed and ticked off forever.
+- \`title\` <= 42 characters and must read alone on a card with nothing around it — never "Give it an hour", whose noun is missing.
+- \`because\` <= 100 characters. \`action\` <= 70. \`framing\` <= 90. No trailing full stops.
+
+FIELDS
+Rhythm: \`key\` (unique, lowercase dotted, prefix "gen."), \`title\`, \`domain\` (one of: family, partner, children, health, career, finance, growth, friends, experiences, reflection, purpose, impact), \`perWeek\` (WHOLE number 1-7 — what they would genuinely sustain, not what would be ideal), \`minutes\` (5-240), \`because\` (what is at stake in that domain's own terms), \`when\` (morning | midday | evening | work | any — "work" means it belongs inside working hours and nowhere else), \`needs\` (any of: canSpeakFreely, canMove, hasScreen, isPrivate — what the place must allow), \`prefersWeekend\` (boolean).
+Stack: \`key\` (unique, prefix "gen."), \`action\`, \`domains\` (2 or 3 of the list above), \`framing\` (one sentence on why the single action serves both), \`hosts\` (any domains that lend the hour rather than gain one — the same call taken on your feet does not advance the call), \`setting\`, \`role\` (parent | child | partner | friend, only if the action needs that person to exist).
+${TONE_GUIDE}
+${GROUNDING_RULES}
+Respond ONLY with JSON: {"rhythms": [...], "stacks": [...]}`,
+  buildUser: (ctx) => JSON.stringify(ctx),
+};
+
 export const RELATIONSHIP_NUDGE: PromptTemplate = {
   system: `Write one short, warm nudge encouraging the user to reconnect with a specific person — and give them something to reach out WITH, not just a reminder. If a saved memory with this person is provided, reference it concretely (ask about it, build on it). Otherwise reference how they usually connect. Never guilt, never mortality, no exclamation marks. Never quote raw dates like 2026-07-15 — say it naturally ("recently", "last month") or not at all.
 ${GROUNDING_RULES}

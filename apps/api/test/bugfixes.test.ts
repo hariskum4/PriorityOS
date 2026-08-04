@@ -242,6 +242,10 @@ describe('the reveal reads the number it quotes', () => {
       { regenerateForUser: async () => {} } as never,
       aiStub as never,
       analyticsStub as never,
+      /* Deliberately a blueprint that throws. Writing a personal catalog runs
+         behind the Reveal and must never be able to cost somebody theirs —
+         if that stops being true, these tests are where it shows. */
+      { refresh: () => { throw new Error('blueprint down'); } } as never,
     );
     await svc.saveAnswers(userId, [
       { section: 'values', key: 'priorityRanking', value: ['health', 'family', 'career'] },

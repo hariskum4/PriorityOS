@@ -134,6 +134,18 @@ const ROLE_OF: Record<string, PersonRole> = {
   friend: 'friend',
 };
 
+/**
+ * The role a relationship type plays in a stack, if it plays one.
+ *
+ * Exported so the blueprint judge gates on exactly the map `pickPerson` will
+ * later search. A second, looser mapping elsewhere would approve a stack whose
+ * `role` nothing can fill, and the reader would be handed "cook dinner with
+ * your child" on the strength of having recorded a sibling.
+ */
+export function roleOfRelation(relationType: string): PersonRole | null {
+  return ROLE_OF[(relationType ?? '').trim().toLowerCase()] ?? null;
+}
+
 /** What to call someone when we have not been told who they are. */
 const ANONYMOUS: Record<PersonRole, string> = {
   parent: 'a parent', child: 'your child', partner: 'your partner', friend: 'a friend',
@@ -249,6 +261,18 @@ export function suggestStacks(
   limit = 3,
   exclude: string[] = [],
   shape?: LifeShape,
+  /**
+   * Stacks written for this one person, from the Life Blueprint.
+   *
+   * They compete on exactly the same terms as the built-ins — same ranking,
+   * same shortfall arithmetic, same person and life-shape gating — because a
+   * generated stack that could not be outranked would be a model deciding
+   * what matters, which is the one thing no model here is allowed to do.
+   *
+   * Ordered ahead of the catalog so that when the two are genuinely tied,
+   * the one written for this life wins. That is the only advantage they get.
+   */
+  extra: Stack[] = [],
 ): StackSuggestion[] {
   const short = new Map<string, DomainShare>();
   for (const n of needs) if (n.shortfall > 0) short.set(n.domainType, n);
@@ -264,7 +288,7 @@ export function suggestStacks(
    * excluded by the text of the action, and the text is not known until the
    * person is chosen.
    */
-  const available = CATALOG
+  const available = [...extra, ...CATALOG]
     .filter((st) => !st.needs || !shape || st.needs.every((c) => shape[c]))
     .filter((st) => !st.role || !knowPeople || pickPerson(st.role, people))
     .map((st) => {
@@ -411,4 +435,16 @@ export function domainsCovered(stacks: Array<{ domains: string[] }>): string[] {
  */
 export function shortfallsCovered(stacks: Array<{ covers: string[] }>): string[] {
   return [...new Set(stacks.flatMap((s) => s.covers))];
+}
+
+/**
+ * Every action the catalog ships, in its unfilled form.
+ *
+ * For the blueprint judge, which has to know whether a generated stack is
+ * actually new or is a built-in restated. Placeholders are left as they are:
+ * the comparison happens before `{who}` becomes a name, so both sides are the
+ * generic wording.
+ */
+export function stackActions(): string[] {
+  return CATALOG.map((s) => s.action);
 }

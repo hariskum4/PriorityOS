@@ -8,6 +8,7 @@ import { LifeOrganismService } from './life-organism.service';
 import { StacksService } from './stacks.service';
 import { RhythmsService } from './rhythms.service';
 import { FocusService } from './focus.service';
+import { BlueprintService } from './blueprint.service';
 
 /**
  * The Life OS host module.
@@ -20,11 +21,12 @@ import { FocusService } from './focus.service';
   providers: [
     LifeOsService, LifeOsJobs, LifeDocumentService,
     LifeTimelineService, LifeOrganismService, StacksService, FocusService,
-    RhythmsService,
+    RhythmsService, BlueprintService,
   ],
   exports: [
     LifeOsService, LifeDocumentService, LifeTimelineService,
     LifeOrganismService, StacksService, FocusService, RhythmsService,
+    BlueprintService,
   ],
 })
 export class LifeOsModule {}

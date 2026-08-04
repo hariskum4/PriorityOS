@@ -94,6 +94,17 @@ interface HeldContents {
  * screen's early returns, where a hook would change the hook order between a
  * loading render and a loaded one.
  */
+/**
+ * Was this written for this person, or does everybody get it?
+ *
+ * The blueprint issues its keys under one prefix, which is the only thing
+ * that distinguishes a rhythm the app composed for you from one of the 36 the
+ * catalog ships. It decides whether "not this one" is offered: withdrawing a
+ * built-in would mean nothing, since there is no personal claim to take back.
+ */
+const isBlueprint = (key: unknown): boolean =>
+  typeof key === 'string' && key.startsWith('gen.');
+
 function heldContents(picked: string | null, rhythm: any): HeldContents | null {
   const r = picked ? rhythm?.domains?.[picked] : null;
   if (!r?.kinds?.length) return null;
@@ -496,6 +507,22 @@ export default function Today() {
   /** So the row answers the tap immediately, not after a round trip. */
   const [startedHere, setStartedHere] = useState<string[]>([]);
 
+  /**
+   * Withdrawing a rhythm the app wrote for this person.
+   *
+   * Deactivated on the server rather than deleted, so the next generation
+   * knows it was offered and refused. Re-proposing what somebody has just
+   * rejected is the clearest way an app can show it was not listening.
+   */
+  const retireRhythm = useMutation({
+    mutationFn: (key: string) => api(`/life-os/blueprint/${encodeURIComponent(key)}/retire`, {
+      method: 'POST',
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['life-rhythms'] }),
+  });
+  /** Hidden the moment it is tapped, restored if the server disagrees. */
+  const [retired, setRetired] = useState<string[]>([]);
+
   /** Taking a door. Optimistically hidden so the screen gets quieter, not busier. */
   const [actedOn, setActedOn] = useState<string[]>([]);
 
@@ -702,7 +729,11 @@ export default function Today() {
        both sides and only the language differs — so an offline lens is a
        plainer offer rather than a missing one. */
     const crafted = (craftedRhythms?.rhythms ?? []).find((r: any) => (
-      r.domainType === picked && !mine.some((h: any) => (
+      r.domainType === picked
+      /* Withdrawn this session. The refetch will drop it server-side too, but
+         the card has to change on the tap, not a round trip later. */
+      && !retired.includes(r.key)
+      && !mine.some((h: any) => (
         h.title.trim().toLowerCase() === String(r.title).trim().toLowerCase()
       ))
     ));
@@ -965,6 +996,31 @@ export default function Today() {
                       absence is what made three domains offer three lines that
                       could have been swapped without anyone noticing. */}
                   <Text style={s.heldMore}>{rhythmHere.rhythm.because}</Text>
+                  {/*
+                    Only for a rhythm the app wrote for this person.
+
+                    A built-in is a fixed idea that simply may not fit; one
+                    written FOR you and wrong about you is a different feeling,
+                    and saying so has to cost a single tap. Nothing appears for
+                    catalog rhythms, which have no personal claim to withdraw.
+                  */}
+                  {isBlueprint(rhythmHere.rhythm.key) && !retired.includes(rhythmHere.rhythm.key) ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Not this one — stop suggesting it"
+                      onPress={() => {
+                        setRetired((p) => [...p, rhythmHere.rhythm.key]);
+                        retireRhythm.mutate(rhythmHere.rhythm.key, {
+                          onError: () => setRetired(
+                            (p) => p.filter((k) => k !== rhythmHere.rhythm.key),
+                          ),
+                        });
+                      }}
+                      style={({ pressed }) => [{ paddingVertical: 6 }, pressed && { opacity: 0.6 }]}
+                    >
+                      <Text style={[s.heldMore, { color: obs.inkFaint }]}>Not this one</Text>
+                    </Pressable>
+                  ) : null}
                 </>
               )}
             </View>

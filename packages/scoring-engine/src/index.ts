@@ -40,6 +40,7 @@ export * from './feelings';
 export * from './lifeQuestions';
 export * from './microReveals';
 export * from './drift';
+export * from './blueprint';
 
 // ---------------------------------------------------------------------------
 // Config

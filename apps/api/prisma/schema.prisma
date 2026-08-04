@@ -64,6 +64,7 @@ model User {
   memories            Memory[]
   opportunityInsights OpportunityInsight[]
   aiRecommendations   AiRecommendation[]
+  personalCatalog     PersonalCatalogItem[]
   weeklyReviews       WeeklyReview[]
   gamification        GamificationProfile?
   xpLedger            DomainXpEntry[]
@@ -448,6 +449,40 @@ model AiRecommendation {
   createdAt  DateTime @default(now())
 
   @@index([userId, kind, createdAt])
+}
+
+/// A catalog entry written for one person rather than for everyone.
+///
+/// The built-in catalogs are 36 rhythms and 31 stacks that every account
+/// shares. These are the ones a generation proposed and the engine's judge
+/// allowed to exist, and they join the same pools the built-ins feed — they
+/// do not replace them, and a person with none of these sees exactly the app
+/// that shipped.
+///
+/// `payload` holds the item already in engine shape, because it was validated
+/// into that shape before it was ever written. Nothing downstream re-parses a
+/// model's output; by the time a row exists, the judging is done.
+model PersonalCatalogItem {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String   // rhythm | stack
+  /// The generated key. Unique per person per kind, so a later generation
+  /// updates an entry rather than silently shadowing it.
+  key        String
+  domainType String?  // rhythms only; stacks carry their domains in the payload
+  payload    Json
+  /// Turned off by the reader, not deleted. Something the app invented and a
+  /// person rejected is a fact worth keeping — it must not come back in the
+  /// next generation, and a delete would lose that.
+  isActive   Boolean  @default(true)
+  /// Which generation produced it, so a refresh can tell new from carried-over.
+  generation Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, kind, key])
+  @@index([userId, kind, isActive])
 }
 
 model WeeklyReview {

@@ -26,6 +26,7 @@ import { RHYTHM_CRAFT } from '@priority/ai-prompts';
 import { rhythmFor, type Rhythm } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { BlueprintService } from './blueprint.service';
 
 const DAY_MS = 86_400_000;
 
@@ -56,10 +57,14 @@ export interface RhythmsResponse {
 
 @Injectable()
 export class RhythmsService {
-  constructor(private prisma: PrismaService, private ai: AiService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ai: AiService,
+    private blueprint: BlueprintService,
+  ) {}
 
   async forUser(userId: string): Promise<RhythmsResponse> {
-    const [domains, habits, user, answers, goals] = await Promise.all([
+    const [domains, habits, user, answers, goals, personal] = await Promise.all([
       this.prisma.lifeDomain.findMany({
         where: { userId },
         select: { domainType: true, importanceScore: true, attentionScore: true },
@@ -88,6 +93,10 @@ export class RhythmsService {
         select: { title: true, domainType: true },
         take: 5,
       }),
+      /* The catalog written for this one person. Empty for anybody whose
+         blueprint has not run, been switched off, or produced nothing the
+         judge would keep — in which case everything below is unchanged. */
+      this.blueprint.rhythmsFor(userId),
     ]);
 
     /* Domains that already hold a rhythm are not asking for one. Ranked by how
@@ -107,13 +116,30 @@ export class RhythmsService {
 
     const engine: CraftedRhythm[] = [];
     for (const d of ranked) {
-      const r = rhythmFor(d.domainType, takenTitles);
+      /* Personal first, catalog as the fallback — the whole arrangement in
+         one argument. A domain with a generated rhythm offers that; a domain
+         without one offers what it always did. */
+      const mine = personal.filter((p) => p.domainType === d.domainType);
+      const r = rhythmFor(d.domainType, takenTitles, mine);
       if (r) engine.push({ ...r, domainType: d.domainType });
       if (engine.length >= MAX_SLOTS) break;
     }
 
     const base: RhythmsResponse = { rhythms: engine, source: 'catalog' };
     if (!engine.length) return base;
+
+    /**
+     * A blueprint rhythm is not sent to be reworded.
+     *
+     * It was written for this life already, so a rewrite could only make it
+     * less specific — and this merge is the weaker of the two checks. It
+     * enforces length and the dangling opener; the blueprint judge enforces
+     * invented people, tone, and lives the reader does not lead. Handing a
+     * judged title back to an unjudged pass would quietly lose those.
+     */
+    const personalKeys = new Set(personal.map((p) => p.key));
+    const toCraft = engine.filter((r) => !personalKeys.has(r.key));
+    if (!toCraft.length) return { rhythms: engine, source: 'ai' };
 
     const answerOf = (key: string) => answers.find((a) => a.key === key)?.value ?? null;
 
@@ -124,7 +150,7 @@ export class RhythmsService {
       'rhythm_craft',
       RHYTHM_CRAFT,
       {
-        slots: engine.map((r) => ({
+        slots: toCraft.map((r) => ({
           key: r.key,
           domain: r.domainType,
           perWeek: r.perWeek,

@@ -50,8 +50,16 @@ function fakeAi(reply: any) {
   return { generate: async () => reply } as any;
 }
 
-const svc = (reply: any, prismaOver = {}) =>
-  new RhythmsService(fakePrisma(prismaOver), fakeAi(reply));
+/**
+ * A blueprint with nothing in it — the state every account is in until one
+ * has been generated, and the one these tests are about.
+ */
+function fakeBlueprint(rhythms: any[] = []) {
+  return { rhythmsFor: async () => rhythms } as any;
+}
+
+const svc = (reply: any, prismaOver = {}, personal: any[] = []) =>
+  new RhythmsService(fakePrisma(prismaOver), fakeAi(reply), fakeBlueprint(personal));
 
 describe('the engine picks, the model only writes', () => {
   it('offers a rhythm for every domain that has none, worst gap first', async () => {

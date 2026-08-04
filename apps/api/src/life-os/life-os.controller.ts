@@ -6,7 +6,7 @@
  * all in the kernel, where it can be tested.
  */
 import {
-  Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards,
+  Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Query, UseGuards,
 } from '@nestjs/common';
 import { Domain } from '@priority/life-os';
 import { JwtGuard } from '../auth/jwt.guard';
@@ -18,6 +18,7 @@ import { LifeOrganismService } from './life-organism.service';
 import { StacksService } from './stacks.service';
 import { RhythmsService } from './rhythms.service';
 import { FocusService } from './focus.service';
+import { BlueprintService } from './blueprint.service';
 
 @UseGuards(JwtGuard)
 @Controller('life-os')
@@ -30,6 +31,7 @@ export class LifeOsController {
     private stacks: StacksService,
     private rhythms: RhythmsService,
     private focusSvc: FocusService,
+    private blueprint: BlueprintService,
   ) {}
 
   /**
@@ -208,6 +210,25 @@ export class LifeOsController {
   @Get('rhythms')
   missingRhythms(@CurrentUser() u: JwtUser) {
     return this.rhythms.forUser(u.userId);
+  }
+
+  /**
+   * Not this one.
+   *
+   * The blueprint writes a catalog for one person, and some of what it writes
+   * will be wrong about them. Saying so has to cost one tap and has to stick —
+   * an app that re-proposes the thing you just rejected is not listening,
+   * whatever it says on the card.
+   *
+   * The row is switched off rather than deleted, so the next generation still
+   * knows this was offered and refused. 404 when the key belongs to nobody,
+   * because a silent success would hide a client sending the wrong id.
+   */
+  @Post('blueprint/:key/retire')
+  async retireBlueprintItem(@CurrentUser() u: JwtUser, @Param('key') key: string) {
+    const done = await this.blueprint.retire(u.userId, key);
+    if (!done) throw new NotFoundException('No such blueprint item');
+    return { retired: true, key };
   }
 
   // ---- the timeline ------------------------------------------------------

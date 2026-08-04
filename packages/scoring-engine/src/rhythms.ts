@@ -344,10 +344,23 @@ export function rhythmsFor(domainType: string): Rhythm[] {
  * honest answer is null, and the caller says nothing rather than looping to
  * the top and pretending the last six weeks did not happen.
  */
-export function rhythmFor(domainType: string, taken: Iterable<string> = []): Rhythm | null {
+export function rhythmFor(
+  domainType: string,
+  taken: Iterable<string> = [],
+  /**
+   * Rhythms written for this one person, already narrowed to this domain.
+   *
+   * Tried first, and the catalog is what answers when there are none or when
+   * they are all spoken for — which is the whole arrangement in one line. A
+   * generation that produces nothing, or produces rubbish the judge threw
+   * away, leaves a reader with exactly the app that shipped.
+   */
+  extra: Rhythm[] = [],
+): Rhythm | null {
   const norm = (s: string) => s.trim().toLowerCase();
   const takenSet = new Set([...taken].map(norm));
-  return rhythmsFor(domainType).find((r) => !takenSet.has(norm(r.title))) ?? null;
+  return [...extra, ...rhythmsFor(domainType)]
+    .find((r) => !takenSet.has(norm(r.title))) ?? null;
 }
 
 /**

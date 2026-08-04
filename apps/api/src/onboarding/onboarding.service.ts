@@ -4,6 +4,7 @@ import { ScoringService } from '../scoring/scoring.service';
 import { InsightsService } from '../insights/insights.service';
 import { AiService } from '../ai/ai.service';
 import { AnalyticsService } from '../analytics/analytics.service';
+import { BlueprintService } from '../life-os/blueprint.service';
 import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
 import { ALL_DOMAINS } from '@priority/types';
 
@@ -41,6 +42,7 @@ export class OnboardingService {
     private insights: InsightsService,
     private ai: AiService,
     private analytics: AnalyticsService,
+    private blueprint: BlueprintService,
   ) {}
 
   async saveAnswers(
@@ -226,6 +228,29 @@ export class OnboardingService {
       rankedCount: ranked.length,
       hasEulogy: !!eulogy,
     });
+
+    /**
+     * Write this person's catalog, and do not wait for it.
+     *
+     * The Reveal is the one moment the app knows the most it will ever know
+     * before it has watched a single week, so it is the right time to ask.
+     * It is also a screen somebody is sitting in front of, and a blueprint
+     * asks for two dozen candidates — far too slow to hold a screen open for.
+     *
+     * So it runs behind the response. The Time tab reads the catalogs on its
+     * own next fetch and will show built-ins until this lands, which is the
+     * correct behaviour for a person whose generation is slow, has failed, or
+     * was rejected outright.
+     *
+     * Started inside a resolved promise rather than called directly, so that
+     * a synchronous throw is caught too. `refresh` handles its own failures,
+     * but the point of this line is that NOTHING about a blueprint can cost
+     * somebody their Reveal — and a `.catch()` on a call that throws before
+     * returning a promise would not have held that.
+     */
+    void Promise.resolve()
+      .then(() => this.blueprint.refresh(userId))
+      .catch(() => undefined);
 
     return {
       onboardingCompleted: true,

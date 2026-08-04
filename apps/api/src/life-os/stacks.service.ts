@@ -39,6 +39,7 @@ import {
 } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { BlueprintService } from './blueprint.service';
 
 /** Days a desired contact cadence stands for. */
 const CADENCE_DAYS: Record<string, number> = {
@@ -66,10 +67,14 @@ export interface StacksResponse {
 
 @Injectable()
 export class StacksService {
-  constructor(private prisma: PrismaService, private ai: AiService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ai: AiService,
+    private blueprint: BlueprintService,
+  ) {}
 
   async forUser(userId: string, limit = 3): Promise<StacksResponse> {
-    const [domains, people, pending, done, user] = await Promise.all([
+    const [domains, people, pending, done, user, personal] = await Promise.all([
       this.prisma.lifeDomain.findMany({
         where: { userId },
         select: { domainType: true, importanceScore: true, attentionScore: true },
@@ -98,6 +103,9 @@ export class StacksService {
           livesAwayFromParents: true, motivationStyle: true, commuteMinutes: true,
         },
       }),
+      /* Stacks written for this one person. They join the same pool and are
+         ranked by the same shortfall arithmetic — no shortcut to the top. */
+      this.blueprint.stacksFor(userId),
     ]);
 
     const shares = domainShares(domains.map((d) => ({
@@ -124,7 +132,7 @@ export class StacksService {
     // Same gate the catalog's `role` applies to people, applied to the life:
     // no commute suggestions for someone who never leaves for work.
     const shape = lifeShape(user?.workType, user?.commuteMinutes);
-    const engine = suggestStacks(shares, stackPeople, limit, exclude, shape);
+    const engine = suggestStacks(shares, stackPeople, limit, exclude, shape, personal);
     const shortDomains = shares.filter((s) => s.shortfall > 0);
 
     const base: StacksResponse = {

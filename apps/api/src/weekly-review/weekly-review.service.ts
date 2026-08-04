@@ -6,6 +6,7 @@ import { GamificationService } from '../gamification/gamification.service';
 import { AiService } from '../ai/ai.service';
 import { InsightsService } from '../insights/insights.service';
 import { JOURNAL_SUMMARY, WEEKLY_REVIEW_NARRATIVE } from '@priority/ai-prompts';
+import { BlueprintService } from '../life-os/blueprint.service';
 
 @Injectable()
 export class WeeklyReviewService {
@@ -15,6 +16,7 @@ export class WeeklyReviewService {
     private ai: AiService,
     private insights: InsightsService,
     private clock: UserClock,
+    private blueprint: BlueprintService,
   ) {}
 
   async current(userId: string) {
@@ -31,6 +33,20 @@ export class WeeklyReviewService {
     // PRD §10.5: opportunity insights refresh at exactly two moments —
     // onboarding and the weekly review cycle. This is the second one.
     await this.insights.regenerateForUser(userId);
+
+    /**
+     * And the same two moments for the blueprint, for the same reason.
+     *
+     * A catalog that changed daily would stop being a catalog: a reader has
+     * to be able to trust that the rhythm they agreed to on Tuesday is the
+     * one still there on Thursday. The Sunday Session is already the moment
+     * the app asks somebody to look at their life, so it is the only honest
+     * place for their catalog to have moved. `refresh` decides for itself
+     * whether a week has actually passed.
+     */
+    void Promise.resolve()
+      .then(() => this.blueprint.refresh(userId))
+      .catch(() => undefined);
 
     const [missions, habitLogs, journalEntries, domains] = await Promise.all([
       this.prisma.mission.findMany({
