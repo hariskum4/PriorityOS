@@ -35,6 +35,7 @@ import {
   preferredMinutes,
   preferredTime,
   isPlaceable,
+  isBoundary,
   weekPlan,
   foundTime,
   setting,
@@ -1381,6 +1382,45 @@ export default function TimeReality() {
   }, [habits, habitHours, rhythmDays, rhythmHours]);
 
   /**
+   * The rhythms that mark where the day ends rather than filling part of it.
+   *
+   * Same habits, same due-today rule, opposite half of `isPlaceable` — and
+   * they are gathered here rather than dropped because the alternative was
+   * worse than the bug. A bedtime placed in the evening drew ten minutes of
+   * sleep at seven o'clock; a bedtime simply filtered out would be a thing
+   * asked for seven times a week with nowhere on the screen it could be seen
+   * at all. It goes on the sleep block, against the hour it is actually about.
+   */
+  const dayBoundaries = useMemo(() => {
+    const today = new Date().getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    return (habits ?? [])
+      .filter((h: any) => h.isActive !== false)
+      .map((h: any) => {
+        const catalog = rhythmForHabit(h.title);
+        if (!isBoundary(catalog?.when)) return null;
+        const perWeek = Math.max(1, Number(h.targetPerWeek) || 1);
+        const { days } = rhythmWeekdays({
+          key: catalog?.key ?? h.id,
+          perWeek,
+          history: h.history ?? [],
+          override: rhythmDays[h.id] as any,
+        });
+        /* The same "never nag a finished week" rule the placements follow. A
+           week already kept is kept, and the row goes quiet. */
+        if (!rhythmDueToday({ days, perWeek, doneThisWeek: (h.logs ?? []).length, today })) {
+          return null;
+        }
+        return {
+          key: `${RHYTHM_PREFIX}${h.id}`,
+          action: h.title,
+          domains: [h.domainType].filter(Boolean),
+          reason: catalog?.because || undefined,
+        };
+      })
+      .filter((b: any): b is NonNullable<typeof b> => b != null);
+  }, [habits, rhythmDays]);
+
+  /**
    * The same rhythms laid across a week rather than a day.
    *
    * The day card answers "what fits today"; this answers the question a
@@ -1847,6 +1887,11 @@ export default function TimeReality() {
       .filter((h: any) => h.isActive !== false)
       .map((h: any) => {
         const catalog = rhythmForHabit(h.title);
+        /* The same question the day card asks. A found window is a piece of
+           free time like any other, and a sheet that offers you your bedtime
+           because forty minutes opened up at three in the afternoon has made
+           the day card's mistake in a second place. */
+        if (!isPlaceable(catalog?.when)) return null;
         return {
           key: `rhythm:${h.id}`,
           action: h.title,
@@ -1861,7 +1906,7 @@ export default function TimeReality() {
       /* Only what the week still owes. A rhythm already kept its three
          times has no claim on found time, and offering it a fourth is the
          app failing to keep count. */
-      .filter((c: { owedThisWeek: number }) => c.owedThisWeek > 0);
+      .filter((c: any): c is NonNullable<typeof c> => c != null && c.owedThisWeek > 0);
 
     const fromStacks = stacks.map((st) => ({
       key: `stack:${st.key}`,
@@ -1912,6 +1957,7 @@ export default function TimeReality() {
     dayType,
     activeAt,
     suggestions: placeable,
+    boundaries: dayBoundaries,
     nudges,
     freed: freedWindows,
   });
@@ -2269,8 +2315,14 @@ export default function TimeReality() {
                       ]
                       : undefined;
 
+                    /* `flex: 1` because without it this sizes to its content
+                       and the row it sits in has no width to give the text
+                       column — which nothing noticed while every unplaced row
+                       said "Yours" or "Work", and which cut the bedtime note
+                       off mid-sentence the moment one of them had something
+                       to say. */
                     const face = (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                         <Text style={[type.faint, s.dayTime]}>
                           {formatSpan(b.startMinutes, b.endMinutes)}
                         </Text>
@@ -2307,8 +2359,14 @@ export default function TimeReality() {
                        hours that are already yours are facts about the day, and
                        a fact that slides under a finger is a toy. */
                     if (!p) {
+                      /* Sleep is drawn faintly because it is the part of the
+                         day nobody needs reminding of — unless something has
+                         been kept against it, in which case fading the one
+                         commitment on the row to 45% is the fix for the
+                         seven o'clock bedtime undone by its own styling. */
+                      const faded = b.kind === 'sleep' && !b.note;
                       return (
-                        <View key={key} style={[s.dayRow, b.kind === 'sleep' && { opacity: 0.45 }]}>
+                        <View key={key} style={[s.dayRow, faded && { opacity: 0.45 }]}>
                           {face}
                         </View>
                       );

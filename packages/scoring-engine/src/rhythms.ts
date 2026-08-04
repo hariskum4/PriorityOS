@@ -45,11 +45,23 @@ import { classifyLever, leverTwinKey, type LeverKey } from './lifeStrategy';
  * nowhere else — placing that one at nine at night would be nonsense, so
  * `work` is a refusal to place rather than a slot.
  *
- * Only ever a preference. A life with no morning gap still gets its walk
- * somewhere; see `rhythmPlan.ts`, which decides what to do when the
+ * `bedtime` is the other refusal, and it exists because of a real one that
+ * shipped: "protecting 7–8 hours of sleep" was marked `evening`, the evening
+ * anchor is seven o'clock, and the day card drew a ten-minute block of sleep
+ * at 7pm — between getting home and the rest of the night, in the hours the
+ * reader had left. Nobody lies down for ten minutes at seven and calls it
+ * sleeping. The mistake was not the hour. It was treating the *edge* of a day
+ * as something that happens *inside* one: what a bedtime costs is not ten
+ * minutes of your evening, it is the decision to stop, and the only honest
+ * place to draw it is against the sleep the person already told us about. So
+ * a bedtime rhythm claims no free time, is never carved out of the hours left,
+ * and rides on the sleep block instead. See `isBoundary` in `rhythmPlan.ts`.
+ *
+ * Otherwise only ever a preference. A life with no morning gap still gets its
+ * walk somewhere; see `rhythmPlan.ts`, which decides what to do when the
  * preferred window is not open.
  */
-export type TimeOfDay = 'morning' | 'midday' | 'evening' | 'work' | 'any';
+export type TimeOfDay = 'morning' | 'midday' | 'evening' | 'work' | 'bedtime' | 'any';
 
 export interface Rhythm {
   /**
@@ -142,7 +154,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'health.sleep',
       title: 'Lights out at the same hour',
-      perWeek: 7, minutes: 5, when: 'evening',
+      perWeek: 7, minutes: 5, when: 'bedtime',
       because: 'Sleep is the lever that moves every other one, and the cheapest to pull.',
     },
   ],

@@ -52,8 +52,15 @@ const SUNDAY = 0;
  * around it, and falls back to its own rule when none contains it. An anchor
  * inside somebody's sleep simply never matches, which is the correct outcome
  * without this module needing to know when they wake.
+ *
+ * `bedtime` has no entry, and could not have one. Every hour here is a fact
+ * about the activity — walks want mornings for everybody — and the hour a
+ * person goes to bed is a fact about the person, which this module has never
+ * been told. Writing an average bedtime in here would be exactly the kind of
+ * confident guess about somebody's life that the app refuses elsewhere. The
+ * day shape knows their sleep hour; it draws boundaries against it.
  */
-const ANCHOR: Record<Exclude<TimeOfDay, 'work' | 'any'>, number> = {
+const ANCHOR: Record<Exclude<TimeOfDay, 'work' | 'bedtime' | 'any'>, number> = {
   morning: 7 * 60,
   midday: 12 * 60 + 30,
   evening: 19 * 60,
@@ -259,8 +266,14 @@ export function preferredTime(input: PreferredTimeInput): PreferredTime {
   if (usable(input.observedMinutes)) {
     return { minutes: intoDay(input.observedMinutes), source: 'observed' };
   }
+  /* `bedtime` falls through to here rather than refusing at the top the way
+     `work` does, and the asymmetry is deliberate. Work refuses outright
+     because an uninterrupted block at nine at night is worse than no hour at
+     all. A bedtime has no *catalog* hour — see ANCHOR — but somebody who has
+     kept lights-out at half eleven for a fortnight has told us when their day
+     ends, and that reading is worth more than silence. */
   const when = input.when ?? 'any';
-  if (when === 'any') return { minutes: null, source: 'none' };
+  if (when === 'any' || when === 'bedtime') return { minutes: null, source: 'none' };
   return { minutes: ANCHOR[when], source: 'catalog' };
 }
 
@@ -269,9 +282,33 @@ export function preferredMinutes(input: PreferredTimeInput): number | null {
   return preferredTime(input).minutes;
 }
 
-/** Whether this rhythm should be offered a slot in the day's free time. */
+/**
+ * Whether this rhythm should be offered a slot in the day's free time.
+ *
+ * Two things are refused, for opposite reasons. A `work` rhythm belongs
+ * inside a working day, which is the one part of the day this app does not
+ * get to spend. A `bedtime` one belongs at the edge of the day and costs
+ * none of the hours in it.
+ *
+ * Every surface that hands out a piece of somebody's free time has to ask
+ * this — the day card and the found-time sheet both — or the same rhythm is
+ * refused a slot in one place and offered one in the other.
+ */
 export function isPlaceable(when?: TimeOfDay): boolean {
-  return when !== 'work';
+  return when !== 'work' && when !== 'bedtime';
+}
+
+/**
+ * Whether this rhythm marks where the day ends rather than filling part of it.
+ *
+ * The complement of `isPlaceable` for the sleep-shaped case only: not placed,
+ * but not hidden either. Something asked for seven times a week that vanished
+ * from the day entirely would be a commitment with nowhere to keep it, which
+ * is worse than the wrong hour. It is drawn against the sleep block, where a
+ * bedtime is the one thing on the screen that can honestly be said about it.
+ */
+export function isBoundary(when?: TimeOfDay): boolean {
+  return when === 'bedtime';
 }
 
 // ---------------------------------------------------------------------------

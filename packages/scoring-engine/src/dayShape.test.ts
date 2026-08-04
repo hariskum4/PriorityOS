@@ -935,3 +935,83 @@ describe('time that was spoken for and is not any more', () => {
       .toBe(dayShape(nineToFive).freeMinutes);
   });
 });
+
+/**
+ * The seven o'clock bedtime.
+ *
+ * "Protecting 7–8 hours of sleep" arrived as an ordinary suggestion with five
+ * minutes on it. The shape placed it the way it places everything, in the
+ * roomiest free stretch at the hour its part-of-day asked for, and drew a
+ * block of sleep at 7pm — in the hours between getting home and going to bed,
+ * the ones the reader still had. Nobody lies down for ten minutes at seven.
+ *
+ * What a bedtime costs is not ten minutes of an evening. It is the decision
+ * to stop, and the only row on this card where that means anything is the one
+ * that already says when sleep starts.
+ */
+describe('what happens at the edge of a day rather than inside it', () => {
+  const bedtime = {
+    key: 'rhythm:sleep',
+    action: 'Lights out at the same hour',
+    domains: ['health'],
+    reason: 'Sleep is the lever that moves every other one, and the cheapest to pull.',
+  };
+
+  it('draws it against the sleep the reader already gave', () => {
+    const s = dayShape({ ...nineToFive, boundaries: [bedtime] });
+    const asleep = s.blocks.find((b) => b.kind === 'sleep')!;
+    expect(asleep.startMinutes).toBe(23 * 60);
+    expect(asleep.note).toContain('Lights out at the same hour');
+    expect(asleep.note).toContain('the cheapest to pull');
+    expect(asleep.domains).toEqual(['health']);
+  });
+
+  it('never places it, whatever the day has room for', () => {
+    const s = dayShape({ ...nineToFive, boundaries: [bedtime] });
+    expect(s.placements).toHaveLength(0);
+    expect(s.committedMinutes).toBe(0);
+    expect(s.blocks.some((b) => b.kind === 'suggested')).toBe(false);
+    /* And nowhere near the evening anchor, which is where it used to land. */
+    expect(s.blocks.some((b) => b.kind === 'suggested' && b.startMinutes === 19 * 60))
+      .toBe(false);
+  });
+
+  it('costs none of the hours somebody has left', () => {
+    const withIt = dayShape({ ...nineToFive, boundaries: [bedtime] });
+    const without = dayShape(nineToFive);
+    expect(withIt.freeMinutes).toBe(without.freeMinutes);
+    /* The framing is the number the reader actually reads. A boundary that
+       showed up in "2 things are pencilled into 50 minutes" would have moved
+       the block and kept the lie. */
+    expect(withIt.framingText).toBe(without.framingText);
+  });
+
+  it('leaves room for the things that are genuinely placed', () => {
+    const s = dayShape({ ...nineToFive, suggestions: [walkWithMum], boundaries: [bedtime] });
+    expect(s.placements).toHaveLength(1);
+    expect(s.placements[0].action).toBe('Walk with Mum after dinner');
+    expect(s.framingText).not.toMatch(/2 things|two things/i);
+  });
+
+  it('names several without stacking their reasons', () => {
+    const s = dayShape({
+      ...nineToFive,
+      boundaries: [bedtime, { action: 'Phone charges outside the bedroom', domains: ['growth'], reason: 'x' }],
+    });
+    const asleep = s.blocks.find((b) => b.kind === 'sleep')!;
+    expect(asleep.note).toBe('Lights out at the same hour · Phone charges outside the bedroom');
+    expect(asleep.domains).toEqual(['health', 'growth']);
+  });
+
+  it('leaves the sleep row alone when nothing is kept against it', () => {
+    const asleep = dayShape(nineToFive).blocks.find((b) => b.kind === 'sleep')!;
+    expect(asleep.note).toBeUndefined();
+    expect(asleep.domains).toBeUndefined();
+  });
+
+  it('is not fooled by an empty one', () => {
+    const asleep = dayShape({ ...nineToFive, boundaries: [{ action: '  ' }] })
+      .blocks.find((b) => b.kind === 'sleep')!;
+    expect(asleep.note).toBeUndefined();
+  });
+});

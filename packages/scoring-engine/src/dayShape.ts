@@ -46,7 +46,7 @@ export interface DayBlock {
   endMinutes: number;
   kind: BlockKind;
   label: string;
-  /** Domains this block feeds. Only ever populated for a suggestion. */
+  /** Domains this block feeds. Only a suggestion or a boundary has any. */
   domains?: string[];
   /** Why this block is here, when it is worth saying. */
   note?: string;
@@ -66,6 +66,28 @@ export interface DaySuggestion {
    * free stretch has room around it; otherwise the ordinary rule applies.
    */
   at?: number | null;
+}
+
+/**
+ * Something that happens at the edge of the day rather than inside it.
+ *
+ * A bedtime is the whole of this category so far, and it is here because it
+ * was tried the other way: as an ordinary suggestion with five minutes on it,
+ * which the shape dutifully placed in the free evening and drew as a block of
+ * sleep at seven o'clock. The error was not the hour. A suggestion is a claim
+ * on some of the time a person has left; a boundary is a claim about where
+ * that time stops, and it costs none of it.
+ *
+ * So these are never placed, never counted into `committedMinutes`, and never
+ * mentioned in the framing line — but they are not dropped either. They are
+ * drawn on the sleep block, which is the only row on the card where a bedtime
+ * means anything.
+ */
+export interface DayBoundary {
+  key?: string;
+  action: string;
+  domains?: string[];
+  reason?: string;
 }
 
 /** One thing, on the clock, with a record of how it got there. */
@@ -134,6 +156,15 @@ export interface DayShapeInput {
    * `capacityFor`. Whatever happens, most of the day stays theirs.
    */
   suggestions?: DaySuggestion[] | null;
+  /**
+   * Standing commitments that sit at the day's edge; see `DayBoundary`.
+   *
+   * Kept apart from `suggestions` rather than filtered out of them, so that
+   * nothing downstream has to know the rule. A caller that hands a bedtime to
+   * `suggestions` still gets it placed in the evening, which is the bug — the
+   * separation is what makes the right thing the easy thing.
+   */
+  boundaries?: DayBoundary[] | null;
   /**
    * How far the reader has moved a placement, in minutes, keyed by its `key`
    * or its action.
@@ -649,11 +680,29 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     }
   }
 
+  /* The edge of the day, and whatever the reader has committed to about it.
+     A bedtime read against a sleep block starting at ten reads as the one
+     true thing on that row: the hour is already on the screen, so the note
+     only has to say what is being kept and why it is worth keeping. */
+  const edge = (input.boundaries ?? []).filter(
+    (b): b is DayBoundary => !!b && typeof b.action === 'string' && !!b.action.trim(),
+  );
   blocks.push({
     startMinutes: sleep,
     endMinutes: wake + DAY_MINUTES,
     kind: 'sleep',
     label: 'Sleep',
+    ...(edge.length
+      ? {
+        domains: [...new Set(edge.flatMap((b) => b.domains ?? []))],
+        /* One gets its reason; several get only their names. Two "because"
+           lines stacked under a dimmed row stop being a reason and start
+           being a wall of text at the bottom of somebody's day. */
+        note: edge.length === 1 && edge[0].reason?.trim()
+          ? `${edge[0].action.trim()} — ${edge[0].reason.trim()}`
+          : edge.map((b) => b.action.trim()).join(' · '),
+      }
+      : {}),
   });
   blocks.sort((a, b) => a.startMinutes - b.startMinutes);
 

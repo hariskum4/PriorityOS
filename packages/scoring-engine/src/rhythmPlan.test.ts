@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  rhythmWeekdays, rhythmDueToday, preferredMinutes, isPlaceable, type Weekday,
+  rhythmWeekdays, rhythmDueToday, preferredMinutes, isPlaceable, isBoundary, type Weekday,
   weekPlan, WEEK_COLUMNS, WEEKDAY_INITIALS, preferredTime,
 } from './rhythmPlan';
 
@@ -140,6 +140,38 @@ describe('preferredMinutes', () => {
     expect(preferredMinutes({ when: 'work' })).toBeNull();
     expect(isPlaceable('work')).toBe(false);
     expect(isPlaceable('morning')).toBe(true);
+  });
+
+  /**
+   * The seven o'clock bedtime. `evening` anchors to 7pm, so a rhythm about
+   * where the day *ends* was drawn as ten minutes of sleep between getting
+   * home and the rest of the night. There is no average bedtime this module
+   * could substitute, and inventing one would be the same bug with a later
+   * number on it — so it declines to answer and the day shape draws it
+   * against the sleep hour the reader actually gave.
+   */
+  it('gives a bedtime no hour of its own, and no slot in the free time', () => {
+    expect(preferredMinutes({ when: 'bedtime' })).toBeNull();
+    expect(isPlaceable('bedtime')).toBe(false);
+    expect(isBoundary('bedtime')).toBe(true);
+  });
+
+  it('is not a boundary merely for being unplaceable', () => {
+    expect(isBoundary('work')).toBe(false);
+    expect(isBoundary('evening')).toBe(false);
+    expect(isBoundary(undefined)).toBe(false);
+  });
+
+  /**
+   * Unlike `work`, which refuses outright. A fortnight of lights-out at half
+   * eleven is a fact about this person, and worth more than the silence the
+   * catalog has to keep.
+   */
+  it('still reports a bedtime somebody actually keeps', () => {
+    expect(preferredMinutes({ when: 'bedtime', observedMinutes: 23 * 60 + 30 }))
+      .toBe(23 * 60 + 30);
+    expect(preferredMinutes({ when: 'bedtime', chosenMinutes: 22 * 60 })).toBe(22 * 60);
+    expect(preferredMinutes({ when: 'work', observedMinutes: 23 * 60 })).toBeNull();
   });
 
   it('what they do beats what the activity usually wants', () => {

@@ -5,6 +5,7 @@ import {
   type LeverKey,
 } from './lifeStrategy';
 import { rhythmForHabit } from './rhythms';
+import { isPlaceable, isBoundary } from './rhythmPlan';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted/i;
 
@@ -226,10 +227,22 @@ describe('weekly allocation', () => {
        * The bug this twin exists for: a bedtime rhythm was being placed at
        * half past five in the afternoon, because a habit begun from the
        * healthspan card carried no part-of-day at all.
+       *
+       * This test used to assert `evening` for the sleep one, and it passed,
+       * and it was wrong — the fix it was written to prove moved a bedtime
+       * from half five to seven o'clock, which is the same category error an
+       * hour and a half later. A part-of-day is the wrong kind of answer for
+       * something that marks where the day stops; see `TimeOfDay`.
        */
       it('gives a lever habit the hour its promise actually belongs to', () => {
-        expect(rhythmForHabit('Protecting 7–8 hours of sleep')?.when).toBe('evening');
+        expect(rhythmForHabit('Protecting 7–8 hours of sleep')?.when).toBe('bedtime');
         expect(rhythmForHabit('Strength training twice a week')?.when).toBe('morning');
+      });
+
+      it('keeps a bedtime out of the hours somebody has left', () => {
+        expect(isPlaceable(rhythmForHabit('Protecting 7–8 hours of sleep')?.when)).toBe(false);
+        expect(isBoundary(rhythmForHabit('Protecting 7–8 hours of sleep')?.when)).toBe(true);
+        expect(isPlaceable(rhythmForHabit('Strength training twice a week')?.when)).toBe(true);
       });
 
       it('gives it the room it needs, so it cannot be offered from a desk', () => {
