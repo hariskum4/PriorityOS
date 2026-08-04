@@ -20,8 +20,20 @@ COPY apps/api ./apps/api
 RUN npm install
 
 # Build shared packages, generate Prisma client, compile the API.
+#
+# Every workspace package the API depends on has to be built here, and in
+# dependency order. `@priority/life-os` was missing from this list, which is
+# subtle rather than loud: its package.json points `types` at dist/index.d.ts,
+# so in a clean image that file does not exist, every import from it resolves
+# to `any`, and the API build dies with two dozen implicit-any errors that
+# name application code and never mention the real cause. It passed locally
+# the whole time, because a developer machine has the dist lying around from
+# running the package's own tests.
+#
+# life-os depends on scoring-engine, so it follows it.
 RUN npm run build -w packages/types \
  && npm run build -w packages/scoring-engine \
+ && npm run build -w packages/life-os \
  && npm run build -w packages/ai-prompts \
  && npm run prisma:generate -w apps/api \
  && npm run build -w apps/api
