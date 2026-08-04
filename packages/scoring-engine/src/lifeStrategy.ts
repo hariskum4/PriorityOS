@@ -295,13 +295,31 @@ export interface EnergyBudget {
   peakHoursPerWeek: number;
   /** Of those, the ones the working week already has first claim on. */
   peakHoursAtWork: number;
-  /** What is left over — where everything they actually chose has to fit. */
+  /** What is left once work has taken its share. */
   peakHoursYours: number;
+  /**
+   * True when the working week claims effectively all of them.
+   *
+   * `peakHoursYours` is floored at one so the card never reports zero, which
+   * means at long working weeks it stops being a measurement and becomes the
+   * floor — 60, 70 and 80 hours all produced "1". A caller that prints the
+   * number without knowing this tells a reader it tracked something it did
+   * not.
+   */
+  workClaimsAll: boolean;
   peakHoursToHorizon: number;
+  /** Of what is left, the hours standing rhythms have already spoken for. */
+  committedSharpHours: number;
+  /** What remains after those. Negative is possible and is the finding. */
+  sharpHoursFree: number;
+  /** More focused rhythms agreed to than there are hours to hold them. */
+  overCommitted: boolean;
   sleepBasis: SleepBasis;
   framingText: string;
   /** The sleep line, honest about what it knows. Never an unbacked claim. */
   sleepText: string;
+  /** What the focused rhythms cost against this. Null when there are none. */
+  loadText: string | null;
   assumptions: string[];
 }
 
@@ -314,6 +332,20 @@ export interface EnergyInputs {
   sleep?: LeverState;
   /** Their own words for that rhythm, so the card can say them back. */
   sleepLabel?: string;
+  /**
+   * Hours a week of standing rhythms that need a sharp hour rather than
+   * merely a free one — see `Rhythm.sharp`.
+   *
+   * This is what turns the card from a fact into a decision. On its own,
+   * "you have about six sharp hours" is a population constant with a
+   * working-hours dial on it, true for everyone with that working week and
+   * actionable for nobody. Set against what somebody has actually agreed to,
+   * it can say the one useful thing: that they have promised more focused
+   * work than there are clear hours to do it in.
+   */
+  committedSharpHours?: number;
+  /** How many such rhythms, so the line can count them. */
+  committedSharpCount?: number;
 }
 
 export function energyBudget(inputs: EnergyInputs = {}): EnergyBudget {
@@ -326,17 +358,35 @@ export function energyBudget(inputs: EnergyInputs = {}): EnergyBudget {
   const claimed = Math.round(work * SHARP_SHARE_OF_WORK);
   const atWork = Math.min(claimed, perWeek - 1);
   const yours = perWeek - atWork;
+  /* The floor is binding, so the number below it is no longer a measurement.
+     Reported rather than hidden: it used to fire only at `claimed >= perWeek`,
+     one short of where the cap actually starts, so a 60-hour week printed
+     "roughly 1 is left over" as though 1 had been calculated. */
+  const workClaimsAll = work > 0 && claimed >= perWeek - 1;
 
   const framingText = work === 0
     ? `About ${perWeek} sharp, high-focus hours a week, and no working week with a claim on them. ` +
-      `That is rarer than it sounds — almost nobody gets to point all of it at what they chose.`
-    : claimed >= perWeek
+      `That is rarer than it sounds — almost nobody gets to point all of it wherever they like.`
+    : workClaimsAll
       ? `About ${perWeek} sharp, high-focus hours a week — and a ${work}-hour working week has a claim ` +
-        `on effectively all of them. Roughly ${yours} is left over. Nothing you chose fits in that, ` +
-        `which is the finding, not a failure: this number moves when the working week does.`
+        `on effectively all of them. What is left outside it does not round to a usable number. ` +
+        `That is the finding rather than a failure: this one moves when the working week does.`
+      /**
+       * "Everything you actually chose" is what this used to say, and it was
+       * a contradiction with the card directly above it. That one lists
+       * career among the domains somebody ranked and allots hours to it; this
+       * one described the same working week as the thing taking hours away
+       * from their choices. A reader who ranked career first was being told
+       * the hours they most wanted were the ones being subtracted.
+       *
+       * "Outside work" is the fact, and it stays true however they rank it.
+       */
       : `About ${perWeek} sharp, high-focus hours a week — the ones where your best work lives. Your ` +
         `${work}-hour working week has first claim on roughly ${atWork} of them, which leaves about ` +
-        `${yours} for everything you actually chose. That remainder is the whole game.`;
+        `${yours} outside it. That remainder is where anything you are building for yourself has to fit.`;
+
+  const committed = Math.max(0, Math.round((inputs.committedSharpHours ?? 0) * 2) / 2);
+  const free = Math.round((yours - committed) * 2) / 2;
 
   const sleepBasis = SLEEP_BASIS[inputs.sleep ?? 'open'];
   const named = inputs.sleepLabel ? `"${inputs.sleepLabel}"` : 'your sleep rhythm';
@@ -345,7 +395,17 @@ export function energyBudget(inputs: EnergyInputs = {}): EnergyBudget {
     peakHoursPerWeek: perWeek,
     peakHoursAtWork: atWork,
     peakHoursYours: yours,
+    workClaimsAll,
     peakHoursToHorizon: Math.round((perWeek * workingWeeks) / 100) * 100,
+    committedSharpHours: committed,
+    sharpHoursFree: free,
+    overCommitted: committed > yours,
+    loadText: loadTextFor({
+      committed,
+      count: inputs.committedSharpCount ?? 0,
+      yours,
+      free,
+    }),
     sleepBasis,
     framingText,
     sleepText: {
@@ -361,6 +421,49 @@ export function energyBudget(inputs: EnergyInputs = {}): EnergyBudget {
         : []),
     ],
   };
+}
+
+/**
+ * What the focused rhythms cost against the hours that can hold them.
+ *
+ * The line that gives this card something to do. A sharp-hours figure on its
+ * own is a population constant with a working-hours dial: true, unfalsifiable
+ * and identical for everyone with the same working week. Set against what
+ * somebody has actually agreed to, it becomes a decision — and the decision
+ * is usually that two of the six rhythms they signed up for are competing for
+ * the same clear hour on a Tuesday morning.
+ *
+ * Over-commitment is stated plainly and without instruction. Which one gives
+ * is not this module's call, and an app that answers "you have promised more
+ * than fits" with its own pick of what to drop has skipped the only part that
+ * belonged to the reader.
+ */
+function loadTextFor(x: {
+  committed: number;
+  count: number;
+  yours: number;
+  free: number;
+}): string | null {
+  if (x.committed <= 0) return null;
+
+  /* Subject and verb have to agree, and "Your 1 focused rhythm" is not a
+     phrase anybody writes — one of them gets its own wording. */
+  const subject = x.count === 1
+    ? 'One focused rhythm asks'
+    : `Your ${x.count} focused rhythms ask`;
+
+  if (x.committed > x.yours) {
+    const over = Math.round((x.committed - x.yours) * 2) / 2;
+    return `${subject} for ~${x.committed}h of sharp time, against the ~${x.yours}h you have. `
+      + `That is ~${over}h more than the week holds — not a failure of effort, and not something more `
+      + `discipline fixes. Something moves out of the sharp hours, or one of them quietly stops.`;
+  }
+  if (x.free <= 0) {
+    return `${subject} for ~${x.committed}h, which is exactly what you have. `
+      + `Nothing here is left over for anything that has not been planned.`;
+  }
+  return `${subject} for ~${x.committed}h of those, leaving ~${x.free}h of clear time `
+    + `that nothing has claimed yet.`;
 }
 
 // ---------------------------------------------------------------------------

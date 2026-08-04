@@ -79,6 +79,22 @@ export interface Rhythm {
    * Only shifts which weekday it lands on, never whether it is offered.
    */
   prefersWeekend?: boolean;
+  /**
+   * Needs one of the sharp hours, not merely a free one.
+   *
+   * A different axis from `needs`, which is about the room you are standing
+   * in. This is about what the hour has to be worth: deep work, learning
+   * something hard, and making something are bounded by how clear your head
+   * is, and there are far fewer of those hours in a week than free ones.
+   *
+   * Deliberately narrow. Almost everything here is important, and importance
+   * is not the test — a call home matters enormously and asks nothing of your
+   * concentration. Writing an honest page is hard, but what it costs is
+   * willingness and privacy, which the catalog already says elsewhere. Marking
+   * those as sharp would spend the scarcest budget in the app on hours that
+   * never needed it, and the warning it produces would stop meaning anything.
+   */
+  sharp?: boolean;
 }
 
 /**
@@ -93,13 +109,13 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'career.next',
       title: 'An hour a week on what comes next',
-      perWeek: 1, minutes: 60, when: 'morning', needs: ['hasScreen'],
+      perWeek: 1, minutes: 60, when: 'morning', needs: ['hasScreen'], sharp: true,
       because: 'The work that gets you the next thing is never the work that is due today.',
     },
     {
       key: 'career.deep',
       title: 'One block nobody is allowed to interrupt',
-      perWeek: 2, minutes: 90, when: 'work', needs: ['hasScreen'],
+      perWeek: 2, minutes: 90, when: 'work', needs: ['hasScreen'], sharp: true,
       because: 'Careers are built in the hours nobody interrupts, and those hours have to be taken.',
     },
     {
@@ -233,13 +249,13 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'growth.daily',
       title: 'Thirty minutes of learning, daily',
-      perWeek: 7, minutes: 30, when: 'morning', needs: ['hasScreen'],
+      perWeek: 7, minutes: 30, when: 'morning', needs: ['hasScreen'], sharp: true,
       because: 'Half an hour a day is a new field in three years and nothing at all in one week.',
     },
     {
       key: 'growth.hard',
       title: 'An hour a week on the hard thing',
-      perWeek: 1, minutes: 60, when: 'morning', needs: ['hasScreen'],
+      perWeek: 1, minutes: 60, when: 'morning', needs: ['hasScreen'], sharp: true,
       because: 'The thing you keep avoiding is usually the one that would move you.',
     },
     {
@@ -253,13 +269,13 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'purpose.hour',
       title: 'A standing hour on the project',
-      perWeek: 1, minutes: 60, when: 'morning', needs: ['hasScreen'],
+      perWeek: 1, minutes: 60, when: 'morning', needs: ['hasScreen'], sharp: true,
       because: 'Creative work does not wait for a free weekend. It waits for a fixed hour.',
     },
     {
       key: 'purpose.open',
       title: 'Open the file, every day',
-      perWeek: 7, minutes: 15, when: 'morning', needs: ['hasScreen'],
+      perWeek: 7, minutes: 15, when: 'morning', needs: ['hasScreen'], sharp: true,
       because: 'The hard part was never the hour. It is opening the file.',
     },
     {

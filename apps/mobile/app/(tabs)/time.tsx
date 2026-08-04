@@ -1667,13 +1667,34 @@ export default function TimeReality() {
    * loading pass than on the loaded one. Mapping a handful of habits costs
    * nothing next to that.
    */
-  const commitments = (habits ?? [])
+  const held = (habits ?? [])
     .filter((h: any) => h.isActive !== false && h.targetPerWeek > 0)
-    .map((h: any) => ({
-      domainType: h.domainType,
-      perWeek: h.targetPerWeek,
-      minutes: rhythmByTitle(h.title)?.minutes ?? null,
-    }));
+    .map((h: any) => {
+      const catalog = rhythmByTitle(h.title);
+      return {
+        domainType: h.domainType,
+        perWeek: h.targetPerWeek,
+        minutes: catalog?.minutes ?? null,
+        sharp: catalog?.sharp === true,
+      };
+    });
+
+  const commitments = held.map(({ domainType, perWeek, minutes }: any) => ({
+    domainType, perWeek, minutes,
+  }));
+
+  /**
+   * The rhythms that need a clear head rather than merely a free hour.
+   *
+   * Counted only where the catalog knows both that it is focused work and
+   * how long it takes. Something written by hand has neither, and guessing
+   * would put invented hours into a warning about over-commitment — which is
+   * the one number on that card a reader might actually act on.
+   */
+  const sharpHeld = held.filter((h: any) => h.sharp && h.minutes);
+  const sharpCommitted = sharpHeld.reduce(
+    (sum: number, h: any) => sum + (h.perWeek * h.minutes) / 60, 0,
+  );
 
   const allocation = weeklyAllocation(
     windows.freeTime.freeHoursPerWeek,
@@ -1904,6 +1925,8 @@ export default function TimeReality() {
     plannedWorkYearsMore: moreYears,
     sleep: sleepLever?.state,
     sleepLabel: sleepLever?.habitLabel,
+    committedSharpHours: sharpCommitted,
+    committedSharpCount: sharpHeld.length,
   });
 
   return (
@@ -2945,7 +2968,12 @@ export default function TimeReality() {
                 same for everyone; what is left after their working week is
                 the only number on this card that belongs to them. */}
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-              <Text style={[type.stat, { fontSize: 28, color: colors.amber }]}>~{energy.peakHoursYours}</Text>
+              {/* Past a long enough working week the leftover is the floor
+                  rather than a measurement, so it is shown as a bound. "~1"
+                  read as though one hour had been counted. */}
+              <Text style={[type.stat, { fontSize: 28, color: colors.amber }]}>
+                {energy.workClaimsAll ? '<1' : `~${energy.peakHoursYours}`}
+              </Text>
               <Text style={type.dim}>
                 {energy.peakHoursAtWork > 0
                   ? `of ~${energy.peakHoursPerWeek} sharp hours a week are yours`
@@ -2965,11 +2993,20 @@ export default function TimeReality() {
                 </View>
                 <Text style={type.faint}>
                   ~{energy.peakHoursAtWork} claimed by your {me.workHoursPerWeek ?? 45}-hour week ·
-                  {' '}~{energy.peakHoursYours} for everything you chose
+                  {' '}~{energy.peakHoursYours} outside it
                 </Text>
               </View>
             ) : null}
             <Text style={type.serif}>{energy.framingText}</Text>
+            {/* What the sharp hours are already promised to.
+                Without this the card is a population constant with a
+                working-hours dial — true for everyone with a 45-hour week,
+                and a thing nobody can act on. */}
+            {energy.loadText ? (
+              <Text style={[type.body, energy.overCommitted && { color: colors.rose }]}>
+                {energy.loadText}
+              </Text>
+            ) : null}
             {/* Sleep moves this number more than anything else, which is
                 exactly why the card is not allowed to claim it knows. */}
             <Text

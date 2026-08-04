@@ -258,6 +258,114 @@ describe('energy budget', () => {
     expect(e.assumptions[0]).toMatch(/population figure/);
     expect(e.assumptions[0]).toMatch(/not a measurement of you/);
   });
+
+  /**
+   * The card sat directly under one that lists career among the domains
+   * somebody ranked and allots hours to it, and described the same working
+   * week as the thing taking hours away from their choices. A reader who
+   * ranked career first was told the hours they most wanted were the ones
+   * being subtracted.
+   */
+  it('does not claim the working week is outside what they chose', () => {
+    const e = energyBudget({ workHoursPerWeek: 45 });
+    expect(e.framingText).toMatch(/outside it/);
+    expect(e.framingText).not.toMatch(/everything you actually chose/);
+    expect(e.framingText).not.toMatch(/Nothing you chose/);
+  });
+
+  /**
+   * `peakHoursYours` is floored at one, so past a certain working week the
+   * number stops measuring and becomes the floor. It used to go on printing
+   * "roughly 1 is left over" as though 1 had been computed.
+   */
+  describe('when the working week claims effectively all of them', () => {
+    it('says so at the point the floor actually starts binding', () => {
+      const e = energyBudget({ workHoursPerWeek: 60 });
+      expect(e.workClaimsAll).toBe(true);
+      expect(e.framingText).toMatch(/does not round to a usable number/);
+    });
+
+    it('does not say so while the number is still real', () => {
+      const e = energyBudget({ workHoursPerWeek: 45 });
+      expect(e.workClaimsAll).toBe(false);
+      expect(e.framingText).toMatch(/leaves about 6 outside it/);
+    });
+
+    it('is never true for somebody with no working week', () => {
+      expect(energyBudget({ workHoursPerWeek: 0 }).workClaimsAll).toBe(false);
+    });
+  });
+});
+
+/**
+ * What turns this card from a fact into a decision.
+ *
+ * On its own the sharp-hours figure is a population constant with a
+ * working-hours dial on it: true, unfalsifiable, and identical for everyone
+ * with the same working week. Against what somebody has actually agreed to it
+ * can say the one useful thing — that they have promised more focused work
+ * than there are clear hours to hold it.
+ */
+describe('focused rhythms against the hours that can hold them', () => {
+  const week = { workHoursPerWeek: 45 }; // 6 sharp hours are theirs
+
+  it('says nothing at all when nothing focused is committed', () => {
+    expect(energyBudget(week).loadText).toBeNull();
+    expect(energyBudget(week).committedSharpHours).toBe(0);
+  });
+
+  it('reports what is left when the commitments fit', () => {
+    const e = energyBudget({ ...week, committedSharpHours: 4, committedSharpCount: 2 });
+    expect(e.overCommitted).toBe(false);
+    expect(e.sharpHoursFree).toBe(2);
+    expect(e.loadText).toMatch(/2 focused rhythms ask for ~4h/);
+    expect(e.loadText).toMatch(/~2h of clear time/);
+  });
+
+  it('names the overrun when they do not', () => {
+    const e = energyBudget({ ...week, committedSharpHours: 8.5, committedSharpCount: 4 });
+    expect(e.overCommitted).toBe(true);
+    expect(e.sharpHoursFree).toBe(-2.5);
+    expect(e.loadText).toMatch(/~2\.5h more than the week holds/);
+  });
+
+  it('does not blame the reader for the overrun', () => {
+    const e = energyBudget({ ...week, committedSharpHours: 9, committedSharpCount: 4 });
+    expect(e.loadText).toMatch(/not a failure of effort/);
+    expect(e.loadText).not.toMatch(FORBIDDEN);
+  });
+
+  it('does not tell them which one to drop', () => {
+    // Which commitment gives is the reader's call. An app that answers "you
+    // have promised more than fits" with its own pick has skipped the part
+    // that belonged to them.
+    const e = energyBudget({ ...week, committedSharpHours: 9, committedSharpCount: 4 });
+    expect(e.loadText).not.toMatch(/drop|stop doing|remove|instead of/i);
+  });
+
+  it('handles the exact fit without claiming there is room', () => {
+    const e = energyBudget({ ...week, committedSharpHours: 6, committedSharpCount: 3 });
+    expect(e.overCommitted).toBe(false);
+    expect(e.loadText).toMatch(/exactly what you have/);
+  });
+
+  it('makes subject and verb agree for a single rhythm', () => {
+    const e = energyBudget({ ...week, committedSharpHours: 1, committedSharpCount: 1 });
+    expect(e.loadText).toMatch(/^One focused rhythm asks for/);
+    expect(e.loadText).not.toMatch(/rhythm ask /);
+    expect(e.loadText).not.toMatch(/rhythms/);
+  });
+
+  it('keeps the plural for more than one', () => {
+    const e = energyBudget({ ...week, committedSharpHours: 4, committedSharpCount: 3 });
+    expect(e.loadText).toMatch(/^Your 3 focused rhythms ask for/);
+  });
+
+  it('ignores rubbish rather than reporting it', () => {
+    const e = energyBudget({ ...week, committedSharpHours: -5, committedSharpCount: 2 });
+    expect(e.committedSharpHours).toBe(0);
+    expect(e.loadText).toBeNull();
+  });
 });
 
 /**
