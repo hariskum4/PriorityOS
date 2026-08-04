@@ -60,7 +60,7 @@ const SUNDAY = 0;
  * confident guess about somebody's life that the app refuses elsewhere. The
  * day shape knows their sleep hour; it draws boundaries against it.
  */
-const ANCHOR: Record<Exclude<TimeOfDay, 'work' | 'bedtime' | 'any'>, number> = {
+const ANCHOR: Record<Exclude<TimeOfDay, 'work' | 'bedtime' | 'allday' | 'any'>, number> = {
   morning: 7 * 60,
   midday: 12 * 60 + 30,
   evening: 19 * 60,
@@ -273,7 +273,9 @@ export function preferredTime(input: PreferredTimeInput): PreferredTime {
      kept lights-out at half eleven for a fortnight has told us when their day
      ends, and that reading is worth more than silence. */
   const when = input.when ?? 'any';
-  if (when === 'any' || when === 'bedtime') return { minutes: null, source: 'none' };
+  if (when === 'any' || when === 'bedtime' || when === 'allday') {
+    return { minutes: null, source: 'none' };
+  }
   return { minutes: ANCHOR[when], source: 'catalog' };
 }
 
@@ -285,17 +287,19 @@ export function preferredMinutes(input: PreferredTimeInput): number | null {
 /**
  * Whether this rhythm should be offered a slot in the day's free time.
  *
- * Two things are refused, for opposite reasons. A `work` rhythm belongs
+ * Three things are refused, each for its own reason. A `work` rhythm belongs
  * inside a working day, which is the one part of the day this app does not
  * get to spend. A `bedtime` one belongs at the edge of the day and costs
- * none of the hours in it.
+ * none of the hours in it. An `allday` one is a count or an abstinence —
+ * kept across a whole day, satisfied at no particular hour, and a slot
+ * drawn for it would be a fake appointment.
  *
  * Every surface that hands out a piece of somebody's free time has to ask
  * this — the day card and the found-time sheet both — or the same rhythm is
  * refused a slot in one place and offered one in the other.
  */
 export function isPlaceable(when?: TimeOfDay): boolean {
-  return when !== 'work' && when !== 'bedtime';
+  return when !== 'work' && when !== 'bedtime' && when !== 'allday';
 }
 
 /**

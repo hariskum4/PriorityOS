@@ -1,0 +1,151 @@
+import { describe, it, expect } from 'vitest';
+import { recognizeHabit } from './commonHabits';
+import { rhythmForHabit } from './rhythms';
+import { isPlaceable, isBoundary } from './rhythmPlan';
+
+/**
+ * The bar throughout: a stranger reading the title would name the same
+ * habit. Everything short of that must return null — a wrong guess sits in
+ * the way of the two-way learning, which reads what the person actually
+ * does. The trap cases here matter more than the matches.
+ */
+describe('recognizing the habits people write for themselves', () => {
+  // ---- the commonest things, phrased the ways people phrase them ---------
+  it.each([
+    ['Gym', 'common.exercise'],
+    ['gym 3x a week', 'common.exercise'],
+    ['Workout', 'common.exercise'],
+    ['work out', 'common.exercise'],
+    ['Go to the gym', 'common.exercise'],
+    ['Morning run', 'common.run'],
+    ['Go for a run', 'common.run'],
+    ['jogging', 'common.run'],
+    ['10,000 steps', 'common.walk'],
+    ['10k steps', 'common.walk'],
+    ['Walk the dog', 'common.walk'],
+    ['go for a walk', 'common.walk'],
+    ['Yoga', 'common.stretch'],
+    ['Stretching', 'common.stretch'],
+    ['Meditate 10 minutes', 'common.meditate'],
+    ['daily meditation', 'common.meditate'],
+    ['Mindfulness practice', 'common.meditate'],
+    ['Prayer', 'common.prayer'],
+    ['pray every morning', 'common.prayer'],
+    ['Journal', 'common.journal'],
+    ['Gratitude list', 'common.journal'],
+    ['Read 20 minutes', 'common.read'],
+    ['Reading before bed', 'common.read'],
+    ['Study Spanish', 'common.study'],
+    ['Duolingo', 'common.study'],
+    ['Learn guitar', 'common.study'],
+    ['Call mum', 'common.callhome'],
+    ['Call my parents', 'common.callhome'],
+    ['Take vitamins', 'common.vitamins'],
+    ['meds', 'common.vitamins'],
+    ['Skincare routine', 'common.upkeep'],
+    ['Floss', 'common.upkeep'],
+    ['Make the bed', 'common.makebed'],
+    ['Meal prep Sundays', 'common.cook'],
+    ['Track my spending', 'common.money'],
+    ['Budgeting', 'common.money'],
+  ])('"%s" → %s', (title, key) => {
+    expect(recognizeHabit(title)?.key).toBe(key);
+  });
+
+  // ---- the edges of the day ----------------------------------------------
+  it.each([
+    ['Sleep by 11', 'common.bedtime'],
+    ['In bed by 10:30', 'common.bedtime'],
+    ['Lights out at 11', 'common.bedtime'],
+    ['Early to bed', 'common.bedtime'],
+    ['Wake up at 6', 'common.wake'],
+    ['Get up early', 'common.wake'],
+    ['No phone in bed', 'common.phonebed'],
+    ['No scrolling at night', 'common.phonebed'],
+  ])('"%s" marks where the day ends: %s', (title, key) => {
+    const r = recognizeHabit(title)!;
+    expect(r.key).toBe(key);
+    expect(isBoundary(r.when)).toBe(true);
+    expect(isPlaceable(r.when)).toBe(false);
+  });
+
+  // ---- abstinences and counts: kept all day, placed never ----------------
+  it.each([
+    'Drink more water',
+    '8 glasses of water',
+    'Hydrate',
+    'No sugar',
+    'Quit smoking',
+    'Stop doomscrolling',
+    'Less screen time',
+    'Cut down on coffee',
+    'No alcohol on weekdays',
+  ])('"%s" gets no slot in anybody\'s day', (title) => {
+    const r = recognizeHabit(title)!;
+    expect(r.when).toBe('allday');
+    expect(isPlaceable(r.when)).toBe(false);
+    expect(isBoundary(r.when)).toBe(false);
+  });
+
+  // ---- the traps ---------------------------------------------------------
+  //
+  // Each of these contains a keyword and is not that habit. Matching from
+  // the front is the rule that keeps them out; these tests are what keeps
+  // the rule.
+  it.each([
+    'Call Priya about the project', // a call, not a call home
+    'Cut the grass',                // "cut" without down/back/out is a chore
+    'Skipping rope',                // an activity wearing an abstinence verb
+    'Work on my novel',             // "work" is not "workout"
+    'Update my portfolio',          // starts with "up", is not waking early
+    'Sort the garage',              // the canonical nobody-knows habit
+    'Water the plants',             // water as a verb, not hydration
+    'Note down three ideas',        // "no" must be its own word
+    'Meditation retreat planning',  // about meditation, not meditating? No —
+                                    // this one SHOULD match; see below.
+  ].filter((t) => t !== 'Meditation retreat planning'))(
+    '"%s" resolves to nothing', (title) => {
+      expect(recognizeHabit(title)).toBeNull();
+    },
+  );
+
+  /* Matching from the front is a heuristic, not a proof, and this is the
+     honest cost of it: a title that leads with the keyword matches even
+     when the rest of the line walks it somewhere else. Priced in — the
+     reader can correct a card in one tap, and the alternative (parsing the
+     whole title) is how "call Mum on my walk home" becomes a walk. */
+  it('pays the known cost of front-matching without pretending otherwise', () => {
+    expect(recognizeHabit('Meditation retreat planning')?.key).toBe('common.meditate');
+  });
+
+  it('claims nothing about emptiness', () => {
+    expect(recognizeHabit('')).toBeNull();
+    expect(recognizeHabit('   ')).toBeNull();
+    expect(recognizeHabit(undefined as never)).toBeNull();
+  });
+
+  // ---- how it sits in the resolver ---------------------------------------
+  it('loses to the catalog and the healthspan twins', () => {
+    /* An exact catalog title must never fall through to the fuzzy table. */
+    expect(rhythmForHabit('Move three times a week')?.key).toBe('health.move');
+    expect(rhythmForHabit('Protecting 7–8 hours of sleep')?.key).toBe('health.sleep');
+    /* And the table only speaks when both stayed silent. */
+    expect(rhythmForHabit('Morning run')?.key).toBe('common.run');
+  });
+
+  it('gives every recognized habit the fields the day needs', () => {
+    for (const title of ['Gym', 'Journal', 'Drink more water', 'No phone in bed']) {
+      const r = recognizeHabit(title)!;
+      expect(r.minutes).toBeGreaterThan(0);
+      expect(r.because).toBeTruthy();
+      expect(r.key.startsWith('common.')).toBe(true);
+      expect(r.perWeek).toBeGreaterThanOrEqual(1);
+      expect(r.perWeek).toBeLessThanOrEqual(7);
+    }
+  });
+
+  it('never uses guilt for the not-doing habits', () => {
+    const r = recognizeHabit('Quit smoking')!;
+    expect(r.because).not.toMatch(/you (always|never|should)/i);
+  });
+});

@@ -266,10 +266,18 @@ describe('weekly allocation', () => {
        * `classifyLever` matches "walk", which is right for reading somebody's
        * own wording and catastrophic here — it would hand a phone call a
        * morning anchor and a requirement to be on your feet.
+       *
+       * This used to assert null. The common-habits table now reads the
+       * title from the front and calls it what it is — a call — which is a
+       * better answer than silence. The invariant this test exists for is
+       * unchanged: never the walk.
        */
       it('does not resolve a title that merely mentions a lever word', () => {
-        expect(rhythmForHabit('Call Mum on my walk home')).toBeNull();
         expect(leverTwinKey('Call Mum on my walk home')).toBeNull();
+        const read = rhythmForHabit('Call Mum on my walk home')!;
+        expect(read.key).toBe('common.callhome');
+        expect(read.needs).not.toContain('canMove');
+        expect(read.when).not.toBe('morning');
       });
     });
 

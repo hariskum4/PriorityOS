@@ -30,6 +30,7 @@ import {
   classifyLever,
   rhythmFor,
   rhythmForHabit,
+  rhythmByKey,
   rhythmWeekdays,
   rhythmDueToday,
   preferredMinutes,
@@ -97,6 +98,7 @@ const CADENCE_DAYS: Record<string, number> = {
  */
 const DAY_TYPE_KEY = 'priority-day-type-v1';
 const NUDGE_KEY = 'priority-day-nudges-v1';
+const MORE_YEARS_KEY = 'priority-more-years-v1';
 const DURATION_KEY = 'priority-day-durations-v1';
 /**
  * Which weekdays a rhythm was moved to.
@@ -669,12 +671,15 @@ export default function TimeReality() {
    */
   const [startedLevers, setStartedLevers] = useState<string[]>([]);
   const startLever = useMutation({
-    mutationFn: (l: { key: string; title: string; target: number }) =>
+    /* `domain` was added when the body windows began starting rhythms from
+       here too — rough travel belongs to experiences, not health. Absent, the
+       original lever rule stands. */
+    mutationFn: (l: { key: string; title: string; target: number; domain?: string }) =>
       api('/habits', {
         method: 'POST',
         body: {
           title: l.title,
-          domainType: l.key === 'social' ? 'friends' : 'health',
+          domainType: l.domain ?? (l.key === 'social' ? 'friends' : 'health'),
           targetPerWeek: l.target,
           sourceType: 'system',
         },
@@ -701,7 +706,38 @@ export default function TimeReality() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
   });
 
-  const [moreYears, setMoreYears] = useState<number>(10);
+  /**
+   * How many more years they want to work — an answer, so it is kept.
+   *
+   * This was a `useState(10)` that reset on every visit, which quietly said
+   * the question did not matter. It does: the compounding card runs to
+   * age-plus-this, and the sharp-hours budget divides by it. Stored locally
+   * like the nudges — it is a planning lens, not a profile fact, and there
+   * is nothing here worth putting on a wire.
+   */
+  const [moreYears, setMoreYearsState] = useState<number>(10);
+  React.useEffect(() => {
+    if (!me?.id) return;
+    let alive = true;
+    AsyncStorage.getItem(MORE_YEARS_KEY)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        const saved = JSON.parse(raw);
+        if (saved?.userId === me.id && [5, 10, 15, 20, 25].includes(saved?.years)) {
+          setMoreYearsState(saved.years);
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [me?.id]);
+  const setMoreYears = (years: number) => {
+    setMoreYearsState(years);
+    if (me?.id) {
+      AsyncStorage
+        .setItem(MORE_YEARS_KEY, JSON.stringify({ userId: me.id, years }))
+        .catch(() => {});
+    }
+  };
   const [monthly, setMonthly] = useState('10000');
   const [minutes, setMinutes] = useState<number>(30);
 
@@ -1725,6 +1761,22 @@ export default function TimeReality() {
   const commitments = held.map(({ domainType, perWeek, minutes }: any) => ({
     domainType, perWeek, minutes,
   }));
+
+  /**
+   * Which catalog rhythms this life already holds, by key.
+   *
+   * The body windows use it to tell "begin this" from "already begun" —
+   * a window somebody is already using should say so, not offer them the
+   * thing they are doing. Substance rather than title, for the usual
+   * reason: "Strength training twice a week" and "One strength session a
+   * week" are the same commitment wearing different cards.
+   */
+  const heldRhythmKeys = new Set(
+    (habits ?? [])
+      .filter((h: any) => h.isActive !== false)
+      .map((h: any) => rhythmForHabit(h.title)?.key)
+      .filter(Boolean),
+  );
 
   /**
    * The rhythms that need a clear head rather than merely a free hour.
@@ -3035,6 +3087,67 @@ export default function TimeReality() {
             </Text>
           </Card>
 
+          {/* The windows, folded in from the section they used to be.
+              "Windows open right now" was a card of population facts — every
+              reader the same age saw the same four sentences and nothing to
+              do about any of them. A closing window earns its place here by
+              naming the standing rhythm that uses it while it is open; one
+              already in the week says so instead of re-offering it. */}
+          <Card style={{ gap: space(3) }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="fitness-outline" size={14} color={colors.textDim} />
+              <Label>Windows still open</Label>
+            </View>
+            {windows.body.map((w) => {
+              const use = w.rhythmKey ? rhythmByKey(w.rhythmKey) : null;
+              const kept = use != null && heldRhythmKeys.has(use.key);
+              const begun = startedLevers.includes(w.key);
+              return (
+                <View key={w.key} style={s.windowRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={[type.heading, { flex: 1 }]}>{w.label}</Text>
+                    <Chip
+                      label={w.yearsLeft === null ? 'always open' : `~${w.yearsLeft} yrs`}
+                      color={w.yearsLeft === null ? colors.green : colors.amber}
+                    />
+                  </View>
+                  <Text style={type.faint}>{w.framingText}</Text>
+                  {use && (kept || begun) ? (
+                    <Text style={[type.faint, { color: colors.green }]}>
+                      {kept
+                        ? 'Already in your week — this window is being used.'
+                        : 'Added to your habits — begun, not yet kept.'}
+                    </Text>
+                  ) : use ? (
+                    <Pressable
+                      onPress={() => startLever.mutate({
+                        key: w.key,
+                        title: use.title,
+                        target: use.perWeek,
+                        domain: w.domainType ?? undefined,
+                      })}
+                      disabled={startLever.isPending}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Use it: ${use.title}`}
+                      style={({ pressed }) => [
+                        s.planChip,
+                        { alignSelf: 'flex-start' },
+                        startLever.isPending && { opacity: 0.45 },
+                        pressed && { backgroundColor: colors.surfaceRaised, transform: [{ scale: 0.96 }] },
+                      ]}
+                    >
+                      <Ionicons name="add" size={13} color={colors.amber} />
+                      <Text style={{ color: colors.amber, fontWeight: '600', fontSize: 12 }}>
+                        Use it: {use.title.toLowerCase()}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              );
+            })}
+          </Card>
+
           {/* Energy — the peak hours are the real budget */}
           <Card style={{ gap: space(2) }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -3395,60 +3508,13 @@ export default function TimeReality() {
           </Card>
           </Section>
 
-          <Section
-            icon="briefcase-outline"
-            title="Your working window"
-            preview={`~${windows.career.workingWeeksLeft} working weeks`}
-          >
-          <Card style={{ gap: space(3) }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="briefcase-outline" size={14} color={colors.textDim} />
-              <Label>How long you plan to work</Label>
-            </View>
-            <Text style={type.dim}>How many more years do you want to work?</Text>
-            <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-              {[5, 10, 15, 20, 25].map((y) => (
-                <Pressable
-                  key={y}
-                  onPress={() => setMoreYears(y)}
-                  style={[s.chip, moreYears === y && s.chipOn]}
-                >
-                  <Text style={[type.body, moreYears === y && { color: colors.amber, fontWeight: '700' }]}>
-                    {y} yrs
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Text style={type.serif}>{windows.career.framingText}</Text>
-            <View style={{ flexDirection: 'row', gap: space(2) }}>
-              <Chip label={`~${windows.career.workingWeeksLeft} working weeks`} color={colors.blue} />
-              <Chip label={`then ~${windows.career.postCareerYears} free years`} color={colors.green} />
-            </View>
-          </Card>
-          </Section>
-
-          <Section
-            icon="fitness-outline"
-            title="Windows open right now"
-            preview={`${windows.body.length} still open`}
-          >
-          <Card style={{ gap: space(2) }}>
-            {windows.body.map((w) => (
-              <View key={w.key} style={s.windowRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[type.heading, { flex: 1 }]}>{w.label}</Text>
-                  <Chip
-                    label={w.yearsLeft === null ? 'always open' : `~${w.yearsLeft} yrs`}
-                    color={w.yearsLeft === null ? colors.green : colors.amber}
-                  />
-                </View>
-                <Text style={type.faint}>{w.framingText}</Text>
-              </View>
-            ))}
-          </Card>
-          </Section>
         </>
       )}
+
+      {/* "Your working window" used to be a Section of its own here, a card
+          whose whole output was a countdown of working weeks. The years
+          question survives inside Money and craft below, where tapping an
+          answer visibly changes something; the countdown does not. */}
 
       {/* Money and craft stay outside the horizon block on purpose: they are
           the two calculators that still work when finite-time framing is off. */}
@@ -3465,6 +3531,25 @@ export default function TimeReality() {
           <Ionicons name="trending-up-outline" size={14} color={colors.textDim} />
           <Label>The compounding window</Label>
         </View>
+        {/* The years question lives here rather than in a card of its own,
+            because here the answer does something you can watch: the horizon
+            of the compounding number is age plus this. Its old home printed
+            "~480 working weeks left", which was a countdown wearing a
+            question as a disguise. */}
+        <Text style={type.dim}>How many more years do you want to work?</Text>
+        <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+          {[5, 10, 15, 20, 25].map((y) => (
+            <Pressable
+              key={y}
+              onPress={() => setMoreYears(y)}
+              style={[s.chip, moreYears === y && s.chipOn]}
+            >
+              <Text style={[type.body, moreYears === y && { color: colors.amber, fontWeight: '700' }]}>
+                {y} yrs
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
           <Text style={type.dim}>Investing</Text>
           <Input
@@ -3479,6 +3564,14 @@ export default function TimeReality() {
           grows to ~{money.corpusStartingNow.toLocaleString()}.
         </Text>
         <Text style={[type.dim, { color: colors.green }]}>{money.framingText}</Text>
+        {/* What the working years are for, in one quiet line — the part of
+            the old card worth keeping. */}
+        {!intensityOff && (
+          <Text style={type.faint}>
+            After that, ~{windows.career.postCareerYears} years that are almost
+            entirely yours — the plan is for both halves.
+          </Text>
+        )}
         <Text style={type.faint}>{money.assumptions[0]}.</Text>
       </Card>
 

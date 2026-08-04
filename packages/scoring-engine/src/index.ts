@@ -33,6 +33,7 @@ export * from './domainLadder';
 export * from './setting';
 export * from './rhythms';
 export * from './rhythmPlan';
+export * from './commonHabits';
 export * from './foundTime';
 export * from './freeGaps';
 export * from './relationshipSanity';

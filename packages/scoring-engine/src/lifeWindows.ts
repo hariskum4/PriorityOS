@@ -117,34 +117,52 @@ export interface BodyWindow {
   label: string;
   yearsLeft: number | null; // null = open-ended
   framingText: string;
+  /**
+   * The standing rhythm that uses this window while it is open, named by its
+   * catalog key the way the healthspan levers name their twins. A window
+   * without one is scenery — the same sentence for every person of the same
+   * age, read once and never again. With one, a closing window is a reason
+   * to begin something this week, which is the only register this app is
+   * allowed to use scarcity in.
+   */
+  rhythmKey: string | null;
+  /** Where the habit belongs when it is begun from here. */
+  domainType: string | null;
 }
 
 const BODY_WINDOWS: Array<{
   key: string; label: string; closesAround: number | null; framing: string;
+  rhythmKey: string | null; domainType: string | null;
 }> = [
   {
     key: 'peak_strength',
     label: 'Peak strength building',
     closesAround: 40,
     framing: 'Muscle built now compounds for decades. The gym you join today is the mobility you keep at 70.',
+    rhythmKey: 'health.strength', domainType: 'health',
   },
   {
     key: 'endurance',
     label: 'Big endurance feats',
     closesAround: 55,
     framing: 'Marathons, treks, long rides — very trainable in this window at any starting fitness.',
+    rhythmKey: 'health.move', domainType: 'health',
   },
   {
     key: 'adventure_travel',
     label: 'Rough-and-ready travel',
     closesAround: 70,
     framing: 'Overnight buses, mountain trails, sleeping anywhere. Comfort travel lasts far longer — this is the rough kind.',
+    rhythmKey: 'experiences.near', domainType: 'experiences',
   },
   {
     key: 'presence',
     label: 'Being fully present',
     closesAround: null,
     framing: 'The one window that never closes. Every other number here serves this one.',
+    /* No action on purpose. Presence is what the whole app is for, and a
+       button on it would be a habit called "be present", which is nothing. */
+    rhythmKey: null, domainType: null,
   },
 ];
 
@@ -156,6 +174,8 @@ export function bodyWindows(age: number): BodyWindow[] {
     label: w.label,
     yearsLeft: w.closesAround === null ? null : Math.round(w.closesAround - age),
     framingText: w.framing,
+    rhythmKey: w.rhythmKey,
+    domainType: w.domainType,
   }));
 }
 

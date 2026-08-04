@@ -35,6 +35,7 @@
 
 import type { Setting } from './setting';
 import { classifyLever, leverTwinKey, type LeverKey } from './lifeStrategy';
+import { recognizeHabit } from './commonHabits';
 
 /**
  * Where in a day this kind of thing belongs.
@@ -57,11 +58,21 @@ import { classifyLever, leverTwinKey, type LeverKey } from './lifeStrategy';
  * a bedtime rhythm claims no free time, is never carved out of the hours left,
  * and rides on the sleep block instead. See `isBoundary` in `rhythmPlan.ts`.
  *
+ * `allday` is the third refusal, and it came from looking at what people
+ * actually track: a large share of the commonest habits are not activities at
+ * all. "Drink more water" is a count kept across a whole day, and "no sugar"
+ * or "less scrolling" are abstinences — the whole point is that *nothing*
+ * happens, all day. None of these wants a slot; drawing "drink water,
+ * 7–7:30am" turns a background intention into a fake appointment, which is
+ * the seven-o'clock-bedtime bug with a glass of water in its hand. All-day
+ * habits keep their place in the week strip, where a kept day is a tick
+ * whatever hour it happened, and stay off the clock entirely.
+ *
  * Otherwise only ever a preference. A life with no morning gap still gets its
  * walk somewhere; see `rhythmPlan.ts`, which decides what to do when the
  * preferred window is not open.
  */
-export type TimeOfDay = 'morning' | 'midday' | 'evening' | 'work' | 'bedtime' | 'any';
+export type TimeOfDay = 'morning' | 'midday' | 'evening' | 'work' | 'bedtime' | 'allday' | 'any';
 
 export interface Rhythm {
   /**
@@ -464,7 +475,14 @@ export function rhythmByTitle(title: string): Rhythm | null {
  * week strip with no hour on it, and hours missing from the allocation total.
  * One resolver, one answer, and a caller reads whatever it needs.
  *
- * Returns null for a habit somebody wrote themselves, which is honest rather
+ * Three readings, most certain first: the catalog's own titles, the
+ * healthspan card's exact labels, and then the common-habits table — the
+ * couple of dozen things people write for themselves everywhere ("gym",
+ * "meditate", "drink water"), recognized conservatively from the front of
+ * the title. See `commonHabits.ts` for the rules that keep that last step
+ * from guessing.
+ *
+ * Still null for anything genuinely somebody's own, which is honest rather
  * than unfortunate — nothing here knows how long "sort the garage" takes or
  * when it belongs. The two-way learning covers that from what they actually
  * do, and a guess would only get in its way.
@@ -473,7 +491,8 @@ export function rhythmForHabit(title: string): Rhythm | null {
   const direct = rhythmByTitle(title);
   if (direct) return direct;
   const twin = leverTwinKey(title);
-  return twin ? rhythmByKey(twin) : null;
+  if (twin) return rhythmByKey(twin);
+  return recognizeHabit(title);
 }
 
 /** Look one up by key — the merge path for an AI rewrite. */
