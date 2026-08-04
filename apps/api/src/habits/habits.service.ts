@@ -12,6 +12,19 @@ import { advanceStreak } from '@priority/scoring-engine';
  */
 const RATE_WINDOW_DAYS = 28;
 
+/**
+ * How much of a habit's past travels with it.
+ *
+ * Matches the lookback the engine's `activeHour` and `rhythmWeekdays` both
+ * use. Without it those two read whatever `logs` happens to hold — this
+ * week — so a question about which weekday somebody uses was being asked of
+ * at most seven days, and a reading needing three distinct days could only
+ * ever be earned inside one of them.
+ */
+const HISTORY_WINDOW_DAYS = 120;
+/** Same ceiling the engine samples to; more is weight without more signal. */
+const HISTORY_MAX_PER_HABIT = 80;
+
 @Injectable()
 export class HabitsService {
   constructor(
@@ -44,11 +57,35 @@ export class HabitsService {
       },
     });
 
+    /* One query for every habit's longer past, grouped after. Timestamps
+       only — the notes are not needed to work out when someone acts, and
+       shipping four months of them would be the payload for nothing. */
+    const historySince = await this.clock.daysAgo(userId, HISTORY_WINDOW_DAYS);
+    const past = habits.length
+      ? await this.prisma.habitLog.findMany({
+          where: {
+            habitId: { in: habits.map((h) => h.id) },
+            completedAt: { gte: historySince },
+          },
+          select: { habitId: true, completedAt: true },
+          orderBy: { completedAt: 'desc' },
+        })
+      : [];
+    const history = new Map<string, Date[]>();
+    for (const row of past) {
+      const list = history.get(row.habitId) ?? [];
+      if (list.length < HISTORY_MAX_PER_HABIT) list.push(row.completedAt);
+      history.set(row.habitId, list);
+    }
+
     return habits.map(({ _count, ...h }) => ({
       ...h,
       recentLogs: _count.logs,
       perWeek: Math.round((_count.logs / (RATE_WINDOW_DAYS / 7)) * 10) / 10,
       rateWindowDays: RATE_WINDOW_DAYS,
+      /** Completion times over `HISTORY_WINDOW_DAYS`, newest first. */
+      history: history.get(h.id) ?? [],
+      historyWindowDays: HISTORY_WINDOW_DAYS,
     }));
   }
 

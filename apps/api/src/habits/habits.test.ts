@@ -37,6 +37,13 @@ function make(habits: Array<Record<string, any>>, logs: Array<Record<string, any
       },
     },
     habitLog: {
+      findMany: async ({ where }: any) => logs
+        .filter((l) => (
+          (where.habitId?.in ?? [l.habitId]).includes(l.habitId)
+          && (!where.completedAt?.gte || l.completedAt >= where.completedAt.gte)
+        ))
+        .sort((a, b) => b.completedAt - a.completedAt)
+        .map((l) => ({ habitId: l.habitId, completedAt: l.completedAt })),
       findFirst: async ({ where }: any) => logs.find((l) => (
         l.habitId === where.habitId && l.completedAt >= where.completedAt.gte
       )) ?? null,

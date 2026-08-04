@@ -29,8 +29,14 @@ import {
   suggestSeason,
   classifyLever,
   rhythmFor,
+  rhythmByTitle,
+  rhythmWeekdays,
+  rhythmDueToday,
+  preferredMinutes,
+  isPlaceable,
   dayShape,
   activeHour,
+  activeHourByKey,
   formatSpan,
   formatClock,
   type DayBlock,
@@ -961,10 +967,74 @@ export default function TimeReality() {
   const activeAt = useMemo(
     () => activeHour([
       ...(doneMissions ?? []).map((m: any) => m.completedAt),
-      ...(habits ?? []).flatMap((h: any) => (h.logs ?? []).map((l: any) => l.completedAt)),
+      ...(habits ?? []).flatMap((h: any) => h.history ?? (h.logs ?? []).map((l: any) => l.completedAt)),
     ]),
     [doneMissions, habits],
   );
+
+  /**
+   * The hour each rhythm is kept at, separately from the hour this person
+   * gets to things in general. One reading for a whole life is right for
+   * "when are they reachable" and wrong for "when do they walk" — a morning
+   * run and a call home have different homes, and pooling them reports an
+   * afternoon belonging to neither. Held to the same thresholds, so a thin
+   * history yields nothing and the catalog's own hint takes over.
+   */
+  const habitHours = useMemo(
+    () => activeHourByKey(Object.fromEntries(
+      (habits ?? []).map((h: any) => [h.id, h.history ?? []]),
+    )),
+    [habits],
+  );
+
+  /**
+   * Standing commitments, on today's clock.
+   *
+   * A rhythm carries a frequency and never said which days or what hour, so
+   * the app could hold something somebody had agreed to and still leave them
+   * the question that decides whether it happens. The weekdays come from
+   * what they actually do when there is enough of it to earn that, and the
+   * hour from what they do with *this* rhythm, then from the part of the day
+   * the activity belongs to.
+   *
+   * Placed is not scheduled: the week counts to the target, a planned day
+   * that passes unused costs nothing, and a week already met is never asked
+   * for again.
+   */
+  const dueRhythms = useMemo(() => {
+    const today = new Date().getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    return (habits ?? [])
+      .filter((h: any) => h.isActive !== false)
+      .map((h: any) => {
+        const catalog = rhythmByTitle(h.title);
+        const perWeek = Math.max(1, Number(h.targetPerWeek) || 1);
+        const { days } = rhythmWeekdays({
+          key: catalog?.key ?? h.id,
+          perWeek,
+          history: h.history ?? [],
+          prefersWeekend: catalog?.prefersWeekend,
+        });
+        const due = rhythmDueToday({
+          days,
+          perWeek,
+          doneThisWeek: (h.logs ?? []).length,
+          today,
+        });
+        if (!due || !isPlaceable(catalog?.when)) return null;
+        return {
+          key: `rhythm:${h.id}`,
+          action: h.title,
+          minutes: catalog?.minutes ?? 30,
+          domains: [h.domainType].filter(Boolean),
+          reason: catalog?.because || undefined,
+          at: preferredMinutes({
+            when: catalog?.when,
+            observedMinutes: habitHours[h.id]?.minutes ?? null,
+          }),
+        };
+      })
+      .filter((r: any): r is NonNullable<typeof r> => r != null);
+  }, [habits, habitHours]);
 
   const age = ageFromDob(me?.dob);
   const birthYear = me?.dob ? new Date(me.dob).getUTCFullYear() : null;
@@ -1219,6 +1289,17 @@ export default function TimeReality() {
    * evening takes one, a cleared Saturday takes three.
    */
   const placeable = [
+    /* Standing commitments lead, because they are the only things here the
+       reader has already agreed to — and each one knows the hour it wants,
+       so they mostly take slots the rest were never going to use. Among
+       themselves the starved domain wins: a rhythm in the part of a life
+       that is drifting is exactly the hour worth defending, which is what
+       the ranking and the honest 1-5 scores were collected for. */
+    ...[...dueRhythms].sort((a: any, b: any) => {
+      const risk = (d: string) =>
+        (dashboard?.domains ?? []).find((x: any) => x.domainType === d)?.neglectRisk ?? 0;
+      return risk(b.domains[0]) - risk(a.domains[0]);
+    }),
     ...(lifeOs?.proposals ?? [])
       .filter((p: any) => p?.action && !isSettled(p.action))
       .map((p: any) => ({

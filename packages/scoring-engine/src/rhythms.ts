@@ -33,6 +33,21 @@
  * particular life (see `rhythms.service.ts`); it never chooses which.
  */
 
+/**
+ * Where in a day this kind of thing belongs.
+ *
+ * A property of the activity, not of the person: a walk wants a morning, a
+ * call to a parent wants an evening when they are actually home, and "one
+ * block nobody is allowed to interrupt" belongs inside the working day and
+ * nowhere else — placing that one at nine at night would be nonsense, so
+ * `work` is a refusal to place rather than a slot.
+ *
+ * Only ever a preference. A life with no morning gap still gets its walk
+ * somewhere; see `rhythmPlan.ts`, which decides what to do when the
+ * preferred window is not open.
+ */
+export type TimeOfDay = 'morning' | 'midday' | 'evening' | 'work' | 'any';
+
 export interface Rhythm {
   /**
    * Stable identity. Used for dedupe, for keying an AI rewrite, and never
@@ -47,6 +62,13 @@ export interface Rhythm {
   minutes: number;
   /** Why this belongs to this domain, in that domain's own terms. */
   because: string;
+  /** The part of a day this belongs in. Absent reads as `any`. */
+  when?: TimeOfDay;
+  /**
+   * Wants a day with room in it — an outing, an unhurried hour, a visit.
+   * Only shifts which weekday it lands on, never whether it is offered.
+   */
+  prefersWeekend?: boolean;
 }
 
 /**
@@ -61,19 +83,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'career.next',
       title: 'An hour a week on what comes next',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'morning',
       because: 'The work that gets you the next thing is never the work that is due today.',
     },
     {
       key: 'career.deep',
       title: 'One block nobody is allowed to interrupt',
-      perWeek: 2, minutes: 90,
+      perWeek: 2, minutes: 90, when: 'work',
       because: 'Careers are built in the hours nobody interrupts, and those hours have to be taken.',
     },
     {
       key: 'career.leave',
       title: 'Leave on time one day a week',
-      perWeek: 1, minutes: 15,
+      perWeek: 1, minutes: 15, when: 'work',
       because: 'A career that takes every evening has quietly stopped being a career.',
     },
   ],
@@ -81,19 +103,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'health.move',
       title: 'Move three times a week',
-      perWeek: 3, minutes: 40,
+      perWeek: 3, minutes: 40, when: 'morning',
       because: 'Nothing else on this list survives a body you stopped maintaining.',
     },
     {
       key: 'health.strength',
       title: 'One strength session a week',
-      perWeek: 1, minutes: 45,
+      perWeek: 1, minutes: 45, when: 'morning',
       because: 'Strength is most of what decides how the last twenty years feel.',
     },
     {
       key: 'health.sleep',
       title: 'Lights out at the same hour',
-      perWeek: 7, minutes: 5,
+      perWeek: 7, minutes: 5, when: 'evening',
       because: 'Sleep is the lever that moves every other one, and the cheapest to pull.',
     },
   ],
@@ -101,19 +123,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'finance.review',
       title: 'Fifteen minutes on the money, weekly',
-      perWeek: 1, minutes: 15,
+      perWeek: 1, minutes: 15, when: 'evening',
       because: 'Money goes wrong quietly. Fifteen minutes a week is enough to hear it.',
     },
     {
       key: 'finance.first',
       title: 'Move something to savings first',
-      perWeek: 1, minutes: 10,
+      perWeek: 1, minutes: 10, when: 'any',
       because: 'What is put away before the month starts is the part that survives it.',
     },
     {
       key: 'finance.learn',
       title: 'Read one thing about money',
-      perWeek: 1, minutes: 20,
+      perWeek: 1, minutes: 20, when: 'evening',
       because: 'The gap is rarely income. It is usually the thing nobody taught you.',
     },
   ],
@@ -121,19 +143,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'family.call',
       title: 'Call home, the same day every week',
-      perWeek: 1, minutes: 20,
+      perWeek: 1, minutes: 20, when: 'evening',
       because: 'Family drifts on no particular day, which is why it needs a particular day.',
     },
     {
       key: 'family.ask',
       title: 'Ask one thing you have never asked',
-      perWeek: 1, minutes: 15,
+      perWeek: 1, minutes: 15, when: 'evening',
       because: 'Your parents carry a whole life you have not heard, and it does not keep.',
     },
     {
       key: 'family.hour',
       title: 'An unhurried hour with them, weekly',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'evening', prefersWeekend: true,
       because: 'A standing hour beats a good intention, every single time.',
     },
   ],
@@ -141,19 +163,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'partner.evening',
       title: 'One evening a week with phones away',
-      perWeek: 1, minutes: 120,
+      perWeek: 1, minutes: 120, when: 'evening',
       because: 'Partnership is not maintained by living in the same house.',
     },
     {
       key: 'partner.ask',
       title: 'Ask what they need this week',
-      perWeek: 1, minutes: 10,
+      perWeek: 1, minutes: 10, when: 'evening',
       because: 'What they need is rarely the thing you would have guessed.',
     },
     {
       key: 'partner.specific',
       title: 'Say the specific thing, weekly',
-      perWeek: 1, minutes: 5,
+      perWeek: 1, minutes: 5, when: 'any',
       because: 'Specific is the difference between being appreciated and being told you are.',
     },
   ],
@@ -161,19 +183,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'children.hour',
       title: 'One undivided hour a week',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'evening', prefersWeekend: true,
       because: 'Children measure attention by whether the phone is in the room.',
     },
     {
       key: 'children.ours',
       title: 'A thing only the two of you do',
-      perWeek: 1, minutes: 45,
+      perWeek: 1, minutes: 45, when: 'any', prefersWeekend: true,
       because: 'What they remember is the thing that was theirs.',
     },
     {
       key: 'children.record',
       title: 'Write down one thing they said',
-      perWeek: 1, minutes: 5,
+      perWeek: 1, minutes: 5, when: 'evening',
       because: 'You will not remember it, and it is the part you will most want back.',
     },
   ],
@@ -181,19 +203,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'friends.message',
       title: 'Message one friend a week, whoever',
-      perWeek: 1, minutes: 10,
+      perWeek: 1, minutes: 10, when: 'any',
       because: 'Friendships end from nothing happening, not from anything happening.',
     },
     {
       key: 'friends.moved',
       title: 'Call the one who moved away',
-      perWeek: 1, minutes: 20,
+      perWeek: 1, minutes: 20, when: 'evening',
       because: 'Distance does not end friendships. Silence does.',
     },
     {
       key: 'friends.yes',
       title: 'Say yes to one thing a week',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'evening', prefersWeekend: true,
       because: 'The invitations stop coming a while after they stop being taken.',
     },
   ],
@@ -201,19 +223,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'growth.daily',
       title: 'Thirty minutes of learning, daily',
-      perWeek: 7, minutes: 30,
+      perWeek: 7, minutes: 30, when: 'morning',
       because: 'Half an hour a day is a new field in three years and nothing at all in one week.',
     },
     {
       key: 'growth.hard',
       title: 'An hour a week on the hard thing',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'morning',
       because: 'The thing you keep avoiding is usually the one that would move you.',
     },
     {
       key: 'growth.teach',
       title: 'Teach one thing you know, weekly',
-      perWeek: 1, minutes: 20,
+      perWeek: 1, minutes: 20, when: 'any',
       because: 'You do not know it until you have had to say it out loud.',
     },
   ],
@@ -221,19 +243,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'purpose.hour',
       title: 'A standing hour on the project',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'morning',
       because: 'Creative work does not wait for a free weekend. It waits for a fixed hour.',
     },
     {
       key: 'purpose.open',
       title: 'Open the file, every day',
-      perWeek: 7, minutes: 15,
+      perWeek: 7, minutes: 15, when: 'morning',
       because: 'The hard part was never the hour. It is opening the file.',
     },
     {
       key: 'purpose.show',
       title: 'Show it to one person a week',
-      perWeek: 1, minutes: 20,
+      perWeek: 1, minutes: 20, when: 'any',
       because: 'Work nobody sees quietly stops being work.',
     },
   ],
@@ -241,19 +263,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'experiences.new',
       title: 'One thing you have never done, weekly',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'any', prefersWeekend: true,
       because: 'Years blur when they are made of the same week, repeated.',
     },
     {
       key: 'experiences.yes',
       title: 'Say yes to one invitation a week',
-      perWeek: 1, minutes: 90,
+      perWeek: 1, minutes: 90, when: 'evening', prefersWeekend: true,
       because: 'The good years turn out to be mostly other people’s plans.',
     },
     {
       key: 'experiences.near',
       title: 'One place near you, never visited',
-      perWeek: 1, minutes: 120,
+      perWeek: 1, minutes: 120, when: 'any', prefersWeekend: true,
       because: 'Most of what you have not seen is within an hour of where you live.',
     },
   ],
@@ -261,19 +283,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'reflection.quiet',
       title: 'Five quiet minutes, daily',
-      perWeek: 7, minutes: 5,
+      perWeek: 7, minutes: 5, when: 'morning',
       because: 'A mind gets no maintenance window unless somebody makes one.',
     },
     {
       key: 'reflection.page',
       title: 'One honest page a week',
-      perWeek: 1, minutes: 20,
+      perWeek: 1, minutes: 20, when: 'evening',
       because: 'You find out what you think by writing it, not before.',
     },
     {
       key: 'reflection.hour',
       title: 'A weekly hour that is nobody else’s',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'morning', prefersWeekend: true,
       because: 'An hour belonging to no one else is the rarest thing in a full life.',
     },
   ],
@@ -281,19 +303,19 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     {
       key: 'impact.hour',
       title: 'An hour a week for someone who needs it',
-      perWeek: 1, minutes: 60,
+      perWeek: 1, minutes: 60, when: 'any', prefersWeekend: true,
       because: 'The help that lands is the help that is regular.',
     },
     {
       key: 'impact.answer',
       title: 'Answer one person who asked',
-      perWeek: 1, minutes: 20,
+      perWeek: 1, minutes: 20, when: 'any',
       because: 'Most people who need help have already asked someone, once.',
     },
     {
       key: 'impact.bring',
       title: 'Bring one other person into it',
-      perWeek: 1, minutes: 30,
+      perWeek: 1, minutes: 30, when: 'any',
       because: 'What you do alone ends with you. What you hand over does not.',
     },
   ],
@@ -316,6 +338,30 @@ export function rhythmFor(domainType: string, taken: Iterable<string> = []): Rhy
   const norm = (s: string) => s.trim().toLowerCase();
   const takenSet = new Set([...taken].map(norm));
   return rhythmsFor(domainType).find((r) => !takenSet.has(norm(r.title))) ?? null;
+}
+
+/**
+ * The catalog entry a saved habit came from, matched on title.
+ *
+ * Habits are rows a person owns; rhythms are the catalog they were offered
+ * from. Nothing stores the link, and the title is what the two share — the
+ * same case-insensitive match `rhythmFor` already uses to avoid re-offering
+ * something. Returns null for a habit somebody wrote themselves, which then
+ * simply has no opinion about when it belongs.
+ *
+ * A title an AI rewrote for this life will not match, and that is the
+ * correct outcome: it falls back to having no preference rather than
+ * inheriting a stranger's.
+ */
+export function rhythmByTitle(title: string): Rhythm | null {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const want = norm(title ?? '');
+  if (!want) return null;
+  for (const list of Object.values(RHYTHMS)) {
+    const hit = list.find((r) => norm(r.title) === want);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** Look one up by key — the merge path for an AI rewrite. */

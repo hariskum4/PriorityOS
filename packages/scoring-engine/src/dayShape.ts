@@ -59,6 +59,13 @@ export interface DaySuggestion {
   minutes: number;
   domains: string[];
   reason?: string;
+  /**
+   * The minute of the day this one wants, when something knows better than
+   * the front-of-the-gap rule — the hour this rhythm is observed to happen
+   * at, or the part of the day the activity belongs to. Honoured only if a
+   * free stretch has room around it; otherwise the ordinary rule applies.
+   */
+  at?: number | null;
 }
 
 /** One thing, on the clock, with a record of how it got there. */
@@ -70,7 +77,7 @@ export interface Placement {
   domains: string[];
   reason?: string;
   /** Read from their own record, or the rule about where plans survive. */
-  placedBy: 'observed' | 'front-of-gap';
+  placedBy: 'observed' | 'preferred' | 'front-of-gap';
   /** How far the reader moved it from where the shape put it. */
   nudgedBy: number;
 }
@@ -153,10 +160,11 @@ export interface DayShape {
   /** Minutes of the free time now spoken for. Always a minority of it. */
   committedMinutes: number;
   /**
-   * How the hour was chosen — read from their own record, or the rule about
-   * where plans survive. Null when nothing was placed.
+   * How the hour was chosen — read from their own record, asked for by the
+   * thing itself, or the rule about where plans survive. Null when nothing
+   * was placed.
    */
-  placedBy: 'observed' | 'front-of-gap' | null;
+  placedBy: 'observed' | 'preferred' | 'front-of-gap' | null;
   /** Whether the inputs were real or assumed. Same rule as everywhere. */
   basis: 'stated' | 'assumed';
   /** The kind of day this was drawn for. */
@@ -441,13 +449,13 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   /* The hour they actually use, brought into this day's coordinates. Gaps run
      forward from waking and may cross midnight, so a reading of 1am belongs at
      the far end of tonight rather than before this morning. */
-  const observedAt = (() => {
-    const m = input.activeAt?.minutes;
+  const normalizeAt = (m: unknown): number | null => {
     if (m == null || !Number.isFinite(Number(m))) return null;
     let at = ((Math.floor(Number(m)) % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
     while (at < wake) at += DAY_MINUTES;
     return at;
-  })();
+  };
+  const observedAt = normalizeAt(input.activeAt?.minutes);
 
   const capacity = capacityFor(freeMinutes);
   const spacing = spacingFor(freeMinutes, capacity);
@@ -473,16 +481,25 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     /* Absent a reading, a thing sits at the *start* of the roomiest stretch
        left: anything asked for "later, when there is time" is what gets
        postponed, and the first hour after the fixed blocks end is the one that
-       actually exists. A reading beats the rule, because the hour somebody has
-       used a dozen times is not a hypothesis — and only the first placement
-       gets it, since it is a claim about when they act, not about how many
-       times a day they do. */
-    const observedRoom = !placements.length && observedAt != null
-      ? roomy.find((g) => observedAt >= g.startMinutes && observedAt + need <= g.endMinutes)
+       actually exists.
+
+       A reading beats the rule, because the hour somebody has used a dozen
+       times is not a hypothesis. Two kinds of reading, in order: the hour
+       this particular thing asked for — the hour it is observed to happen at,
+       or the part of the day it belongs to — and then the pooled reading of
+       when this person acts at all. The pooled one still goes to the first
+       placement only, since it is a claim about when they get to things and
+       not about how many times a day they do. */
+    const own = normalizeAt(s.at);
+    const wantAt = own ?? (!placements.length ? observedAt : null);
+    const wantRoom = wantAt != null
+      ? roomy.find((g) => wantAt >= g.startMinutes && wantAt + need <= g.endMinutes)
       : undefined;
-    let host = observedRoom ?? [...roomy].sort(roomiest)[0];
-    let startAt = observedRoom ? observedAt! : host.startMinutes;
-    let placedBy: Placement['placedBy'] = observedRoom ? 'observed' : 'front-of-gap';
+    let host = wantRoom ?? [...roomy].sort(roomiest)[0];
+    let startAt = wantRoom ? wantAt! : host.startMinutes;
+    let placedBy: Placement['placedBy'] = wantRoom
+      ? (own != null ? 'preferred' : 'observed')
+      : 'front-of-gap';
 
     /* Within a few minutes of the front, the front is the answer — a "Yours"
        row eight minutes long is a crumb drawn as an opportunity. */
@@ -635,6 +652,20 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
 
   const longest = evening ? evening.endMinutes - evening.startMinutes : 0;
 
+  /**
+   * The stretch the single placement actually sits in.
+   *
+   * The framing used to describe the roomiest gap whatever happened, which
+   * was harmless while everything landed there — a thing with no opinion
+   * goes to the roomiest stretch by definition. A rhythm that asks for a
+   * morning does not, and "your longest free stretch is 6pm–11pm, 40 minutes
+   * of it is enough for this" printed under something sitting at 7am
+   * describes a different day than the one drawn above it.
+   */
+  const hosting = (placedIn && gaps.find(
+    (g) => placedIn.startMinutes >= g.startMinutes && placedIn.startMinutes < g.endMinutes,
+  )) || evening;
+
   let framingText: string;
   if (!isWorkday) {
     /* "Nothing here is scheduled" was written when a rest day could not hold a
@@ -680,11 +711,16 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     framingText =
       `This is at ${formatClock(placedIn!.startMinutes)} because that is when you actually get to ` +
       `things — not at the front of the evening, where plans go to be postponed. ` +
-      `The stretch runs ${formatSpan(evening.startMinutes, evening.endMinutes)} and the rest of it stays yours.`;
+      `The stretch runs ${formatSpan(hosting.startMinutes, hosting.endMinutes)} and the rest of it stays yours.`;
+  } else if (fits && placedBy === 'preferred') {
+    framingText =
+      `This sits at ${formatClock(placedIn!.startMinutes)} because that is the part of the day it ` +
+      `belongs to, and there is room for it there. The stretch runs ` +
+      `${formatSpan(hosting.startMinutes, hosting.endMinutes)} — move it if the hour is wrong.`;
   } else if (fits) {
     framingText =
-      `Your longest free stretch is ${formatSpan(evening.startMinutes, evening.endMinutes)} — ` +
-      `${describeGap(evening.endMinutes - evening.startMinutes)}. ` +
+      `Your longest free stretch is ${formatSpan(hosting.startMinutes, hosting.endMinutes)} — ` +
+      `${describeGap(hosting.endMinutes - hosting.startMinutes)}. ` +
       `${describeGap(committedMinutes)} of it is enough for this, and the rest stays yours.`;
   } else {
     framingText =

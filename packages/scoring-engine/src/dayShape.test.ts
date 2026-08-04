@@ -735,3 +735,81 @@ describe('it never claims to know more than it does', () => {
     expect(s.assumptions.join(' ')).toMatch(/the household takes/);
   });
 });
+
+/**
+ * A rhythm knows something the day shape does not: a walk belongs to a
+ * morning and a call home belongs to an evening. The front-of-the-gap rule
+ * is the right default for a thing with no opinion, and the wrong answer
+ * for a thing that has one.
+ */
+describe('a suggestion can ask for its own hour', () => {
+  const morningWalk = {
+    key: 'rhythm:health.move',
+    action: 'Move three times a week',
+    minutes: 40,
+    domains: ['health'],
+    at: 7 * 60,
+  };
+  const eveningCall = {
+    key: 'rhythm:family.call',
+    action: 'Call home, the same day every week',
+    minutes: 20,
+    domains: ['family'],
+    at: 19 * 60,
+  };
+
+  it('places a morning rhythm in the morning, not the front of the evening', () => {
+    const s = dayShape({ ...nineToFive, suggestions: [morningWalk] });
+    expect(formatSpan(s.placedIn!.startMinutes, s.placedIn!.endMinutes)).toBe('7 am–7:40 am');
+  });
+
+  it('names the stretch it actually landed in, not the roomiest one', () => {
+    // The evening is by far the longest gap; the walk is in the morning.
+    const s = dayShape({ ...nineToFive, suggestions: [morningWalk] });
+    expect(s.framingText).not.toMatch(/6 pm/);
+    expect(s.framingText).toMatch(/7 am/);
+  });
+
+  it('says an hour was chosen for the thing, without claiming to have watched them', () => {
+    const s = dayShape({ ...nineToFive, suggestions: [eveningCall] });
+    expect(s.placedBy).toBe('preferred');
+    expect(s.framingText).toMatch(/the part of the day it belongs to/);
+  });
+
+  it('gives each thing its own hour rather than stacking them', () => {
+    const s = dayShape({ ...nineToFive, suggestions: [morningWalk, eveningCall] });
+    const spans = s.placements.map((p) => formatClock(p.startMinutes));
+    expect(spans).toEqual(['7 am', '7 pm']);
+  });
+
+  it('falls back to the ordinary rule when the asked-for hour has no room', () => {
+    // Asleep at 3am: no free stretch contains it, so the rule takes over.
+    const s = dayShape({ ...nineToFive, suggestions: [{ ...morningWalk, at: 3 * 60 }] });
+    expect(s.placedBy).toBe('front-of-gap');
+    expect(s.placements).toHaveLength(1);
+  });
+
+  it('does not claim a catalog hint is something they were observed doing', () => {
+    const s = dayShape({
+      ...nineToFive,
+      suggestions: [eveningCall],
+      activeAt: { minutes: 21 * 60, sampleSize: 9, days: 6 },
+    });
+    expect(s.placedBy).toBe('preferred');
+    expect(s.assumptions.join(' ')).not.toMatch(/is not a guess/);
+    expect(s.framingText).not.toMatch(/when you actually get to things/);
+  });
+
+  it('leaves a suggestion with no opinion to the front-of-gap rule', () => {
+    const s = dayShape({ ...nineToFive, suggestion: walkWithMum });
+    expect(s.placedBy).toBe('front-of-gap');
+  });
+
+  it('keeps the day continuous around an hour it did not choose', () => {
+    const s = dayShape({ ...nineToFive, suggestions: [morningWalk, eveningCall] });
+    for (let i = 1; i < s.blocks.length; i++) {
+      expect(s.blocks[i].startMinutes).toBe(s.blocks[i - 1].endMinutes);
+    }
+    expect(s.framingText).not.toMatch(FORBIDDEN);
+  });
+});

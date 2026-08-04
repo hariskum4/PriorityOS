@@ -90,6 +90,28 @@ function wrap(delta: number): number {
   return d;
 }
 
+/**
+ * The same reading, per thing rather than for the whole life.
+ *
+ * One hour for everything is right for "when is this person reachable" and
+ * wrong for "when does this person walk" — a morning run and a call to a
+ * parent have different homes, and pooling them reports an afternoon that
+ * belongs to neither. Each group is held to exactly the same thresholds, so
+ * a rhythm with a thin history simply returns null and the caller falls back
+ * to the pooled reading or to the shape's own rule.
+ */
+export function activeHourByKey(
+  groups: Record<string, Array<string | number | Date | null | undefined>>,
+  now: Date = new Date(),
+): Record<string, ActiveHour> {
+  const out: Record<string, ActiveHour> = {};
+  for (const [key, times] of Object.entries(groups ?? {})) {
+    const reading = activeHour(times, now);
+    if (reading) out[key] = reading;
+  }
+  return out;
+}
+
 export function activeHour(
   times: Array<string | number | Date | null | undefined>,
   now: Date = new Date(),

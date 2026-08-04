@@ -31,6 +31,7 @@ export * from './lifeStrategy';
 export * from './alignment';
 export * from './domainLadder';
 export * from './rhythms';
+export * from './rhythmPlan';
 export * from './relationshipSanity';
 export * from './feelings';
 export * from './lifeQuestions';
