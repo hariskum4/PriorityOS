@@ -80,6 +80,28 @@ export class InsightsService {
                 assumptions: tr.assumptions,
                 estimate: tr.currentTrajectory,
                 unit: 'visits',
+                /**
+                 * The span this number actually covers, and what one change
+                 * makes of it — both of which the engine knew and this row
+                 * used to drop.
+                 *
+                 * The horizon here is the quality-year window, not the ten
+                 * years the simpler estimator below uses. A reader that
+                 * assumes ten will describe the number wrongly and, if it
+                 * recomputes an uplift on that assumption, will contradict it.
+                 *
+                 * `visitsAddedPerYear` is zero when location and working hours
+                 * already cap the pace, and then there is no uplift to offer:
+                 * a promise of more visits to someone who cannot make more is
+                 * not encouragement, it is a reproach.
+                 */
+                horizonYears: tr.qualityYears,
+                uplift: tr.visitsAddedPerYear > 0
+                  ? {
+                      change: `Adding just ${tr.visitsAddedPerYear} visit${tr.visitsAddedPerYear === 1 ? '' : 's'} a year`,
+                      newEstimate: tr.improvedTrajectory,
+                    }
+                  : undefined,
               };
             })()
           : estimateVisitsRemaining({
@@ -99,6 +121,16 @@ export class InsightsService {
               assumptions: est.assumptions,
               estimate: est.estimate,
               unit: est.unit,
+              horizonYears: est.horizonYears,
+              // Only when it survived the same finiteness bar as the estimate.
+              // An uplift is offered as a reason to act, and a NaN dressed up
+              // as encouragement is worse than no encouragement.
+              ...(est.uplift && Number.isFinite(est.uplift.newEstimate)
+                ? {
+                    upliftEstimate: est.uplift.newEstimate,
+                    upliftLabel: est.uplift.change,
+                  }
+                : {}),
             },
           });
         }

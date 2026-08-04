@@ -307,3 +307,84 @@ describe('domainShares', () => {
     expect(out.map((s) => s.shortfall)).toEqual([50, 50]);
   });
 });
+
+/**
+ * An hour can serve two parts of a life without both being better off. The
+ * ranking and the reason line both have to know the difference, or the card
+ * argues for a starving domain with an action that does nothing for it.
+ */
+describe('domains that lend the hour rather than gain one', () => {
+  /** Career is the only thing short — the shape that produced the report. */
+  const CAREER_SHORT = shares([
+    ['career', 47, 33], ['health', 30, 90], ['family', 25, 80], ['growth', 20, 70],
+  ]);
+
+  it('does not offer a walking meeting to a starving career', () => {
+    // "Take one work call as a walking meeting" was the top suggestion,
+    // justified by "career is getting 33% of your attention — you asked for
+    // 47%". The call was happening either way and is the same call: career
+    // gains nothing. Health gains the hour, and health is not what is short.
+    const out = suggestStacks(CAREER_SHORT, [], 3);
+    expect(out.map((s) => s.key)).not.toContain('walk_meeting');
+  });
+
+  it('still offers real career moves to a starving career', () => {
+    const out = suggestStacks(CAREER_SHORT, [], 3);
+    // Every row argues from career, and every row actually adds some.
+    for (const s of out) {
+      expect(s.reasonDomain).toBe('career');
+      expect(s.covers).toContain('career');
+    }
+    expect(out.length).toBe(3);
+  });
+
+  it('a hosted domain is never the reason a stack is on screen', () => {
+    // Health short as well as career: now the walking meeting earns its place
+    // — but on health's account, not career's.
+    const both = shares([
+      ['career', 47, 33], ['health', 60, 20], ['family', 25, 80],
+    ]);
+    const walk = suggestStacks(both, [], ALL).find((s) => s.key === 'walk_meeting');
+    expect(walk).toBeDefined();
+    expect(walk!.reasonDomain).toBe('health');
+    expect(walk!.reason).toMatch(/^health is getting/);
+    expect(walk!.covers).not.toContain('career');
+    // The dots still show both: the hour does serve career, it just does not
+    // add any.
+    expect(walk!.domains).toEqual(['career', 'health']);
+  });
+
+  it('hosting does not discount the shortfall for the stacks chosen after', () => {
+    // finance is hosted by kid_money_choice. If that discounted finance, a
+    // later row arguing finance would quietly drop down the ranking.
+    const financeShort = shares([
+      ['finance', 60, 10], ['children', 50, 20], ['growth', 30, 25], ['reflection', 20, 18],
+    ]);
+    const out = suggestStacks(financeShort, PEOPLE, ALL);
+    const kid = out.find((s) => s.key === 'kid_money_choice');
+    expect(kid).toBeDefined();
+    expect(kid!.covers).not.toContain('finance');
+    // A genuine finance stack is still argued from finance afterwards.
+    const realFinance = out.find((s) => s.covers.includes('finance'));
+    expect(realFinance).toBeDefined();
+    expect(realFinance!.key).not.toBe('kid_money_choice');
+  });
+
+  it('every stack feeds at least one domain', () => {
+    // A stack whose every domain merely hosted would be an hour that changes
+    // nothing — and would score zero forever without anyone noticing.
+    for (const s of suggestStacks(REAL_LIFE, PEOPLE, ALL)) {
+      expect(s.domains.length).toBeGreaterThan(0);
+      const fed = s.domains.filter((d) => !s.covers.includes(d));
+      expect(fed.length + s.covers.length).toBe(s.domains.length);
+    }
+  });
+
+  it('says nothing forbidden, catalog-wide', () => {
+    for (const s of suggestStacks(CAREER_SHORT, PEOPLE, ALL)) {
+      expect(s.action).not.toMatch(FORBIDDEN);
+      expect(s.framing).not.toMatch(FORBIDDEN);
+      expect(s.reason).not.toMatch(FORBIDDEN);
+    }
+  });
+});

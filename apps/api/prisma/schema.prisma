@@ -396,6 +396,18 @@ model OpportunityInsight {
   assumptions    Json          @default("[]")
   estimate       Decimal       @db.Decimal(10, 2)
   unit           String
+  // The three halves of an estimate that were computed and then thrown away.
+  //
+  // `estimate` alone is a number with no shape: a screen holding it could not
+  // say what span it covers, nor what one change would make of it, so the one
+  // screen that wanted both invented its own arithmetic and disagreed with the
+  // engine — it told a person that visiting more often would leave them with
+  // fewer visits. Nullable because not every kind of insight has a horizon or
+  // an agency counterpart, and a missing one must read as "not applicable"
+  // rather than as zero.
+  horizonYears   Decimal?      @db.Decimal(5, 2)
+  upliftEstimate Decimal?      @db.Decimal(10, 2)
+  upliftLabel    String?
   shownAt        DateTime?
   dismissed      Boolean       @default(false)
   createdAt      DateTime      @default(now())

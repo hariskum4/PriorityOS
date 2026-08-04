@@ -42,6 +42,26 @@ export interface Stack {
   domains: string[];
   framing: string;
   /**
+   * Domains that lend the hour rather than gain one.
+   *
+   * Stacking works because one hour can serve two parts of a life — but not
+   * every part it touches is better off for it. A walking meeting touches
+   * career and health; the call was happening either way and is the same call,
+   * so career gains nothing and health gains an hour. Counting career as fed
+   * made the ranker offer that stack to someone whose career was starving, and
+   * the reason line then argued it out loud: "career is getting 33% of your
+   * attention — you asked for 47%", above an action that adds no career at all.
+   * A person reading that is right to ask what one has to do with the other.
+   *
+   * The test is whether the domain's own activity changes. Giving the first
+   * thirty minutes of work to the skill instead of the inbox is different work,
+   * so career gains. Taking the same call on your feet is the same work, so
+   * career only hosts. A host still appears in `domains` — the hour genuinely
+   * does serve it — but it can neither pull the stack up the ranking nor be
+   * offered as the reason the stack is on screen.
+   */
+  hosts?: string[];
+  /**
    * The relationship this needs to be possible at all.
    *
    * A stack naming a child is not a suggestion to someone who has recorded
@@ -109,7 +129,7 @@ const CATALOG: Stack[] = [
   { key: 'teach_skill', action: 'Teach someone the thing you are learning', domains: ['growth', 'impact'], framing: 'Learning sticks when you give it away.' },
   { key: 'creative_with_kid', action: 'Make something with {who} — draw, build, record', domains: ['purpose', 'children'], framing: 'Your creative practice, and their childhood, at once.', role: 'child' },
   { key: 'volunteer_family', action: 'Volunteer together as a family', domains: ['impact', 'family'], framing: 'Contribution that your kids will remember you for.' },
-  { key: 'walk_meeting', action: 'Take one work call as a walking meeting', domains: ['career', 'health'], framing: 'The work still happens; your body stops paying for it.' },
+  { key: 'walk_meeting', action: 'Take one work call as a walking meeting', domains: ['career', 'health'], hosts: ['career'], framing: 'The work still happens; your body stops paying for it.' },
   { key: 'money_date', action: 'A monthly money review with {who}', domains: ['finance', 'partner'], framing: 'Shared clarity beats separate anxiety.', role: 'partner' },
   { key: 'nature_reflect', action: 'A quiet walk outdoors, phone in your pocket', domains: ['health', 'reflection'], framing: 'The cheapest reset there is — moving and thinking.' },
 
@@ -121,7 +141,7 @@ const CATALOG: Stack[] = [
   { key: 'family_outing', action: 'Walk somewhere new with the family, phones away', domains: ['family', 'health', 'experiences'], framing: 'One afternoon doing the work of three.' },
   { key: 'partner_walk_month', action: 'Walk with {who} and talk through the month', domains: ['partner', 'health', 'reflection'], framing: 'The conversation you keep meaning to have, while moving.', role: 'partner' },
   { key: 'kid_outdoors', action: 'Take {who} outdoors instead of to a screen', domains: ['children', 'health', 'experiences'], framing: 'They remember the weather, not the tablet.', role: 'child' },
-  { key: 'kid_money_choice', action: 'Let {who} help with one real money decision', domains: ['children', 'finance', 'growth'], framing: 'A lesson that lands because the money is real.', role: 'child' },
+  { key: 'kid_money_choice', action: 'Let {who} help with one real money decision', domains: ['children', 'finance', 'growth'], hosts: ['finance'], framing: 'A lesson that lands because the money is real.', role: 'child' },
   { key: 'volunteer_with_friend', action: 'Volunteer somewhere with {who} once a month', domains: ['impact', 'friends', 'experiences'], framing: 'Contribution, company, and a day unlike the others.', role: 'friend' },
   { key: 'build_in_public', action: 'Publish one small piece of the thing you are building', domains: ['purpose', 'career', 'impact'], framing: 'The work stops being private, and starts being useful.' },
   { key: 'trip_around_learning', action: 'Plan one trip around something you want to learn', domains: ['experiences', 'growth', 'purpose'], framing: 'Go somewhere to become someone, not just to be away.' },
@@ -135,6 +155,15 @@ const CATALOG: Stack[] = [
   { key: 'purpose_tell_friend', action: 'Tell {who} what you are actually trying to build', domains: ['purpose', 'friends'], framing: 'Saying it out loud is how it stops being a secret.', role: 'friend' },
   { key: 'friend_cook', action: 'Cook for {who} instead of meeting at a restaurant', domains: ['friends', 'health'], framing: 'Longer, cheaper, and you both eat better for it.', role: 'friend' },
   { key: 'career_first_hour', action: 'Give the first thirty minutes of work to the skill, not the inbox', domains: ['career', 'growth'], framing: 'The compounding half of the job, before the day takes it.' },
+
+  /* Career, where the hour is actually career.
+     Once a walking meeting stopped counting as career time, a life short on
+     career had one real answer left, and the third row fell through to
+     whatever was broadly useful. These are moves where the work itself is
+     different afterwards, and none of them need a person we have not been
+     told about. */
+  { key: 'career_write_up', action: 'Write up one thing you learned at work this month', domains: ['career', 'growth', 'reflection'], framing: 'The month stops blurring, and it is there when someone asks what you did.' },
+  { key: 'career_show_work', action: 'Spend an hour on work that would show someone what you can do', domains: ['career', 'purpose'], framing: 'Proof travels further than a description of yourself.' },
   { key: 'finance_small_review', action: 'Cancel or renegotiate one recurring cost this week', domains: ['finance', 'reflection'], framing: 'Ten minutes once, instead of a worry every month.' },
   { key: 'finance_read', action: 'Read about money for the length of one commute', domains: ['finance', 'growth'], framing: 'A subject that compounds faster than almost anything else you could read.' },
 ];
@@ -148,6 +177,16 @@ const CATALOG: Stack[] = [
  * mention, which is right: one walk does not fix a year.
  */
 const ALREADY_FED = 0.25;
+
+/**
+ * The domains a stack actually feeds — everything it touches, less what only
+ * lends the hour. Never empty: a stack whose every domain were a host would be
+ * an hour that changes nothing, which is not a suggestion.
+ */
+function gainsOf(st: Stack): string[] {
+  if (!st.hosts?.length) return st.domains;
+  return st.domains.filter((d) => !st.hosts!.includes(d));
+}
 
 /** The person in a role who most needs the time — the most overdue, then the longest unseen. */
 function pickPerson(role: PersonRole, people: StackPerson[]): StackPerson | null {
@@ -218,24 +257,46 @@ export function suggestStacks(
   while (out.length < limit) {
     let best: (typeof available)[number] | null = null;
     let bestHunger = -1;
-    let bestBreadth = -1;
+    let bestTie = -1;
 
     for (const entry of available) {
       if (taken.has(entry.st.key)) continue;
-      const hunger = entry.st.domains.reduce((s, d) => s + (remaining.get(d) ?? 0), 0);
-      // Breadth only ever breaks a tie. It matters in the one case where every
-      // score is zero — a life with nothing short — where the useful answer is
-      // the stack touching the most domains this person actually declared.
-      const breadth = entry.st.domains.filter((d) => declared.has(d)).length;
-      if (hunger > bestHunger || (hunger === bestHunger && breadth > bestBreadth)) {
-        best = entry; bestHunger = hunger; bestBreadth = breadth;
+      // Hunger is spent only on what the stack feeds. A domain that merely
+      // hosts the hour is no reason to raise the stack above one that would
+      // actually put time into a starving part of a life.
+      const gains = gainsOf(entry.st);
+      const hunger = gains.reduce((s, d) => s + (remaining.get(d) ?? 0), 0);
+      /**
+       * What breaks a tie depends on whether anything is starving.
+       *
+       * With nothing short, every score is zero and the useful answer is the
+       * stack touching the most domains this person actually declared —
+       * breadth, which is the whole argument for stacking.
+       *
+       * With something short, breadth is the wrong instinct: it prefers the
+       * stack that spreads one hour over three domains to the one that puts it
+       * squarely into the starving one. That is how "mentor someone for an
+       * hour a month" came to outrank "give the first thirty minutes of work
+       * to the skill, not the inbox" for a person whose career was short —
+       * both touch career, both scored the same, and the winner was decided by
+       * which had been typed into the catalog first. So ties go to whichever
+       * concentrates more of itself on what is hungry.
+       */
+      const tie = hunger > 0
+        ? hunger / gains.length
+        : gains.filter((d) => declared.has(d)).length;
+      if (hunger > bestHunger || (hunger === bestHunger && tie > bestTie)) {
+        best = entry; bestHunger = hunger; bestTie = tie;
       }
     }
     if (!best) break;
 
     const { st: chosen, person, action } = best;
     taken.add(chosen.key);
-    const covers = chosen.domains.filter((d) => short.has(d));
+    const gains = gainsOf(chosen);
+    // Only what it feeds can be something it covers — and so only what it
+    // feeds can be the reason it is on screen.
+    const covers = gains.filter((d) => short.has(d));
     // Argued from what is *still* unmet, so the third row does not repeat the
     // second row's reason. A stack chosen for health after health has already
     // been fed is really on screen for the other thing it touches.
@@ -254,7 +315,10 @@ export function suggestStacks(
       reasonDomain: arguesFrom,
     });
 
-    for (const d of chosen.domains) {
+    // Decay only what was fed. A hosted domain is exactly as short after this
+    // stack as before it, and discounting it would quietly hide the shortfall
+    // from every stack chosen after.
+    for (const d of gains) {
       const left = remaining.get(d);
       if (left !== undefined) remaining.set(d, left * ALREADY_FED);
     }

@@ -817,12 +817,39 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, onDone }:
   const visits = insights.find((i) => i.kind === 'visits_remaining');
   const callDelta = insights.find((i) => i.kind === 'calls_per_year');
 
-  // Fallback + uplift math mirror the scoring engine (visitsPerYear + 2 over
-  // 10y), including its scarcity gate: no finite-window framing for people
-  // the user already sees more than monthly.
+  /**
+   * The number, its span, and what one change makes of it — all from whoever
+   * actually did the arithmetic.
+   *
+   * This screen used to take the estimate from the engine and then compute the
+   * uplift itself, as `(visitsPerYear + 2) * 10`. The engine's estimate is not
+   * over ten years — when it knows the person's age it measures over the
+   * quality-year window, which for a parent of sixty is nearer thirteen. So the
+   * two numbers were answers to different questions, printed one above the
+   * other: ~150 visits ahead, and "add just 2 visits a year and it becomes
+   * 140". Visiting more often was rendered as a loss of ten visits, on the one
+   * screen whose entire purpose is to make the case for showing up more.
+   *
+   * The engine's own answer is 180. It had it all along.
+   *
+   * The local arithmetic survives only as the no-insight fallback, where it is
+   * correct because it is the same ten-year estimator the server uses when it
+   * has no age — including its scarcity gate: no finite-window framing for
+   * someone already seen more than monthly.
+   */
   const perYear = person ? CADENCE_PER_YEAR[person.visitFrequency] ?? 4 : 4;
-  const bigNumber = visits?.estimate ?? (person && perYear <= 12 ? perYear * 10 : null);
-  const uplift = (perYear + 2) * 10;
+  const num = (v: unknown): number | null => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;   // Decimal arrives as a string
+  };
+  const bigNumber = num(visits?.estimate)
+    ?? (person && perYear <= 12 ? perYear * 10 : null);
+  const horizonYears = num(visits?.horizonYears) ?? 10;
+  const uplift = visits
+    ? num(visits.upliftEstimate)
+    : (perYear + 2) * 10;
+  const upliftLabel = (visits?.upliftLabel as string | undefined)
+    ?? 'Adding just 2 visits a year';
 
   const [chosen, setChosen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -899,17 +926,29 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, onDone }:
             <Label color={colors.amber}>Your time reality</Label>
             <CountUp value={bigNumber} color={colors.amber} delay={3600} />
             <Text style={[type.body, { textAlign: 'center' }]}>
-              more visits with {person.name} in the next 10 years,{'\n'}at your current pace.
+              more visits with {person.name} in the next {Math.round(horizonYears)} years,{'\n'}at your current pace.
             </Text>
             <Text style={[type.faint, { textAlign: 'center' }]}>
               {visits?.detail ?? 'Simple arithmetic on the visit pace you told us — a planning lens, not a prediction.'}
             </Text>
-            <View style={s.upliftRow}>
-              <Ionicons name="trending-up" size={15} color={colors.green} />
-              <Text style={[type.dim, { color: colors.green, flex: 1 }]}>
-                Add just 2 visits a year and it becomes {uplift}.
-              </Text>
-            </View>
+            {/*
+              Shown only when it is genuinely more.
+
+              Location and working hours cap how many visits a year are even
+              possible, so someone whose parent lives abroad and who already
+              visits at that ceiling has no uplift to be offered. Printing one
+              anyway would either repeat their own number back at them or, as
+              it did, print a smaller one — and a smaller number under a
+              green arrow is the app arguing against itself.
+            */}
+            {uplift !== null && bigNumber !== null && uplift > bigNumber && (
+              <View style={s.upliftRow}>
+                <Ionicons name="trending-up" size={15} color={colors.green} />
+                <Text style={[type.dim, { color: colors.green, flex: 1 }]}>
+                  {upliftLabel} and it becomes {uplift}.
+                </Text>
+              </View>
+            )}
             <Text style={[type.serif, { textAlign: 'center', color: colors.textDim, marginTop: space(2) }]}>
               That is not unlimited.{'\n'}But it is enough to make each one count.
             </Text>
@@ -983,7 +1022,7 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, onDone }:
             headline: reveal.headline,
             topDomains: top3,
             personLine: person && bigNumber !== null
-              ? `~${bigNumber} more visits with ${person.name} in the next 10 years — at my current pace.`
+              ? `~${bigNumber} more visits with ${person.name} in the next ${Math.round(horizonYears)} years — at my current pace.`
               : null,
             insightLine: 'That is not unlimited. But it is enough to make each one count.',
           }}
