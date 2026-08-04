@@ -55,9 +55,21 @@ export default function TabsLayout() {
       <Tabs.Screen name="missions" options={{ title: 'Missions', tabBarIcon: icon('flag-outline', 'flag') }} />
       <Tabs.Screen name="people" options={{ title: 'People', tabBarIcon: icon('people-outline', 'people') }} />
       <Tabs.Screen name="journal" options={{ title: 'Journal', tabBarIcon: icon('create-outline', 'create') }} />
-      <Tabs.Screen name="review" options={{ title: 'Review', tabBarIcon: icon('telescope-outline', 'telescope') }} />
-      {/* Everything the system knows, readable. Generated, never stored. */}
-      <Tabs.Screen name="record" options={{ title: 'Record', tabBarIcon: icon('book-outline', 'book') }} />
+      {/*
+        Reachable, but not from the bar.
+
+        Eight destinations is more than a phone can label and more than a
+        reader can hold, and two of these pairs were doing one job each:
+        Journal and Review are both reflective writing on different clocks,
+        and Time and Record are both this life described back to you — once in
+        numbers, once in sentences. Each now sits inside its pair, behind a
+        permanent entry point rather than a tab of its own.
+
+        `href: null` hides the tab and keeps the route, so every existing link,
+        deep link and `router.push` still resolves.
+      */}
+      <Tabs.Screen name="review" options={{ title: 'Review', href: null }} />
+      <Tabs.Screen name="record" options={{ title: 'Record', href: null }} />
       <Tabs.Screen name="you" options={{ title: 'You', tabBarIcon: icon('person-circle-outline', 'person-circle') }} />
       </Tabs>
       </ErrorBoundary>

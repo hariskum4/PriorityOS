@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, RefreshControl, StyleSheet,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
@@ -11,6 +12,48 @@ import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
 import { colors, type, space, alpha, breakLongWords } from '@/theme';
+
+/**
+ * The way into the weekly review, from the daily one.
+ *
+ * States what it costs and what it is worth before asking for fifteen minutes,
+ * and says plainly when it is already done — an entry point that cannot tell
+ * you whether you have done the thing is an invitation to do it twice.
+ */
+function SundaySessionEntry() {
+  const router = useRouter();
+  const { data } = useQuery({
+    queryKey: ['weekly-review'],
+    queryFn: () => api<any>('/weekly-review/current'),
+  });
+  const done = !!data?.completedAt;
+
+  return (
+    <Pressable
+      onPress={() => router.push('/review')}
+      accessibilityRole="button"
+      accessibilityLabel={done ? 'Sunday Session, already done this week' : 'Start the Sunday Session'}
+      style={({ pressed }) => [s.sundayCard, pressed && { opacity: 0.75 }]}
+    >
+      <Ionicons
+        name={done ? 'checkmark-circle' : 'telescope-outline'}
+        size={20}
+        color={done ? colors.green : colors.amber}
+      />
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text style={[type.body, { fontWeight: '600' }]}>
+          {done ? 'Sunday Session — done this week' : 'The Sunday Session'}
+        </Text>
+        <Text style={type.faint}>
+          {done
+            ? 'Reopen it to change what you set.'
+            : 'Fifteen minutes, once a week — the step back that makes the daily notes add up.'}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+    </Pressable>
+  );
+}
 
 const MEMORY_TYPES: Record<string, string> = {
   relationship: 'together', experience: 'experience', achievement: 'achievement',
@@ -59,6 +102,14 @@ export default function Journal() {
         </View>
       </View>
       {segment === 'reflect' ? <Reflect /> : <Memories />}
+
+      {/* The Sunday Session's home.
+          Reflecting daily and reflecting weekly are the same activity on two
+          clocks, and they were two separate tabs — which is part of why the
+          bar carried eight. The weekly one now lives where the daily one is,
+          and it is the only route out of this screen, so it has to be
+          unmissable rather than a link. */}
+      <SundaySessionEntry />
     </ScrollView>
   );
 }
@@ -659,6 +710,12 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
   },
   segmentOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
+  sundayCard: {
+    flexDirection: 'row', alignItems: 'center', gap: space(3),
+    marginTop: space(4),
+    borderWidth: 1, borderColor: colors.line, borderRadius: 14,
+    backgroundColor: colors.surface, padding: space(3),
+  },
   savedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 },
   chipWrap: { flexDirection: 'row', gap: space(2), flexWrap: 'wrap' },
   chip: {

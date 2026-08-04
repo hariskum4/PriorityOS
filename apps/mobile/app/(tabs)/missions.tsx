@@ -244,7 +244,9 @@ export default function Missions() {
   });
   React.useEffect(() => {
     if (!snoozedTitle) return;
-    const t = setTimeout(() => setSnoozedTitle(null), 4000);
+    // Long enough to read a mission title and believe it. Four seconds was
+    // gone before a slow reader reached the end of their own words.
+    const t = setTimeout(() => setSnoozedTitle(null), 7000);
     return () => clearTimeout(t);
   }, [snoozedTitle]);
   /** Which row is mid-flight, so only that card's buttons go quiet. */

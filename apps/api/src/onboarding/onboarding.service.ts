@@ -6,6 +6,7 @@ import { AiService } from '../ai/ai.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { BlueprintService } from '../life-os/blueprint.service';
 import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
+import { deriveGoalTitle } from '@priority/scoring-engine';
 import { ALL_DOMAINS } from '@priority/types';
 
 /** The names people and integrations use for domains, mapped to the slugs the rows use. */
@@ -54,6 +55,68 @@ export class OnboardingService {
    * Cutting at the last word boundary and marking the cut says plainly that
    * there is more, which is the difference between an excerpt and a mistake.
    */
+  /**
+   * The three first missions offered at the end of the Reveal.
+   *
+   * These used to be `One meaningful action in ${domain}` — three times, for
+   * every person who ever signed up. Somebody would type "Visit Amma for a
+   * full week and actually stay long enough that leaving hurts", name their
+   * mother, rate family 2/5, and the app's reply was "One meaningful action in
+   * family". That is the single screen whose whole job is to prove the app
+   * read what was written, and it proved the opposite — while the seeded demo
+   * account, which nobody signs up for, got "Call Amma this evening".
+   *
+   * So: use their words. The person they named, the thing they said they keep
+   * postponing, their own drift score. The generic line survives only as the
+   * last resort for someone who genuinely gave us nothing, and never fills all
+   * three slots when even one real detail exists.
+   *
+   * Each string becomes a real mission title verbatim, so each is phrased as
+   * one small action, not a theme.
+   */
+  private firstWeekOptions(opts: {
+    top3: string[];
+    person?: string | null;
+    postponing: string;
+    neglected: string[];
+    currentReality: Record<string, number>;
+  }): string[] {
+    const { top3, person, postponing, neglected, currentReality } = opts;
+    const out: string[] = [];
+
+    if (person) {
+      out.push(`Reach out to ${person} this week — one message is enough`);
+    }
+
+    const goal = deriveGoalTitle(postponing).title;
+    if (goal) {
+      // Their sentence, reduced to a title, offered as a first step rather
+      // than as the whole mountain — the postponing answer is by definition
+      // the thing that feels too big to start.
+      out.push(`One small step toward: ${goal}`);
+    }
+
+    // The domain they rated lowest, named with the number they gave it, so the
+    // suggestion is visibly derived from their own answer.
+    const drifting = neglected[0] ?? top3.find((d) => (currentReality[d] ?? 5) <= 2) ?? null;
+    if (drifting) {
+      const score = currentReality[drifting];
+      out.push(
+        typeof score === 'number'
+          ? `Give ${drifting} one hour this week — you rated it ${score}/5`
+          : `Give ${drifting} one deliberate hour this week`,
+      );
+    }
+
+    for (const d of top3) {
+      if (out.length >= 3) break;
+      const line = `One meaningful action in ${d}`;
+      if (!out.some((o) => o.includes(d))) out.push(line);
+    }
+
+    return out.slice(0, 3);
+  }
+
   private quoteFragment(text: string, max: number): string {
     const clean = String(text ?? '').replace(/\s+/g, ' ').trim();
     if (clean.length <= max) return clean;
@@ -236,7 +299,9 @@ export class OnboardingService {
            * thing to someone who had answered nothing at all.
            */
           : 'Drift shows up in how real weeks get spent, and Priority has not watched one of yours yet. A few ordinary days will show where it lives.',
-        firstWeekFocus: top3.map((d) => `One meaningful action in ${d}`),
+        firstWeekFocus: this.firstWeekOptions({
+          top3, person, postponing, neglected, currentReality,
+        }),
       },
     );
 

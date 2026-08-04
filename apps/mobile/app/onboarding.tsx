@@ -19,6 +19,7 @@ import {
   revealLedger,
   freeTimeBudget,
   driftFromReality,
+  tinyStep,
   DRIFT_SCORE_MAX,
   type MicroReveal,
   type RevealLedger,
@@ -1189,11 +1190,27 @@ function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, per
             );
           })}
           {chosen && (
-            <Text style={[type.dim, { color: colors.green, textAlign: 'center' }]}>
-              {feeling
-                ? `Added to Today. That's where next week's "${feeling}" starts.`
-                : 'Added to Today. That is where it starts.'}
-            </Text>
+            <View style={{ gap: space(2) }}>
+              <Text style={[type.dim, { color: colors.green, textAlign: 'center' }]}>
+                {feeling
+                  ? `Added to Today. That's where next week's "${feeling}" starts.`
+                  : 'Added to Today. That is where it starts.'}
+              </Text>
+              {/* The smallest possible version of what they just committed to.
+                  This one line does more for whether the thing actually
+                  happens than any number on this screen — it turns an
+                  intention into a motor action — and it was only ever shown on
+                  the mission card, days later, to people who came back. Say it
+                  at the moment of commitment, which is now. */}
+              <Text style={[type.faint, { textAlign: 'center' }]}>
+                <Text style={{ color: colors.amber }}>Too big right now? </Text>
+                {tinyStep({
+                  title: chosen,
+                  domainType: ranking[0] ?? 'family',
+                  personName: person?.name?.trim() || undefined,
+                })}
+              </Text>
+            </View>
           )}
         </Card>
       </Stage>

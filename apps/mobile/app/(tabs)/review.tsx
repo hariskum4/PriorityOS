@@ -278,8 +278,14 @@ export default function Review() {
           <Card style={{ gap: space(2) }}>
             <Label>The week in one word</Label>
             <Input placeholder="full · heavy · warm · scattered…" value={weekWord} onChangeText={setWeekWord} />
+            <Text style={type.faint}>Optional — leave it blank if no word fits.</Text>
           </Card>
-          <Button title="Next" onPress={() => setStep(2)} disabled={!weekWord.trim()} />
+          {/* Ungated. A blank free-text field was a hard stop on step 1 of 6:
+              the reader had to name their week before the session would let
+              them look at it, and the honest answer to "the week in one word"
+              is often that there isn't one. A weekly ritual that refuses to
+              start is a weekly ritual that gets abandoned. */}
+          <Button title="Next" onPress={() => setStep(2)} />
         </>
       )}
 

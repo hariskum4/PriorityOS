@@ -644,6 +644,48 @@ export default function Today() {
   }, [drift, activeKey]);
 
   /**
+   * Whether the gap is closing — the only number that proves the app works.
+   *
+   * Every figure on this screen was a snapshot: what your gap is, never what
+   * it was. But the whole promise is that the gap narrows, and a reader had to
+   * take that on faith across weeks of identical-looking numbers. The samples
+   * to say it are already fetched for the ghost rings; this reads them.
+   *
+   * Two samples minimum, and a threshold, because week-to-week jitter of a
+   * point or two is noise and announcing it as progress would be the same
+   * dishonesty in the opposite direction.
+   */
+  const activeProgress = useMemo(() => {
+    const points = (drift?.series as Record<string, any[]> | undefined)?.[activeKey ?? ''] ?? [];
+    if (points.length < 2 || !active) return null;
+    const gapAt = (imp: unknown, att: unknown) =>
+      Math.max(0, Number(imp) - Number(att));
+    const then = gapAt(points[0].importance, points[0].attention);
+    // "Now" is the live score, not the newest sample. The sample is written on
+    // recompute and can lag by hours, and this line sits directly under the
+    // row showing the live figure — two numbers describing the same instant
+    // and disagreeing is exactly the class of bug this pass exists to remove.
+    const now = gapAt(active.importance, active.attention);
+    const delta = Math.round(then - now);
+    if (Math.abs(delta) < 5) return null;
+    return { closed: delta > 0, points: Math.abs(delta), then: Math.round(then), now: Math.round(now) };
+  }, [drift, activeKey, active]);
+
+  /**
+   * "over the last 5 weeks", not "since 5 weeks ago" — `driftSpan` is written
+   * to follow "the faint ring is …", which is a different sentence shape.
+   */
+  const progressSpan: string | null = useMemo(() => {
+    const w = drift?.weeks ?? 0;
+    if (!w) return null;
+    if (w < 2) return 'since you started';
+    if (w < 8) return `over the last ${w} weeks`;
+    if (w < 52) return `over the last ${Math.round(w / 4.345)} months`;
+    const years = w / 52.18;
+    return years < 1.75 ? 'over the last year' : `over the last ${Math.round(years)} years`;
+  }, [drift]);
+
+  /**
    * Three ways to have nothing, and they are not the same thing.
    *
    * This used to return an empty View for all of them, so a first launch, a
@@ -816,271 +858,6 @@ export default function Today() {
           </View>
         </Rise>
 
-        {/* ── what happened while you were gone ────────────────────── */}
-        {since && since.days >= 1
-          && (since.missionsCompleted > 0 || since.momentsKept > 0
-              || since.entriesWritten > 0 || since.slipped.length > 0
-              || (since.grew?.length ?? 0) > 0) ? (
-          <Rise delay={60}>
-            <View style={s.sinceRow}>
-              <Tick>
-                {since.days === 1 ? 'Since yesterday' : `In the ${since.days} days since you looked`}
-              </Tick>
-              <Text style={[obsType.dim, { marginTop: 4 }]}>
-                {[
-                  since.missionsCompleted > 0
-                    ? `${since.missionsCompleted} thing${since.missionsCompleted === 1 ? '' : 's'} done`
-                    : null,
-                  since.momentsKept > 0 ? `${since.momentsKept} moment${since.momentsKept === 1 ? '' : 's'} kept` : null,
-                  since.entriesWritten > 0 ? `${since.entriesWritten} written` : null,
-                ].filter(Boolean).join(' · ') || 'Nothing logged — which is also a week.'}
-                {since.slipped.length
-                  ? `. ${since.slipped.map((p: any) => p.name).join(' and ')} slipped past ${since.slipped.length === 1 ? 'their' : 'their'} usual.`
-                  : ''}
-              </Text>
-
-              {/**
-                * What grew while they were away.
-                *
-                * The one return-pull this product is allowed. A strategy game
-                * brings people back by threatening what they will lose; the
-                * honest version shows what they built and cannot lose. Said in
-                * domains rather than counts on purpose — "family grew" is a
-                * fact about a life, "3 tasks done" is a fact about a list —
-                * and it names the drawing so the pull leads somewhere real.
-                */}
-              {since.grew?.length ? (
-                <Pressable
-                  onPress={() => router.push('/record')}
-                  hitSlop={6}
-                  accessibilityRole="button"
-                  accessibilityLabel="See your record"
-                  style={({ pressed }) => [s.grewRow, pressed && { opacity: 0.6 }]}
-                >
-                  {since.grew.slice(0, 4).map((g: any) => (
-                    <View key={g.domain} style={[s.grewDot, { backgroundColor: obsDomain(g.domain) }]} />
-                  ))}
-                  <Text style={[obsType.dim, { flex: 1 }]}>
-                    {(() => {
-                      const names = since.grew.map((g: any) => g.domain);
-                      const rest = names.length - 2;
-                      const said = names.length === 1 ? names[0]
-                        : names.length === 2 ? `${names[0]} and ${names[1]}`
-                          : `${names[0]}, ${names[1]} and ${rest} more`;
-                      return `${said} grew while you were away`;
-                    })()}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={13} color={obs.inkFaint} />
-                </Pressable>
-              ) : null}
-            </View>
-          </Rise>
-        ) : null}
-
-        {/* ── the sky ──────────────────────────────────────────────── */}
-        <Rise delay={90}>
-          <View style={{ marginTop: 10 }}>
-            <Constellation
-              domains={allDomains}
-              past={pastDomains}
-              rhythm={rhythm?.domains}
-              selected={activeKey ?? undefined}
-              /* Only an actual tap grows branches. The read-out opens on
-                 whatever is most adrift, and that must not unfurl a whole
-                 domain before anyone has asked for it. */
-              opened={picked}
-              onSelect={(k) => setPicked(picked === k ? null : k)}
-              size={300}
-            />
-            {/* The hint becomes the lens control once a star is tapped, so the
-                way out of a filtered view is exactly where the way in was. */}
-            {lens ? (
-              <Pressable
-                onPress={() => setPicked(null)}
-                style={({ pressed }) => [s.lensRow, pressed && { opacity: 0.7 }]}
-              >
-                <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
-                <Tick color={activeColor}>Showing {lens} only</Tick>
-                <View style={s.lensClear}><Tick>Show all</Tick></View>
-              </Pressable>
-            ) : (
-              <Tick>
-                {/* The span is stated as it truly is. A caption reading
-                    "12 weeks ago" over an account four weeks old was the app
-                    describing a past that did not happen. */}
-                {pastDomains && driftSpan
-                  ? `Outward = neglected · rings show ${driftSpan} · tap a domain`
-                  : 'Outward = neglected · tap a domain'}
-              </Tick>
-            )}
-          </View>
-        </Rise>
-
-        {/* ── what the open domain holds ───────────────────────────────
-            The branches draw the shape of a domain — mostly people, mostly
-            errands — and they are a bad list. This is the list. Both, always:
-            without it every tip is an unnamed dot, and there is no hover on a
-            phone to fall back on. */}
-        {held ? (
-          <Rise delay={120}>
-            <View style={s.held}>
-              <View style={s.heldHead}>
-                <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
-                <Tick color={activeColor}>{held.label}</Tick>
-              </View>
-              {held.groups.map((g) => (
-                <View key={g.kind} style={s.heldGroup}>
-                  <Tick color={activeColor}>{g.heading}</Tick>
-                  {g.items.map((it, i) => (
-                    <View key={`${g.kind}-${i}`} style={s.heldRow}>
-                      <View style={[s.heldDot, { backgroundColor: activeColor }]} />
-                      <Text style={s.heldWhat} numberOfLines={1}>{it.label}</Text>
-                      <Text style={s.heldWhen}>{it.when}</Text>
-                    </View>
-                  ))}
-                  {g.more > 0 ? (
-                    <Text style={s.heldMore}>+{g.more} more</Text>
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          </Rise>
-        ) : null}
-
-        {/* ── what this domain does every week ─────────────────────────
-            Deliberately outside the `held` panel above, which renders only
-            when a domain already holds something. A domain holding nothing
-            is precisely the one that needs a rhythm, and it was the one with
-            nothing on screen to offer it. */}
-        {rhythmHere ? (
-          <Rise delay={130}>
-            <View style={s.held}>
-              <View style={s.heldHead}>
-                <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
-                {/* The heading has to answer the tap too. It read
-                    `rhythmHere.kind`, which only flips once the refetch lands,
-                    so the moment after agreeing to a rhythm the panel said
-                    "No rhythm here yet" directly above "Added — 1 a week,
-                    starting now". A card contradicting itself reads as a
-                    failure, and the rhythm really had been created. */}
-                <Tick color={activeColor}>
-                  {rhythmHere.kind === 'kept' || justStartedHere ? 'Rhythm here' : 'No rhythm here yet'}
-                </Tick>
-              </View>
-              {rhythmHere.kind === 'kept' ? (
-                rhythmHere.habits.map((h: any) => (
-                  <View key={h.id} style={s.heldRow}>
-                    <View style={[s.heldDot, { backgroundColor: activeColor }]} />
-                    <Text style={s.heldWhat} numberOfLines={1}>{h.title}</Text>
-                    <Text style={s.heldWhen}>
-                      {h.streakCurrent > 0 ? `${h.streakCurrent}w` : `${h.targetPerWeek}/wk`}
-                    </Text>
-                  </View>
-                ))
-              ) : startedHere.includes(rhythmHere.rhythm.title) ? (
-                <Text style={[s.heldMore, { color: obs.brass }]}>
-                  Added — {rhythmHere.rhythm.perWeek} a week, starting now.
-                </Text>
-              ) : (
-                <>
-                  <Pressable
-                    disabled={startRhythm.isPending}
-                    onPress={() => {
-                      setStartedHere((p) => [...p, rhythmHere.rhythm.title]);
-                      startRhythm.mutate({
-                        domainType: picked!,
-                        title: rhythmHere.rhythm.title,
-                        perWeek: rhythmHere.rhythm.perWeek,
-                      }, {
-                        onError: () => setStartedHere((p) => p.filter((t) => t !== rhythmHere.rhythm.title)),
-                      });
-                    }}
-                    style={({ pressed }) => [s.rhythmOffer, pressed && { opacity: 0.7 }]}
-                  >
-                    <Ionicons name="repeat" size={14} color={obs.brass} />
-                    <Text style={[obsType.body, { flex: 1 }]}>{rhythmHere.rhythm.title}</Text>
-                    <Tick color={obs.brass}>{rhythmHere.rhythm.perWeek}/wk</Tick>
-                  </Pressable>
-                  {/* What this rhythm is for, in this domain's own terms. Its
-                      absence is what made three domains offer three lines that
-                      could have been swapped without anyone noticing. */}
-                  <Text style={s.heldMore}>{rhythmHere.rhythm.because}</Text>
-                  {/*
-                    Only for a rhythm the app wrote for this person.
-
-                    A built-in is a fixed idea that simply may not fit; one
-                    written FOR you and wrong about you is a different feeling,
-                    and saying so has to cost a single tap. Nothing appears for
-                    catalog rhythms, which have no personal claim to withdraw.
-                  */}
-                  {isBlueprint(rhythmHere.rhythm.key) && !retired.includes(rhythmHere.rhythm.key) ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Not this one — stop suggesting it"
-                      onPress={() => {
-                        setRetired((p) => [...p, rhythmHere.rhythm.key]);
-                        retireRhythm.mutate(rhythmHere.rhythm.key, {
-                          onError: () => setRetired(
-                            (p) => p.filter((k) => k !== rhythmHere.rhythm.key),
-                          ),
-                        });
-                      }}
-                      style={({ pressed }) => [{ paddingVertical: 6 }, pressed && { opacity: 0.6 }]}
-                    >
-                      <Text style={[s.heldMore, { color: obs.inkFaint }]}>Not this one</Text>
-                    </Pressable>
-                  ) : null}
-                </>
-              )}
-            </View>
-          </Rise>
-        ) : null}
-
-        {/* ── the read-out ─────────────────────────────────────────── */}
-        {active ? (
-          <Rise delay={150}>
-            <Pressable
-              onPress={() => router.push(`/domain/${active.domainType}`)}
-              style={({ pressed }) => [s.readout, pressed && { opacity: 0.75 }]}
-            >
-              <View style={[s.stripe, { backgroundColor: activeColor }]} />
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={[obsType.strong, { textTransform: 'capitalize' }]}>{active.domainType}</Text>
-                <Tick>
-                  {active.importance <= 0
-                    ? 'not in your plan yet'
-                    : `you say ${Math.round(active.importance)} · you do ${Math.round(active.attention)}`}
-                </Tick>
-              </View>
-              {/* Where it has been, beside where it is. */}
-              <Trail points={activeSeries} color={activeColor} />
-              <View style={{ alignItems: 'flex-end', gap: 3 }}>
-                <Text style={[obsType.stat, { fontSize: 21, color: activeColor }]}>
-                  {Math.round((1 - activeDrift) * 100)}
-                </Text>
-                <Tick color={alpha(obs.inkFaint, 0.9)}>
-                  {activeDrift > 0.55 ? 'drifting' : activeDrift > 0.25 ? 'a gap' : 'held'}
-                </Tick>
-              </View>
-              <Ionicons name="chevron-forward" size={15} color={obs.inkFaint} />
-            </Pressable>
-          </Rise>
-        ) : null}
-
-        {/* ── this week's one thing ────────────────────────────────── */}
-        {review?.oneThing ? (
-          <Rise delay={190}>
-            <View style={s.weekRow}>
-              <Ionicons name="pin" size={12} color={obs.brass} />
-              <Text style={[obsType.dim, { flex: 1 }]}>
-                <Text style={{ color: obs.brass }}>This week: </Text>
-                {review.oneThing}
-                {review.intentionWord ? `  ·  ${review.intentionWord}` : ''}
-              </Text>
-            </View>
-          </Rise>
-        ) : null}
-
         {/* ── the completion moment ────────────────────────────────── */}
         {justCompleted ? (
           <View style={s.doneBanner}>
@@ -1116,8 +893,13 @@ export default function Today() {
           </View>
         ) : null}
 
-        {/* ── the Now Card — the entire product ────────────────────── */}
-        <Rise delay={230}>
+        {/* ── the Now Card — the entire product ──────────────────────
+            First, because it is the entire product. It used to render ninth,
+            below a 300px sky and the whole domain read-out, which put the only
+            button the app actually wants pressed below the fold: you opened
+            Priority, read a chart and a red gap number, and had to scroll to
+            act. The diagnosis is now the reward for scrolling, not the toll. */}
+        <Rise delay={60}>
           {lensEmpty ? (
             /* A quiet domain is good news, and saying so is better than showing
                an unrelated proposal under a Finance heading. */
@@ -1290,6 +1072,308 @@ export default function Today() {
             </View>
           )}
         </Rise>
+
+        {/* ── what happened while you were gone ────────────────────── */}
+        {since && since.days >= 1
+          && (since.missionsCompleted > 0 || since.momentsKept > 0
+              || since.entriesWritten > 0 || since.slipped.length > 0
+              || (since.grew?.length ?? 0) > 0) ? (
+          <Rise delay={90}>
+            <View style={s.sinceRow}>
+              <Tick>
+                {since.days === 1 ? 'Since yesterday' : `In the ${since.days} days since you looked`}
+              </Tick>
+              <Text style={[obsType.dim, { marginTop: 4 }]}>
+                {[
+                  since.missionsCompleted > 0
+                    ? `${since.missionsCompleted} thing${since.missionsCompleted === 1 ? '' : 's'} done`
+                    : null,
+                  since.momentsKept > 0 ? `${since.momentsKept} moment${since.momentsKept === 1 ? '' : 's'} kept` : null,
+                  since.entriesWritten > 0 ? `${since.entriesWritten} written` : null,
+                ].filter(Boolean).join(' · ') || 'Nothing logged — which is also a week.'}
+                {since.slipped.length
+                  ? `. ${since.slipped.map((p: any) => p.name).join(' and ')} slipped past ${since.slipped.length === 1 ? 'their' : 'their'} usual.`
+                  : ''}
+              </Text>
+
+              {/**
+                * What grew while they were away.
+                *
+                * The one return-pull this product is allowed. A strategy game
+                * brings people back by threatening what they will lose; the
+                * honest version shows what they built and cannot lose. Said in
+                * domains rather than counts on purpose — "family grew" is a
+                * fact about a life, "3 tasks done" is a fact about a list —
+                * and it names the drawing so the pull leads somewhere real.
+                */}
+              {since.grew?.length ? (
+                <Pressable
+                  onPress={() => router.push('/record')}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel="See your record"
+                  style={({ pressed }) => [s.grewRow, pressed && { opacity: 0.6 }]}
+                >
+                  {since.grew.slice(0, 4).map((g: any) => (
+                    <View key={g.domain} style={[s.grewDot, { backgroundColor: obsDomain(g.domain) }]} />
+                  ))}
+                  <Text style={[obsType.dim, { flex: 1 }]}>
+                    {(() => {
+                      const names = since.grew.map((g: any) => g.domain);
+                      const rest = names.length - 2;
+                      const said = names.length === 1 ? names[0]
+                        : names.length === 2 ? `${names[0]} and ${names[1]}`
+                          : `${names[0]}, ${names[1]} and ${rest} more`;
+                      return `${said} grew while you were away`;
+                    })()}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={13} color={obs.inkFaint} />
+                </Pressable>
+              ) : null}
+            </View>
+          </Rise>
+        ) : null}
+
+        {/* ── the sky ──────────────────────────────────────────────── */}
+        <Rise delay={90}>
+          <View style={{ marginTop: 10 }}>
+            <Constellation
+              domains={allDomains}
+              past={pastDomains}
+              rhythm={rhythm?.domains}
+              selected={activeKey ?? undefined}
+              /* Only an actual tap grows branches. The read-out opens on
+                 whatever is most adrift, and that must not unfurl a whole
+                 domain before anyone has asked for it. */
+              opened={picked}
+              onSelect={(k) => setPicked(picked === k ? null : k)}
+              size={300}
+            />
+            {/* The hint becomes the lens control once a star is tapped, so the
+                way out of a filtered view is exactly where the way in was. */}
+            {lens ? (
+              <Pressable
+                onPress={() => setPicked(null)}
+                style={({ pressed }) => [s.lensRow, pressed && { opacity: 0.7 }]}
+              >
+                <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
+                <Tick color={activeColor}>Showing {lens} only</Tick>
+                <View style={s.lensClear}><Tick>Show all</Tick></View>
+              </Pressable>
+            ) : (
+              <Tick>
+                {/* One instruction, not three clauses of notation.
+                    "Outward = neglected · rings show where you started · tap a
+                    domain" asked someone to hold a legend in their head before
+                    the picture meant anything; a diagram needing that much
+                    caption is encoding more than its shape can say. The rings
+                    still mean what they meant — the invitation is what leads,
+                    and the reading is what the tap teaches. */}
+                {pastDomains && driftSpan
+                  ? `Tap a domain · the faint ring is ${driftSpan}`
+                  : 'Tap a domain · the further out, the more it has been waiting'}
+              </Tick>
+            )}
+          </View>
+        </Rise>
+
+        {/* ── what the open domain holds ───────────────────────────────
+            The branches draw the shape of a domain — mostly people, mostly
+            errands — and they are a bad list. This is the list. Both, always:
+            without it every tip is an unnamed dot, and there is no hover on a
+            phone to fall back on. */}
+        {held ? (
+          <Rise delay={120}>
+            <View style={s.held}>
+              <View style={s.heldHead}>
+                <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
+                <Tick color={activeColor}>{held.label}</Tick>
+              </View>
+              {held.groups.map((g) => (
+                <View key={g.kind} style={s.heldGroup}>
+                  <Tick color={activeColor}>{g.heading}</Tick>
+                  {g.items.map((it, i) => (
+                    <View key={`${g.kind}-${i}`} style={s.heldRow}>
+                      <View style={[s.heldDot, { backgroundColor: activeColor }]} />
+                      <Text style={s.heldWhat} numberOfLines={1}>{it.label}</Text>
+                      <Text style={s.heldWhen}>{it.when}</Text>
+                    </View>
+                  ))}
+                  {g.more > 0 ? (
+                    <Text style={s.heldMore}>+{g.more} more</Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </Rise>
+        ) : null}
+
+        {/* ── what this domain does every week ─────────────────────────
+            Deliberately outside the `held` panel above, which renders only
+            when a domain already holds something. A domain holding nothing
+            is precisely the one that needs a rhythm, and it was the one with
+            nothing on screen to offer it. */}
+        {rhythmHere ? (
+          <Rise delay={130}>
+            <View style={s.held}>
+              <View style={s.heldHead}>
+                <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
+                {/* The heading has to answer the tap too. It read
+                    `rhythmHere.kind`, which only flips once the refetch lands,
+                    so the moment after agreeing to a rhythm the panel said
+                    "No rhythm here yet" directly above "Added — 1 a week,
+                    starting now". A card contradicting itself reads as a
+                    failure, and the rhythm really had been created. */}
+                <Tick color={activeColor}>
+                  {rhythmHere.kind === 'kept' || justStartedHere ? 'Rhythm here' : 'No rhythm here yet'}
+                </Tick>
+              </View>
+              {rhythmHere.kind === 'kept' ? (
+                rhythmHere.habits.map((h: any) => (
+                  <View key={h.id} style={s.heldRow}>
+                    <View style={[s.heldDot, { backgroundColor: activeColor }]} />
+                    <Text style={s.heldWhat} numberOfLines={1}>{h.title}</Text>
+                    <Text style={s.heldWhen}>
+                      {h.streakCurrent > 0 ? `${h.streakCurrent}w` : `${h.targetPerWeek}/wk`}
+                    </Text>
+                  </View>
+                ))
+              ) : startedHere.includes(rhythmHere.rhythm.title) ? (
+                <Text style={[s.heldMore, { color: obs.brass }]}>
+                  Added — {rhythmHere.rhythm.perWeek} a week, starting now.
+                </Text>
+              ) : (
+                <>
+                  <Pressable
+                    disabled={startRhythm.isPending}
+                    onPress={() => {
+                      setStartedHere((p) => [...p, rhythmHere.rhythm.title]);
+                      startRhythm.mutate({
+                        domainType: picked!,
+                        title: rhythmHere.rhythm.title,
+                        perWeek: rhythmHere.rhythm.perWeek,
+                      }, {
+                        onError: () => setStartedHere((p) => p.filter((t) => t !== rhythmHere.rhythm.title)),
+                      });
+                    }}
+                    style={({ pressed }) => [s.rhythmOffer, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="repeat" size={14} color={obs.brass} />
+                    <Text style={[obsType.body, { flex: 1 }]}>{rhythmHere.rhythm.title}</Text>
+                    <Tick color={obs.brass}>{rhythmHere.rhythm.perWeek}/wk</Tick>
+                  </Pressable>
+                  {/* What this rhythm is for, in this domain's own terms. Its
+                      absence is what made three domains offer three lines that
+                      could have been swapped without anyone noticing. */}
+                  <Text style={s.heldMore}>{rhythmHere.rhythm.because}</Text>
+                  {/*
+                    Only for a rhythm the app wrote for this person.
+
+                    A built-in is a fixed idea that simply may not fit; one
+                    written FOR you and wrong about you is a different feeling,
+                    and saying so has to cost a single tap. Nothing appears for
+                    catalog rhythms, which have no personal claim to withdraw.
+                  */}
+                  {isBlueprint(rhythmHere.rhythm.key) && !retired.includes(rhythmHere.rhythm.key) ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Not this one — stop suggesting it"
+                      onPress={() => {
+                        setRetired((p) => [...p, rhythmHere.rhythm.key]);
+                        retireRhythm.mutate(rhythmHere.rhythm.key, {
+                          onError: () => setRetired(
+                            (p) => p.filter((k) => k !== rhythmHere.rhythm.key),
+                          ),
+                        });
+                      }}
+                      style={({ pressed }) => [{ paddingVertical: 6 }, pressed && { opacity: 0.6 }]}
+                    >
+                      <Text style={[s.heldMore, { color: obs.inkFaint }]}>Not this one</Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              )}
+            </View>
+          </Rise>
+        ) : null}
+
+        {/* ── the read-out ─────────────────────────────────────────── */}
+        {active ? (
+          <Rise delay={150}>
+            <View style={{ gap: 0 }}>
+            <Pressable
+              onPress={() => router.push(`/domain/${active.domainType}`)}
+              style={({ pressed }) => [s.readout, pressed && { opacity: 0.75 }]}
+            >
+              <View style={[s.stripe, { backgroundColor: activeColor }]} />
+              <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                <Text style={[obsType.strong, { textTransform: 'capitalize' }]} numberOfLines={1}>
+                  {active.domainType}
+                </Text>
+                {/* The status rides with the say/do figures it describes,
+                    rather than under the score on the right — where, as a
+                    caption to a number, "a gap" made 67 read as the size of
+                    the gap when it is the opposite measure. */}
+                <Tick>
+                  {active.importance <= 0
+                    ? 'not in your plan yet'
+                    : `you say ${Math.round(active.importance)} · you do ${Math.round(active.attention)}`
+                      + (activeDrift > 0.55 ? ' · drifting' : activeDrift > 0.25 ? ' · a gap' : '')}
+                </Tick>
+              </View>
+              {/* Where it has been, beside where it is. */}
+              <View style={{ flexShrink: 0 }}>
+                <Trail points={activeSeries} color={activeColor} />
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+                <Text style={[obsType.stat, { fontSize: 21, color: activeColor }]}>
+                  {Math.round((1 - activeDrift) * 100)}
+                </Text>
+                <Tick color={alpha(obs.inkFaint, 0.9)}>held</Tick>
+              </View>
+              <Ionicons name="chevron-forward" size={15} color={obs.inkFaint} />
+            </Pressable>
+
+            {/* The proof. Nothing else on this screen says the app is working. */}
+            {activeProgress ? (
+              <View style={s.progressRow}>
+                <Ionicons
+                  name={activeProgress.closed ? 'trending-down' : 'trending-up'}
+                  size={12}
+                  color={activeProgress.closed ? obs.good : obs.inkFaint}
+                />
+                <Text style={[obsType.dim, { flex: 1, fontSize: 12.5 }]}>
+                  {activeProgress.closed ? (
+                    <>
+                      <Text style={{ color: obs.good }}>
+                        Gap closed {activeProgress.points} {activeProgress.points === 1 ? 'point' : 'points'}
+                      </Text>
+                      {` — ${activeProgress.then} to ${activeProgress.now}${progressSpan ? `, ${progressSpan}` : ''}.`}
+                    </>
+                  ) : (
+                    `Gap widened ${activeProgress.points} — ${activeProgress.then} to ${activeProgress.now}${progressSpan ? `, ${progressSpan}` : ''}.`
+                  )}
+                </Text>
+              </View>
+            ) : null}
+            </View>
+          </Rise>
+        ) : null}
+
+        {/* ── this week's one thing ────────────────────────────────── */}
+        {review?.oneThing ? (
+          <Rise delay={190}>
+            <View style={s.weekRow}>
+              <Ionicons name="pin" size={12} color={obs.brass} />
+              <Text style={[obsType.dim, { flex: 1 }]}>
+                <Text style={{ color: obs.brass }}>This week: </Text>
+                {review.oneThing}
+                {review.intentionWord ? `  ·  ${review.intentionWord}` : ''}
+              </Text>
+            </View>
+          </Rise>
+        ) : null}
+
 
         {/* ── what the rest of a life is asking for ─────────────────── */}
         {restProposals.length > 0 ? (
@@ -1546,6 +1630,10 @@ const s = StyleSheet.create({
     paddingVertical: 14,
   },
   stripe: { width: 3, height: 34, borderRadius: 2 },
+  progressRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 7,
+    paddingTop: 9, paddingLeft: 16,
+  },
 
   weekRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,

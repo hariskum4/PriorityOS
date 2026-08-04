@@ -25,6 +25,16 @@ export const obs = {
   brassSoft: colors.amberSoft,
   brassFaint: colors.amberFaint,
   onBrass: colors.ink,
+  /**
+   * Reserved for one thing: a gap that is closing.
+   *
+   * Brass is the only decorative accent here and that stays true — this is the
+   * base palette's "good" semantic, borrowed so that progress can be the one
+   * thing on the screen that is not the colour of a measurement. An instrument
+   * that renders shortfall in red and improvement in the same grey as
+   * everything else has quietly decided which one matters.
+   */
+  good: colors.green,
 };
 
 export const obsType = {

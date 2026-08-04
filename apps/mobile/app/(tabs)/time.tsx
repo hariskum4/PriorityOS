@@ -2167,10 +2167,15 @@ export default function TimeReality() {
                 );
               })}
             </View>
+            {/* How to read the grid, and nothing else. This caption used to
+                also state the weeks lived and the weeks ahead — then the serif
+                line directly below restated the same count as the emotional
+                point. The reader met "~3,444 ahead" twice in two sentences,
+                once as a footnote and once as the thing that matters. The
+                mechanics stay here; the meaning stays there. */}
             <Text style={type.faint}>
-              Each square is a year on a {PLANNING_HORIZON_AGE}-year horizon — generous on purpose, and it
-              extends further the closer you get. Filled ones are lived; the bright one is now —
-              {' '}{weeks.weeksLived.toLocaleString()} weeks in, ~{weeks.weeksAhead.toLocaleString()} ahead.
+              Each square is a year on a {PLANNING_HORIZON_AGE}-year horizon — generous on purpose,
+              and it extends further the closer you get. Filled ones are lived; the bright one is now.
               {birthYear != null ? ' Tap a lived year to open its days.' : ''}
             </Text>
             <Text style={type.serif}>{weeks.framingText}</Text>
@@ -3747,6 +3752,27 @@ export default function TimeReality() {
       <Text style={[type.faint, { textAlign: 'center', paddingHorizontal: space(4) }]}>
         {windows.assumptions.join(' · ')}
       </Text>
+
+      {/* Record's home. This screen is a life in numbers and the Record is the
+          same life in sentences, so one leads to the other — which is what
+          lets the tab bar stop carrying both. It used to be reachable only
+          from a card on Today that renders when something grew while you were
+          away, i.e. sometimes. */}
+      <Pressable
+        onPress={() => router.push('/record')}
+        accessibilityRole="button"
+        accessibilityLabel="Read your record"
+        style={({ pressed }) => [s.recordLink, pressed && { opacity: 0.75 }]}
+      >
+        <Ionicons name="book-outline" size={19} color={colors.amber} />
+        <View style={{ flex: 1, gap: 3 }}>
+          <Text style={[type.body, { fontWeight: '600' }]}>Your record</Text>
+          <Text style={type.faint}>
+            Everything Priority knows about you, in plain sentences — generated now, never stored.
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+      </Pressable>
     </ScrollView>
   );
 }
@@ -3849,6 +3875,12 @@ const s = StyleSheet.create({
   },
   windowRow: {
     gap: 4, borderTopWidth: 1, borderTopColor: colors.lineSoft, paddingTop: space(2),
+  },
+  recordLink: {
+    flexDirection: 'row', alignItems: 'center', gap: space(3),
+    marginTop: space(2),
+    borderWidth: 1, borderColor: colors.line, borderRadius: 14,
+    backgroundColor: colors.surface, padding: space(3),
   },
   allocTrack: {
     height: 6, borderRadius: 3, backgroundColor: colors.surfaceRaised, overflow: 'hidden',
