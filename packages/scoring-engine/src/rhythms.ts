@@ -34,7 +34,7 @@
  */
 
 import type { Setting } from './setting';
-import { classifyLever, type LeverKey } from './lifeStrategy';
+import { classifyLever, leverTwinKey, type LeverKey } from './lifeStrategy';
 
 /**
  * Where in a day this kind of thing belongs.
@@ -440,6 +440,28 @@ export function rhythmByTitle(title: string): Rhythm | null {
     if (hit) return hit;
   }
   return null;
+}
+
+/**
+ * What a habit actually is, whichever surface created it.
+ *
+ * The one place anything should ask. Four separate readers used to call
+ * `rhythmByTitle` and then hand-pick the fields they cared about, so a gap in
+ * the lookup showed up four different ways: a bedtime placed in the late
+ * afternoon, a strength session offered to somebody at a desk, a row in the
+ * week strip with no hour on it, and hours missing from the allocation total.
+ * One resolver, one answer, and a caller reads whatever it needs.
+ *
+ * Returns null for a habit somebody wrote themselves, which is honest rather
+ * than unfortunate — nothing here knows how long "sort the garage" takes or
+ * when it belongs. The two-way learning covers that from what they actually
+ * do, and a guess would only get in its way.
+ */
+export function rhythmForHabit(title: string): Rhythm | null {
+  const direct = rhythmByTitle(title);
+  if (direct) return direct;
+  const twin = leverTwinKey(title);
+  return twin ? rhythmByKey(twin) : null;
 }
 
 /** Look one up by key — the merge path for an AI rewrite. */

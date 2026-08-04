@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { weeklyAllocation } from './allocation';
 import {
-  healthspan, energyBudget, costOfDelay, suggestSeason, classifyLever, leverMinutes,
+  healthspan, energyBudget, costOfDelay, suggestSeason, classifyLever, leverTwinKey,
   type LeverKey,
 } from './lifeStrategy';
+import { rhythmForHabit } from './rhythms';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted/i;
 
@@ -201,29 +202,61 @@ describe('weekly allocation', () => {
      * committed total under-report what it had actually taken on.
      */
     describe('habits begun from the healthspan card', () => {
-      it('knows how long a lever costs', () => {
-        expect(leverMinutes('Strength training twice a week')).toBe(45);
-        expect(leverMinutes('Zone-2 cardio, 150 min a week')).toBe(38);
+      it('resolves to the catalog rhythm that is the same promise', () => {
+        expect(leverTwinKey('Strength training twice a week')).toBe('health.strength');
+        expect(leverTwinKey('Zone-2 cardio, 150 min a week')).toBe('health.move');
+        expect(leverTwinKey('Protecting 7–8 hours of sleep')).toBe('health.sleep');
       });
 
-      it('costs sleep as the act, not as the hours slept', () => {
-        // Free hours were computed with sleep already taken out. Charging
-        // seven hours here would report a life spending 49h a week on health.
-        expect(leverMinutes('Protecting 7–8 hours of sleep')).toBe(5);
+      it('has no twin for the one that is a state rather than an act', () => {
+        expect(leverTwinKey('Staying socially connected')).toBeNull();
       });
 
-      it('has no length for the one that is a state rather than an act', () => {
-        expect(leverMinutes('Staying socially connected')).toBeNull();
-      });
-
-      it('does not invent a length for anything else', () => {
-        expect(leverMinutes('Move three times a week')).toBeNull();
-        expect(leverMinutes('')).toBeNull();
-        expect(leverMinutes(undefined as never)).toBeNull();
+      it('claims nothing about a title the app did not write', () => {
+        expect(leverTwinKey('Move three times a week')).toBeNull();
+        expect(leverTwinKey('')).toBeNull();
+        expect(leverTwinKey(undefined as never)).toBeNull();
       });
 
       it('is not thrown by casing or stray whitespace', () => {
-        expect(leverMinutes('  strength training TWICE a week ')).toBe(45);
+        expect(leverTwinKey('  strength training TWICE a week ')).toBe('health.strength');
+      });
+
+      /**
+       * The bug this twin exists for: a bedtime rhythm was being placed at
+       * half past five in the afternoon, because a habit begun from the
+       * healthspan card carried no part-of-day at all.
+       */
+      it('gives a lever habit the hour its promise actually belongs to', () => {
+        expect(rhythmForHabit('Protecting 7–8 hours of sleep')?.when).toBe('evening');
+        expect(rhythmForHabit('Strength training twice a week')?.when).toBe('morning');
+      });
+
+      it('gives it the room it needs, so it cannot be offered from a desk', () => {
+        expect(rhythmForHabit('Strength training twice a week')?.needs).toContain('canMove');
+      });
+
+      it('gives it a length and a reason', () => {
+        const r = rhythmForHabit('Strength training twice a week')!;
+        expect(r.minutes).toBe(45);
+        expect(r.because).toBeTruthy();
+      });
+
+      it('leaves a habit somebody wrote themselves unresolved', () => {
+        // Honest rather than unfortunate: nothing here knows how long "sort
+        // the garage" takes, and the two-way learning covers it from what
+        // they actually do.
+        expect(rhythmForHabit('Sort the garage out')).toBeNull();
+      });
+
+      /**
+       * `classifyLever` matches "walk", which is right for reading somebody's
+       * own wording and catastrophic here — it would hand a phone call a
+       * morning anchor and a requirement to be on your feet.
+       */
+      it('does not resolve a title that merely mentions a lever word', () => {
+        expect(rhythmForHabit('Call Mum on my walk home')).toBeNull();
+        expect(leverTwinKey('Call Mum on my walk home')).toBeNull();
       });
     });
 

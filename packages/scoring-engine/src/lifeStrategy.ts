@@ -65,32 +65,45 @@ const HEALTHSPAN_LEVERS: Array<{
    * on health.
    */
   minutes?: number;
+  /**
+   * The catalog rhythm that is the same promise in the catalog's words.
+   *
+   * These levers are the app's second habit-creating surface, and a habit
+   * begun here is written with the label above — which the rhythm catalog has
+   * never heard of. Everything the catalog knows about the commitment was
+   * therefore lost: how long it takes, what part of a day it belongs to, what
+   * a room has to allow, and why it matters. That is how a bedtime rhythm
+   * came to be placed at half past five in the afternoon, and how a strength
+   * session could be offered to somebody sitting at a desk.
+   *
+   * Naming the twin is better than copying its fields, because the fields
+   * then cannot drift apart.
+   */
+  twin?: string;
 }> = [
-  { key: 'strength', label: 'Strength training twice a week', yearsGained: 3, minutes: 45 },
+  { key: 'strength', label: 'Strength training twice a week', yearsGained: 3, minutes: 45, twin: 'health.strength' },
   // The label states the week's total and the lever asks for four sessions.
-  { key: 'cardio', label: 'Zone-2 cardio, 150 min a week', yearsGained: 3, minutes: 38 },
-  { key: 'sleep', label: 'Protecting 7–8 hours of sleep', yearsGained: 2, minutes: 5 },
-  // No length, because there is no occurrence — it is a state, and the card
-  // does not offer to start it.
+  { key: 'cardio', label: 'Zone-2 cardio, 150 min a week', yearsGained: 3, minutes: 38, twin: 'health.move' },
+  { key: 'sleep', label: 'Protecting 7–8 hours of sleep', yearsGained: 2, minutes: 5, twin: 'health.sleep' },
+  // No length and no twin, because there is no occurrence — it is a state,
+  // and the card does not offer to start it.
   { key: 'social', label: 'Staying socially connected', yearsGained: 2 },
 ];
 
 /**
- * How long a healthspan lever costs, found by the title its habit was made
- * with.
+ * The catalog rhythm behind a habit begun from the healthspan card.
  *
- * These levers are the app's second habit-creating surface, and until now the
- * only one that never said how long anything took. A habit started from this
- * card is written with the lever's own label, which is not in the rhythm
- * catalog — so everything begun here was invisible to any arithmetic about
- * committed hours, and the allocation card under-reported what somebody had
- * actually taken on while labelling it "of its own length".
+ * Matched on the exact label this app writes, deliberately — NOT through
+ * `classifyLever`, whose keywords are right for reading a person's own
+ * wording and wrong for this. It matches "walk", so a habit called "Call Mum
+ * on my walk home" would be handed a morning anchor and a requirement to be
+ * on your feet, and the app would schedule a phone call for seven in the
+ * morning. An exact label can only ever match a title the app wrote itself.
  */
-export function leverMinutes(title: string): number | null {
+export function leverTwinKey(title: string): string | null {
   const want = (title ?? '').trim().toLowerCase();
   if (!want) return null;
-  const hit = HEALTHSPAN_LEVERS.find((l) => l.label.toLowerCase() === want);
-  return hit?.minutes ?? null;
+  return HEALTHSPAN_LEVERS.find((l) => l.label.toLowerCase() === want)?.twin ?? null;
 }
 
 /**

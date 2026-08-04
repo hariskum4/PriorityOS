@@ -29,8 +29,7 @@ import {
   suggestSeason,
   classifyLever,
   rhythmFor,
-  rhythmByTitle,
-  leverMinutes,
+  rhythmForHabit,
   rhythmWeekdays,
   rhythmDueToday,
   preferredMinutes,
@@ -1349,7 +1348,7 @@ export default function TimeReality() {
     return (habits ?? [])
       .filter((h: any) => h.isActive !== false)
       .map((h: any) => {
-        const catalog = rhythmByTitle(h.title);
+        const catalog = rhythmForHabit(h.title);
         const perWeek = Math.max(1, Number(h.targetPerWeek) || 1);
         const { days } = rhythmWeekdays({
           key: catalog?.key ?? h.id,
@@ -1394,7 +1393,7 @@ export default function TimeReality() {
     const entries = (habits ?? [])
       .filter((h: any) => h.isActive !== false)
       .map((h: any) => {
-        const catalog = rhythmByTitle(h.title);
+        const catalog = rhythmForHabit(h.title);
         return {
           /* The same key the placement uses, or the spread seeds from two
              different strings and the strip draws a week the day card does
@@ -1671,16 +1670,14 @@ export default function TimeReality() {
   const held = (habits ?? [])
     .filter((h: any) => h.isActive !== false && h.targetPerWeek > 0)
     .map((h: any) => {
-      const catalog = rhythmByTitle(h.title);
+      const catalog = rhythmForHabit(h.title);
       return {
         domainType: h.domainType,
         perWeek: h.targetPerWeek,
-        /* Two surfaces create habits — the rhythm catalog and the healthspan
-           levers — and only the first used to say how long anything took. A
-           life that had begun strength training and a bedtime read as two
-           rhythms "of its own length", and the committed total under-reported
-           what they had actually taken on. */
-        minutes: catalog?.minutes ?? leverMinutes(h.title),
+        /* Null only for a habit somebody wrote themselves. Anything this app
+           created resolves — including from the healthspan card, whose
+           labels the rhythm catalog has never heard of. */
+        minutes: catalog?.minutes ?? null,
         sharp: catalog?.sharp === true,
       };
     });
@@ -1849,7 +1846,7 @@ export default function TimeReality() {
     const fromRhythms = (habits ?? [])
       .filter((h: any) => h.isActive !== false)
       .map((h: any) => {
-        const catalog = rhythmByTitle(h.title);
+        const catalog = rhythmForHabit(h.title);
         return {
           key: `rhythm:${h.id}`,
           action: h.title,
