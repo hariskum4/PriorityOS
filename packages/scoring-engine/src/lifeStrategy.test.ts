@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { weeklyAllocation } from './allocation';
 import {
-  healthspan, energyBudget, costOfDelay, suggestSeason, classifyLever, type LeverKey,
+  healthspan, energyBudget, costOfDelay, suggestSeason, classifyLever, leverMinutes,
+  type LeverKey,
 } from './lifeStrategy';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted/i;
@@ -118,6 +119,112 @@ describe('weekly allocation', () => {
         null as never,
       ]);
       expect(a.committedHours).toBe(0);
+    });
+
+    /**
+     * A twenty-three hour hole with nothing offered against it reads as an
+     * accusation. There are only two true answers and they are opposite: the
+     * gap is partly closeable, or the share was never a plan and the ranking
+     * is the lever.
+     */
+    describe('what can be done about the widest gap', () => {
+      it('says so when the domain still has rhythms to give', () => {
+        /* A claim the catalog can actually cover: a 4h share against health's
+           ~3.3h of unheld rhythms on top of the half hour already held. */
+        const a = weeklyAllocation(4, [{ domainType: 'health', importance: 100 }], [
+          { domainType: 'health', perWeek: 1, minutes: 30 },
+        ]);
+        const health = a.allotments[0];
+        expect(health.reachableHours).toBeGreaterThanOrEqual(health.hours);
+        expect(a.moveText).toMatch(/within reach/);
+      });
+
+      it('says the ranking is the lever when no amount of doing would close it', () => {
+        // Health's entire catalog is a little over three hours against 25.
+        const a = weeklyAllocation(47, weights, [
+          { domainType: 'health', perWeek: 3, minutes: 40 },
+        ]);
+        expect(a.moveText).toMatch(/what the ranking works out to/);
+        expect(a.moveText).toMatch(/Move the order/);
+      });
+
+      it('does not blame the reader for a gap nothing could close', () => {
+        const a = weeklyAllocation(47, weights, [
+          { domainType: 'health', perWeek: 3, minutes: 40 },
+        ]);
+        expect(a.moveText).not.toMatch(/should|need to try|make time|discipline/i);
+      });
+
+      it('counts only what is still on offer, not what was retired', () => {
+        const held = ['Move three times a week', 'One strength session a week'];
+        const a = weeklyAllocation(47, weights, [
+          { domainType: 'health', perWeek: 3, minutes: 40 },
+        ], held);
+        const health = a.allotments.find((x) => x.domainType === 'health')!;
+        // Only "Lights out at the same hour" is left: 7 x 5min = ~0.5h.
+        expect(health.reachableHours).toBe(2.5);
+      });
+
+      it('does not offer room for a lever already being kept under another name', () => {
+        /* "Strength training twice a week" comes from the healthspan card and
+           "One strength session a week" from the catalog. They are one
+           commitment, and a title match cannot see it — so the catalog copy
+           must not be counted as room this person still has. */
+        const withLever = weeklyAllocation(47, weights, [
+          { domainType: 'health', perWeek: 2, minutes: 45 },
+        ], ['Strength training twice a week']);
+        const withoutLever = weeklyAllocation(47, weights, [
+          { domainType: 'health', perWeek: 2, minutes: 45 },
+        ], []);
+
+        const reach = (a: typeof withLever) =>
+          a.allotments.find((x) => x.domainType === 'health')!.reachableHours;
+        expect(reach(withLever)).toBeLessThan(reach(withoutLever));
+      });
+
+      it('says nothing at all when nothing is known about commitments', () => {
+        expect(weeklyAllocation(47, weights).moveText).toBeNull();
+      });
+
+      it('says nothing when the widest gap is not a gap', () => {
+        const a = weeklyAllocation(4, [{ domainType: 'health', importance: 100 }], [
+          { domainType: 'health', perWeek: 4, minutes: 60 },
+        ]);
+        expect(a.moveText).toBeNull();
+      });
+    });
+
+    /**
+     * The app has two habit-creating surfaces and only one of them used to
+     * say how long anything took. A life that had begun strength training
+     * and a bedtime showed "+2 rhythms of its own length" and had its
+     * committed total under-report what it had actually taken on.
+     */
+    describe('habits begun from the healthspan card', () => {
+      it('knows how long a lever costs', () => {
+        expect(leverMinutes('Strength training twice a week')).toBe(45);
+        expect(leverMinutes('Zone-2 cardio, 150 min a week')).toBe(38);
+      });
+
+      it('costs sleep as the act, not as the hours slept', () => {
+        // Free hours were computed with sleep already taken out. Charging
+        // seven hours here would report a life spending 49h a week on health.
+        expect(leverMinutes('Protecting 7–8 hours of sleep')).toBe(5);
+      });
+
+      it('has no length for the one that is a state rather than an act', () => {
+        expect(leverMinutes('Staying socially connected')).toBeNull();
+      });
+
+      it('does not invent a length for anything else', () => {
+        expect(leverMinutes('Move three times a week')).toBeNull();
+        expect(leverMinutes('')).toBeNull();
+        expect(leverMinutes(undefined as never)).toBeNull();
+      });
+
+      it('is not thrown by casing or stray whitespace', () => {
+        expect(leverMinutes('  strength training TWICE a week ')).toBe(45);
+      });
     });
 
     it('acknowledges a week where every share is met', () => {
@@ -513,8 +620,9 @@ describe('seasons', () => {
       const s = suggestSeason([
         { domainType: 'health', importance: 70, neglectRisk: 10, shortfall: 9 },
       ]);
-      expect(s.framingText).toContain('Health is the one');
-      expect(s.framingText).not.toContain('health is the one');
+      // The assertion is the capital letter, not the sentence around it.
+      expect(s.framingText).toMatch(/\. Health /);
+      expect(s.framingText).not.toMatch(/\. health /);
     });
 
     it('still lets a rescue outrank any amount of room', () => {

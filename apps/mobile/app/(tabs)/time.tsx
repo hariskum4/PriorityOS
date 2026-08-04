@@ -30,6 +30,7 @@ import {
   classifyLever,
   rhythmFor,
   rhythmByTitle,
+  leverMinutes,
   rhythmWeekdays,
   rhythmDueToday,
   preferredMinutes,
@@ -1674,7 +1675,12 @@ export default function TimeReality() {
       return {
         domainType: h.domainType,
         perWeek: h.targetPerWeek,
-        minutes: catalog?.minutes ?? null,
+        /* Two surfaces create habits — the rhythm catalog and the healthspan
+           levers — and only the first used to say how long anything took. A
+           life that had begun strength training and a bedtime read as two
+           rhythms "of its own length", and the committed total under-reported
+           what they had actually taken on. */
+        minutes: catalog?.minutes ?? leverMinutes(h.title),
         sharp: catalog?.sharp === true,
       };
     });
@@ -1700,6 +1706,9 @@ export default function TimeReality() {
     windows.freeTime.freeHoursPerWeek,
     activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance })),
     commitments,
+    /* Retired ones included, so a domain is not credited with room it would
+       have to re-offer something the reader already ended to reach. */
+    (habits ?? []).map((h: any) => h.title),
   );
   /**
    * The same allotments, in the reader's own order.
@@ -1710,6 +1719,10 @@ export default function TimeReality() {
    * second because a goal bonus outweighed the rank change, and the drag
    * would read as having failed.
    */
+  /** Rhythms held whose length nothing knows — a footnote, not a per-row fact. */
+  const unmeasured = allocation.allotments
+    .reduce((n, a) => n + a.unknownCommitments, 0);
+
   const rankedAllotments = activeDomains
     .map((d: any) => allocation.allotments.find((a) => a.domainType === d.domainType))
     .filter(Boolean) as typeof allocation.allotments;
@@ -2786,19 +2799,28 @@ export default function TimeReality() {
                           }]} />
                         ) : null}
                       </View>
-                      {/* A rhythm whose length nothing knows cannot be drawn,
-                          and pretending it is zero would understate what this
-                          person has actually taken on. */}
-                      {a.unknownCommitments > 0 ? (
-                        <Text style={type.faint}>
-                          {`+ ${a.unknownCommitments} rhythm${a.unknownCommitments > 1 ? 's' : ''} of its own length`}
-                        </Text>
-                      ) : null}
                     </View>
                   );
                 }}
                 </RankableAllocation>
+                {/*
+                  Rows are a fixed height because the drag maps travel to
+                  positions at a fixed rate, so anything of variable length
+                  belongs outside them. A per-row note about rhythms of
+                  unknown length was overflowing its row and landing on top of
+                  the name below it — and it is a footnote about the app's own
+                  blind spot rather than a fact about that domain, so it reads
+                  better collected here anyway.
+                */}
+                {unmeasured > 0 ? (
+                  <Text style={type.faint}>
+                    {`${unmeasured} rhythm${unmeasured > 1 ? 's are' : ' is'} not counted above — nothing here knows how long ${unmeasured > 1 ? 'they take' : 'it takes'}.`}
+                  </Text>
+                ) : null}
                 <Text style={type.faint}>{allocation.framing}</Text>
+                {allocation.moveText ? (
+                  <Text style={type.body}>{allocation.moveText}</Text>
+                ) : null}
                 <Text style={type.faint}>
                   Drag a row to change the order. The hours follow — this is the
                   ranking you gave at the start, and it is allowed to change.

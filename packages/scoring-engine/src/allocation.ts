@@ -48,6 +48,16 @@ export interface Allotment {
   committedHours: number;
   /** Of those rhythms, how many have no known length. */
   unknownCommitments: number;
+  /**
+   * The most this domain could hold if they took every rhythm it has left.
+   *
+   * The difference between a gap somebody could close and one nobody could.
+   * A 25-hour health share against a catalog whose entire health offering
+   * comes to about three hours is not a person falling short of a plan — it
+   * is a share that was never a plan, and a card that shows the gap without
+   * saying so invites the reader to take it as a personal failure.
+   */
+  reachableHours: number;
 }
 
 export interface WeeklyAllocation {
@@ -56,7 +66,17 @@ export interface WeeklyAllocation {
   /** Everything committed across every domain, in hours. */
   committedHours: number;
   framing: string;
+  /**
+   * What to do about the widest gap, when there is something to say.
+   *
+   * Null when nothing is short, or when nothing is known about what has been
+   * committed — the card says less rather than guessing.
+   */
+  moveText: string | null;
 }
+
+import { rhythmsFor } from './rhythms';
+import { classifyLever } from './lifeStrategy';
 
 const MIN_HOURS = 0.5; // the "nothing at zero" floor
 
@@ -78,6 +98,11 @@ export function weeklyAllocation(
    * it were measured.
    */
   commitments: Commitment[] = [],
+  /**
+   * Titles already held, retired ones included — the same list `rhythmFor`
+   * takes. Used only to work out what a domain has left to offer.
+   */
+  takenTitles: string[] = [],
 ): WeeklyAllocation {
   const active = weights.filter((w) => w.importance > 0);
   if (!active.length || freeHours <= 0) {
@@ -86,6 +111,7 @@ export function weeklyAllocation(
       allotments: [],
       committedHours: 0,
       framing: 'Rank what matters in onboarding to see your week take shape.',
+      moveText: null,
     };
   }
 
@@ -106,16 +132,43 @@ export function weeklyAllocation(
     held.set(c.domainType, row);
   }
 
+  const taken = new Set(takenTitles.map((t) => t.trim().toLowerCase()));
+  /**
+   * Levers already being kept, whatever they were called.
+   *
+   * The two habit-creating surfaces name the same commitment differently:
+   * "Strength training twice a week" from the healthspan card and "One
+   * strength session a week" from the catalog are one thing, and a title
+   * match cannot see it. Counting the catalog's copy as still on offer would
+   * credit somebody with room they would have to duplicate themselves to
+   * reach — and this number is the basis of a sentence telling them whether
+   * a gap can be closed at all.
+   */
+  const heldLevers = new Set(
+    takenTitles.map((t) => classifyLever(t)).filter(Boolean) as string[],
+  );
   let allotments: Allotment[] = active
     .map((w) => {
       const hours = roundHalf(MIN_HOURS + (remainder * w.importance) / weightSum);
       const mine = held.get(w.domainType);
+      const committedHours = roundHalf(mine?.hours ?? 0);
+      /* Everything the catalog still has for this domain, on top of what is
+         already held. Nothing about the person's willingness — only what the
+         app is in a position to offer them. */
+      const spare = rhythmsFor(w.domainType)
+        .filter((r) => !taken.has(r.title.trim().toLowerCase()))
+        .filter((r) => {
+          const lever = classifyLever(r.title);
+          return !lever || !heldLevers.has(lever);
+        })
+        .reduce((s, r) => s + (r.perWeek * r.minutes) / 60, 0);
       return {
         domainType: w.domainType,
         hours,
         share: 0,
-        committedHours: roundHalf(mine?.hours ?? 0),
+        committedHours,
         unknownCommitments: mine?.unknown ?? 0,
+        reachableHours: roundHalf(committedHours + spare),
       };
     })
     .sort((a, b) => b.hours - a.hours);
@@ -137,7 +190,43 @@ export function weeklyAllocation(
       committedHours,
       knowsCommitments: commitments.length > 0,
     }),
+    moveText: commitments.length > 0 ? moveTextFor(allotments) : null,
   };
+}
+
+/**
+ * What can actually be done about the widest gap.
+ *
+ * The card was showing a person a twenty-three hour hole and offering them
+ * nothing to do about it, which reads as an accusation. There are only two
+ * true answers and they are opposite.
+ *
+ * If the domain still has rhythms to give, the gap is partly theirs to close
+ * and the card should say what is on offer.
+ *
+ * If taking every rhythm it has left would still not come near the share,
+ * then the share was never a plan — it is what a ranking works out to — and
+ * the honest lever is the ranking, not more effort. Saying that out loud is
+ * the difference between a card that explains an empty bar and one that
+ * quietly blames the reader for it.
+ */
+function moveTextFor(allotments: Allotment[]): string | null {
+  const widest = [...allotments]
+    .sort((a, b) => (b.hours - b.committedHours) - (a.hours - a.committedHours))[0];
+  if (!widest || widest.hours - widest.committedHours <= 0) return null;
+
+  const name = sentenceCase(widest.domainType);
+  const spare = roundHalf(widest.reachableHours - widest.committedHours);
+
+  if (widest.reachableHours >= widest.hours) {
+    return `${name}'s share is within reach — the rhythms it still has to offer would add about ${spare}h.`;
+  }
+  if (spare > 0) {
+    return `Every ${widest.domainType} rhythm left would add about ${spare}h, reaching ~${widest.reachableHours}h of the ~${widest.hours}h implied. `
+      + `The rest of that gap is not something to do — it is what the ranking works out to. Move the order if it no longer fits.`;
+  }
+  return `${name} has no rhythm left to offer, so nothing here closes that gap by being done. `
+    + `What the share says is where ${widest.domainType} sits in your ranking, and that is the part you can move.`;
 }
 
 /**

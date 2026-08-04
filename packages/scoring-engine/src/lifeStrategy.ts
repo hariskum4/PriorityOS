@@ -49,12 +49,49 @@ const GRACE_DAYS = 7;
  * every reader — which is exactly why they must never be summed into a total
  * that looks personal. What is personal is which of them someone is doing.
  */
-const HEALTHSPAN_LEVERS: Array<{ key: LeverKey; label: string; yearsGained: number }> = [
-  { key: 'strength', label: 'Strength training twice a week', yearsGained: 3 },
-  { key: 'cardio', label: 'Zone-2 cardio, 150 min a week', yearsGained: 3 },
-  { key: 'sleep', label: 'Protecting 7–8 hours of sleep', yearsGained: 2 },
+const HEALTHSPAN_LEVERS: Array<{
+  key: LeverKey;
+  label: string;
+  yearsGained: number;
+  /**
+   * What one occurrence costs out of a free hour, against this lever's own
+   * default target — not how long the thing lasts.
+   *
+   * Sleep is the one that makes the distinction necessary. Protecting seven
+   * hours of it does not spend seven hours of anybody's free time: the free
+   * hours were computed with sleep already taken out, and the act being
+   * committed to is going to bed on time. Costing it at seven hours would
+   * have the allocation card report a life spending forty-nine hours a week
+   * on health.
+   */
+  minutes?: number;
+}> = [
+  { key: 'strength', label: 'Strength training twice a week', yearsGained: 3, minutes: 45 },
+  // The label states the week's total and the lever asks for four sessions.
+  { key: 'cardio', label: 'Zone-2 cardio, 150 min a week', yearsGained: 3, minutes: 38 },
+  { key: 'sleep', label: 'Protecting 7–8 hours of sleep', yearsGained: 2, minutes: 5 },
+  // No length, because there is no occurrence — it is a state, and the card
+  // does not offer to start it.
   { key: 'social', label: 'Staying socially connected', yearsGained: 2 },
 ];
+
+/**
+ * How long a healthspan lever costs, found by the title its habit was made
+ * with.
+ *
+ * These levers are the app's second habit-creating surface, and until now the
+ * only one that never said how long anything took. A habit started from this
+ * card is written with the lever's own label, which is not in the rhythm
+ * catalog — so everything begun here was invisible to any arithmetic about
+ * committed hours, and the allocation card under-reported what somebody had
+ * actually taken on while labelling it "of its own length".
+ */
+export function leverMinutes(title: string): number | null {
+  const want = (title ?? '').trim().toLowerCase();
+  if (!want) return null;
+  const hit = HEALTHSPAN_LEVERS.find((l) => l.label.toLowerCase() === want);
+  return hit?.minutes ?? null;
+}
 
 /**
  * A rhythm someone set, and what they are actually doing against it.
@@ -598,6 +635,11 @@ export function suggestSeason(
     /* Sentence-cased because the domain opens the sentence, and a lowered
        name there reads as a typo — the same reason `nameOf` is wrapped on
        the healthspan card. */
-    framingText: `Nothing is drifting into the danger zone — a genuinely rare, aligned place to be. ${sentenceCase(focus)} is the one with the most room left against what you said you wanted, so it is the season with somewhere to go.`,
+    /* "The most room left" was ambiguous next to the allocation card, which
+       can say in the same breath that a domain has no rhythm left to offer.
+       Two different senses of room, and no reader holds them apart. This
+       names the one it actually means: the gap between claimed and received
+       attention. */
+    framingText: `Nothing is drifting into the danger zone — a genuinely rare, aligned place to be. ${sentenceCase(focus)} is furthest below the share you asked for, so it is the season with somewhere to go.`,
   };
 }
