@@ -6,7 +6,7 @@
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/harishkumar/Downloads/priority/apps/api && exec node dist/src/main.js"
+        "cd /Users/harishkumar/Downloads/priority/apps/api && exec npm run start:dev"
       ],
       "port": 3001
     },
