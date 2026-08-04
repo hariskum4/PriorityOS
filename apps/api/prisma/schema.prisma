@@ -69,6 +69,7 @@ model User {
   xpLedger            DomainXpEntry[]
   notifications       Notification[]
   refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
   analyticsEvents     AnalyticsEvent[]
   partnerLinks        PartnerLink[]  @relation("owner")
   partneredWith       PartnerLink[]  @relation("partner")
@@ -131,6 +132,22 @@ model RefreshToken {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// A six-digit code mailed to the account address. Hashed like the refresh
+// token, because a leaked table must not be a skeleton key. `attempts` exists
+// because six digits is guessable in a million tries — five wrong answers
+// burn the code.
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  attempts  Int      @default(0)
   expiresAt DateTime
   createdAt DateTime @default(now())
 

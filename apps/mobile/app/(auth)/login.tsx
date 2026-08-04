@@ -45,6 +45,9 @@ export default function Login() {
         <Input placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
         {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
         <Button title="Log in" onPress={submit} />
+        <Link href="/(auth)/forgot" style={[type.dim, { textAlign: 'center', padding: 8 }]}>
+          Forgot password?
+        </Link>
         <Link href="/(auth)/register" style={[type.dim, { textAlign: 'center', padding: 8 }]}>
           New here? Create an account
         </Link>

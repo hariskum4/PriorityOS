@@ -28,7 +28,7 @@ const TABLES = [
   'JournalEntry', 'Memory', 'Mission', 'Habit', 'Goal', 'Relationship',
   'LifeDomain', 'OnboardingAnswer', 'DomainAttentionSample', 'KnowledgeItem',
   'Decision', 'LifeOsState', 'GamificationProfile', 'UserPreferences',
-  'RefreshToken', 'User',
+  'PasswordResetToken', 'RefreshToken', 'User',
 ];
 
 /**

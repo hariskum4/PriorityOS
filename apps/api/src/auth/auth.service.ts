@@ -5,19 +5,24 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomInt, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto, LoginDto } from './auth.dto';
+import { MailService } from './mail.service';
 import { requireSecret, ttlToMs } from '../common/env';
 import { ALL_DOMAINS } from '@priority/types';
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
+
+const RESET_CODE_TTL_MS = 15 * 60_000;
+const RESET_MAX_ATTEMPTS = 5;
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private mail: MailService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -79,6 +84,75 @@ export class AuthService {
     if (count === 0) throw new UnauthorizedException('Refresh token already used');
 
     return this.issueTokens(payload.sub, payload.email);
+  }
+
+  /**
+   * Always answers "sent" — whether or not the address exists. The difference
+   * between "no such account" and "check your inbox" is a free directory of
+   * every registered email, so both cases get the same reply and only one of
+   * them gets a code.
+   */
+  async forgotPassword(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (user) {
+      const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+      // One live code per account: a fresh request retires the old one.
+      await this.prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+      await this.prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          codeHash: sha256(code),
+          expiresAt: new Date(Date.now() + RESET_CODE_TTL_MS),
+        },
+      });
+      await this.mail.send(
+        email,
+        'Your Priority reset code',
+        `Your password reset code is ${code}.\n\n`
+        + 'It works for 15 minutes and only once. '
+        + 'If you did not ask for it, you can ignore this — your password has not changed.',
+      );
+    }
+    return { ok: true };
+  }
+
+  async resetPassword(email: string, code: string, password: string) {
+    const invalid = () =>
+      new UnauthorizedException('That code is not right, or it has expired.');
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) throw invalid();
+
+    const token = await this.prisma.passwordResetToken.findFirst({
+      where: { userId: user.id, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!token || token.attempts >= RESET_MAX_ATTEMPTS) throw invalid();
+
+    if (token.codeHash !== sha256(code)) {
+      await this.prisma.passwordResetToken.update({
+        where: { id: token.id },
+        data: { attempts: { increment: 1 } },
+      });
+      throw invalid();
+    }
+
+    // deleteMany count-as-lock: two requests carrying the same correct code
+    // race, exactly one delete wins, the other is told the code is spent.
+    const { count } = await this.prisma.passwordResetToken.deleteMany({
+      where: { id: token.id },
+    });
+    if (count === 0) throw invalid();
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await argon2.hash(password) },
+    });
+    // Every session that knew the old password is out. Whoever holds the
+    // inbox — presumably the owner — is in, freshly signed in below.
+    await this.prisma.refreshToken.deleteMany({ where: { userId: user.id } });
+
+    return this.issueTokens(user.id, user.email);
   }
 
   private async issueTokens(userId: string, email: string) {

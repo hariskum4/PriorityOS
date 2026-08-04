@@ -20,5 +20,12 @@ export class AuthJobsService {
       where: { expiresAt: { lt: new Date() } },
     });
     if (count > 0) this.logger.log(`Pruned ${count} expired refresh token(s)`);
+
+    const reset = await this.prisma.passwordResetToken.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    });
+    if (reset.count > 0) {
+      this.logger.log(`Pruned ${reset.count} expired reset code(s)`);
+    }
   }
 }
