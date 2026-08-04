@@ -39,6 +39,94 @@ describe('weekly allocation', () => {
     const a = weeklyAllocation(42, []);
     expect(a.allotments).toEqual([]);
   });
+
+  /**
+   * The hours are what a ranking works out to. What somebody has actually
+   * agreed to is a different number, usually a much smaller one, and the card
+   * was showing only the first — 25h of health, against a catalog whose every
+   * health rhythm combined comes to 3.3h. The old closing line conceded it
+   * ("time-stacking lets one hour count twice, so this fits more easily than
+   * it looks") rather than reporting it.
+   */
+  describe('against what is actually set up', () => {
+    const commitments = [
+      { domainType: 'health', perWeek: 3, minutes: 40 },   // 2h
+      { domainType: 'health', perWeek: 1, minutes: 45 },   // 0.75h
+      { domainType: 'family', perWeek: 1, minutes: 60 },   // 1h
+    ];
+
+    it('counts the hours a person has agreed to, per domain', () => {
+      const a = weeklyAllocation(47, weights, commitments);
+      const health = a.allotments.find((x) => x.domainType === 'health')!;
+      expect(health.committedHours).toBe(3);   // 2 + 0.75, rounded to the half
+      const career = a.allotments.find((x) => x.domainType === 'career')!;
+      expect(career.committedHours).toBe(0);
+    });
+
+    it('totals them across the week', () => {
+      expect(weeklyAllocation(47, weights, commitments).committedHours).toBe(4);
+    });
+
+    it('names the widest gap, not the biggest share', () => {
+      // family leads on share; the gap the reader can act on may be elsewhere.
+      const a = weeklyAllocation(47, weights, [
+        { domainType: 'family', perWeek: 5, minutes: 240 },  // 20h — nearly met
+      ]);
+      expect(a.framing).toMatch(/health is the widest gap/i);
+      expect(a.framing).not.toMatch(/fits more easily than it looks/);
+    });
+
+    it('stops calling the split a plan', () => {
+      const a = weeklyAllocation(47, weights, commitments);
+      expect(a.framing).toMatch(/not a schedule/);
+    });
+
+    it('says so when nothing has been committed', () => {
+      const a = weeklyAllocation(47, weights, []);
+      expect(a.allotments.every((x) => x.committedHours === 0)).toBe(true);
+      // No commitments passed at all is "nothing knows", not "measured zero".
+      expect(a.framing).toMatch(/sits below/);
+    });
+
+    it('distinguishes a measured zero from an unknown one', () => {
+      const a = weeklyAllocation(47, weights, [
+        { domainType: 'growth', perWeek: 2, minutes: null },
+      ]);
+      expect(a.framing).toMatch(/none of it is committed yet/i);
+      const growth = a.allotments.find((x) => x.domainType === 'growth')!;
+      expect(growth.unknownCommitments).toBe(1);
+      expect(growth.committedHours).toBe(0);
+    });
+
+    /* A habit row has never carried a duration; the catalog resolves most by
+       title, and one somebody wrote themselves cannot be. Inventing a length
+       would put fiction into the only honest number here. */
+    it('never guesses a length it does not know', () => {
+      const a = weeklyAllocation(47, weights, [
+        { domainType: 'health', perWeek: 3, minutes: null },
+        { domainType: 'health', perWeek: 1, minutes: 60 },
+      ]);
+      const health = a.allotments.find((x) => x.domainType === 'health')!;
+      expect(health.committedHours).toBe(1);
+      expect(health.unknownCommitments).toBe(1);
+    });
+
+    it('ignores rubbish rather than counting it', () => {
+      const a = weeklyAllocation(47, weights, [
+        { domainType: 'health', perWeek: 0, minutes: 60 },
+        { domainType: 'health', perWeek: -2, minutes: 60 },
+        null as never,
+      ]);
+      expect(a.committedHours).toBe(0);
+    });
+
+    it('acknowledges a week where every share is met', () => {
+      const a = weeklyAllocation(4, [{ domainType: 'health', importance: 100 }], [
+        { domainType: 'health', perWeek: 4, minutes: 60 },
+      ]);
+      expect(a.framing).toMatch(/meets every share you set/);
+    });
+  });
 });
 
 describe('healthspan', () => {
@@ -281,14 +369,83 @@ describe('seasons', () => {
     expect(s.framingText).toMatch(/why most people quit/);
   });
 
-  it('when nothing is at risk, suggests deepening rather than rescuing', () => {
+  it('when nothing is at risk and nothing knows shares, falls back to importance', () => {
     const s = suggestSeason([
       { domainType: 'family', importance: 90, neglectRisk: 10 },
       { domainType: 'health', importance: 60, neglectRisk: 15 },
     ]);
     expect(s.atRiskDomains).toEqual([]);
-    expect(s.framingText).toMatch(/deepen rather than rescue/);
+    expect(s.reason).toBe('deepen');
     expect(s.focusDomain).toBe('family');
+  });
+
+  /**
+   * The bug this branch was carrying.
+   *
+   * "Deepen rather than rescue" picked the highest-importance domain — which
+   * is very often the one already being over-served. A reader whose health
+   * was getting more attention than they had asked for was told to spend
+   * ninety more days on health, while the areas quietly running under their
+   * claim went unmentioned.
+   */
+  describe('deepening where there is actually room', () => {
+    it('does not pick the domain already over-served', () => {
+      const s = suggestSeason([
+        // Ranked first, and getting more than its claim already.
+        { domainType: 'health', importance: 70, neglectRisk: 10, shortfall: -12 },
+        { domainType: 'family', importance: 40, neglectRisk: 20, shortfall: 7 },
+        { domainType: 'career', importance: 20, neglectRisk: 25, shortfall: 5 },
+      ]);
+      expect(s.focusDomain).not.toBe('health');
+      expect(s.focusDomain).toBe('family');
+      expect(s.reason).toBe('deepen');
+    });
+
+    it('capitalises a domain that opens a sentence', () => {
+      const s = suggestSeason([
+        { domainType: 'health', importance: 70, neglectRisk: 10, shortfall: 9 },
+      ]);
+      expect(s.framingText).toContain('Health is the one');
+      expect(s.framingText).not.toContain('health is the one');
+    });
+
+    it('still lets a rescue outrank any amount of room', () => {
+      const s = suggestSeason([
+        { domainType: 'family', importance: 40, neglectRisk: 20, shortfall: 30 },
+        { domainType: 'career', importance: 20, neglectRisk: 80, shortfall: 2 },
+      ]);
+      expect(s.focusDomain).toBe('career');
+      expect(s.reason).toBe('rescue');
+    });
+
+    it('breaks a tie on room by what was ranked higher', () => {
+      const s = suggestSeason([
+        { domainType: 'career', importance: 20, neglectRisk: 10, shortfall: 6 },
+        { domainType: 'family', importance: 40, neglectRisk: 10, shortfall: 6 },
+      ]);
+      expect(s.focusDomain).toBe('family');
+    });
+
+    it('hands the question back when nothing is short at all', () => {
+      const s = suggestSeason([
+        { domainType: 'health', importance: 70, neglectRisk: 10, shortfall: -5 },
+        { domainType: 'family', importance: 40, neglectRisk: 10, shortfall: -2 },
+      ]);
+      expect(s.reason).toBe('settled');
+      // No domain can be deepened without funding it from another, so the
+      // card must not crown one as though it could.
+      expect(s.framingText).toMatch(/whether the ranking itself still fits/);
+      expect(s.framingText).not.toMatch(FORBIDDEN);
+    });
+
+    it('never uses doom vocabulary in any branch', () => {
+      const cases = [
+        [{ domainType: 'health', importance: 70, neglectRisk: 90, shortfall: 4 }],
+        [{ domainType: 'health', importance: 70, neglectRisk: 10, shortfall: 4 }],
+        [{ domainType: 'health', importance: 70, neglectRisk: 10, shortfall: -4 }],
+      ];
+      for (const c of cases) expect(suggestSeason(c).framingText).not.toMatch(FORBIDDEN);
+    });
   });
 });
 

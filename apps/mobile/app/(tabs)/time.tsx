@@ -1490,12 +1490,44 @@ export default function TimeReality() {
   const stackHelps = craftedStacks?.stacks?.length
     ? craftedStacks.helps ?? []
     : shortfallsCovered(localStacks);
+  /**
+   * What this person has actually agreed to, in hours.
+   *
+   * A habit row carries a title, a domain and a target per week — never a
+   * duration — so the length comes from the catalog entry the title came
+   * from. One somebody wrote themselves does not match, and reports null
+   * rather than a guess: an invented length would be fiction inside the only
+   * honest number on the card.
+   *
+   * Deliberately NOT a `useMemo`: this sits below the component's early
+   * returns, so a hook here renders a different number of hooks on the
+   * loading pass than on the loaded one. Mapping a handful of habits costs
+   * nothing next to that.
+   */
+  const commitments = (habits ?? [])
+    .filter((h: any) => h.isActive !== false && h.targetPerWeek > 0)
+    .map((h: any) => ({
+      domainType: h.domainType,
+      perWeek: h.targetPerWeek,
+      minutes: rhythmByTitle(h.title)?.minutes ?? null,
+    }));
+
   const allocation = weeklyAllocation(
     windows.freeTime.freeHoursPerWeek,
     activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance })),
+    commitments,
   );
   const season = suggestSeason(
-    activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance, neglectRisk: d.neglectRisk })),
+    /* The share table, not raw importance. Without it the deepen branch picks
+       whatever was ranked highest — which is usually the domain already being
+       over-served, so the card recommended more of the one thing that needed
+       it least. `shares` is the same reading the alignment score uses. */
+    activeDomains.map((d: any) => ({
+      domainType: d.domainType,
+      importance: d.importance,
+      neglectRisk: d.neglectRisk,
+      shortfall: shares.find((s) => s.domainType === d.domainType)?.shortfall,
+    })),
   );
 
   /**
@@ -2468,20 +2500,66 @@ export default function TimeReality() {
               <Card style={{ gap: space(3) }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Ionicons name="pie-chart-outline" size={14} color={colors.textDim} />
-                  <Label>Your week, so nothing sits at zero</Label>
+                  {/* The old heading — "so nothing sits at zero" — described a
+                      floor that is trivially met and was the least interesting
+                      thing here. The card is about the distance between a
+                      ranking and what has been set up against it. */}
+                  <Label>What you ranked, against what you have set up</Label>
                 </View>
-                {allocation.allotments.map((a) => (
-                  <View key={a.domainType} style={{ gap: 4 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <DomainDot domain={a.domainType} size={9} />
-                      <Text style={[type.body, { flex: 1, textTransform: 'capitalize' }]}>{a.domainType}</Text>
-                      <Text style={[type.dim, { fontWeight: '700' }]}>{a.hours}h</Text>
+                {allocation.allotments.map((a) => {
+                  /* The committed bar is drawn inside the claimed one, on the
+                     same scale, so the empty remainder IS the gap. Two bars
+                     side by side would have made them look like two separate
+                     facts rather than one measured against the other. */
+                  const claimedPct = a.share;
+                  const committedPct = a.hours > 0
+                    ? Math.min(a.committedHours / a.hours, 1) * claimedPct
+                    : 0;
+                  return (
+                    <View key={a.domainType} style={{ gap: 4 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <DomainDot domain={a.domainType} size={9} />
+                        <Text style={[type.body, { flex: 1, textTransform: 'capitalize' }]}>{a.domainType}</Text>
+                        <Text style={[type.dim, { fontWeight: '700' }]}>
+                          {a.committedHours}
+                          <Text style={type.faint}> of {a.hours}h</Text>
+                        </Text>
+                      </View>
+                      <View style={s.allocTrack}>
+                        {/* What the ranking implies — the outline of the claim. */}
+                        <View style={[s.allocFill, {
+                          width: `${claimedPct}%`,
+                          backgroundColor: domainColor(a.domainType),
+                          opacity: 0.22,
+                        }]} />
+                        {/* What is actually set up, filled solid inside it.
+                            A floor of 3px because half an hour against
+                            fourteen renders about five pixels wide, and at
+                            that size "barely any" and "none at all" look the
+                            same — which is the one distinction this card
+                            exists to draw. Nothing committed still draws
+                            nothing. */}
+                        {a.committedHours > 0 ? (
+                          <View style={[s.allocFill, {
+                            position: 'absolute',
+                            left: 0,
+                            width: `${committedPct}%`,
+                            minWidth: 3,
+                            backgroundColor: domainColor(a.domainType),
+                          }]} />
+                        ) : null}
+                      </View>
+                      {/* A rhythm whose length nothing knows cannot be drawn,
+                          and pretending it is zero would understate what this
+                          person has actually taken on. */}
+                      {a.unknownCommitments > 0 ? (
+                        <Text style={type.faint}>
+                          {`+ ${a.unknownCommitments} rhythm${a.unknownCommitments > 1 ? 's' : ''} of its own length`}
+                        </Text>
+                      ) : null}
                     </View>
-                    <View style={s.allocTrack}>
-                      <View style={[s.allocFill, { width: `${a.share}%`, backgroundColor: domainColor(a.domainType) }]} />
-                    </View>
-                  </View>
-                ))}
+                  );
+                })}
                 <Text style={type.faint}>{allocation.framing}</Text>
               </Card>
 

@@ -398,6 +398,14 @@ export function costOfDelay(domainType: string, delayYears = 10): DelayCost {
 export interface SeasonSuggestion {
   focusDomain: string;
   atRiskDomains: string[];  // over the neglect threshold — the real priority
+  /**
+   * Why this domain and not another.
+   *
+   *   rescue  — it is closest to becoming a regret
+   *   deepen  — nothing is at risk, and this one has room to grow into
+   *   settled — nothing is at risk and nothing is short
+   */
+  reason: 'rescue' | 'deepen' | 'settled';
   framingText: string;
 }
 
@@ -406,24 +414,87 @@ const NEGLECT_THRESHOLD = 50; // below this, a domain is drifting toward regret
 /**
  * A 90-day emphasis. The honest truth: not every domain can fire at once.
  * The goal is not balance every week — it is that nothing important stays
- * at zero long enough to become a regret. Pick the season by what is most
- * at risk, not by what scores highest.
+ * at zero long enough to become a regret.
+ *
+ * Two questions, in order, and they are different questions.
+ *
+ * **What is closest to a regret?** If anything is over the neglect threshold,
+ * that is the season and nothing else competes with it.
+ *
+ * **Where would deepening actually land?** This is the half that used to be
+ * wrong. With nothing at risk it picked the highest-*importance* domain — but
+ * the domain somebody ranked first is very often the one they are already
+ * pouring into, so the card told a reader whose health was getting more
+ * attention than they had asked for to spend ninety more days on health,
+ * while the two areas quietly running under their claim went unmentioned.
+ * "Deepen rather than rescue" has to mean *where there is room*, so this
+ * ranks by share shortfall — claimed minus received, the same currency the
+ * alignment score and the stack ranker already use, so all three can no
+ * longer name different domains as the one needing attention.
+ *
+ * When nothing is short at all, there is no domain to deepen without taking
+ * the hours from another, and saying so is more useful than inventing a
+ * winner.
  */
 export function suggestSeason(
-  domains: Array<{ domainType: string; importance: number; neglectRisk: number }>,
+  domains: Array<{
+    domainType: string;
+    importance: number;
+    neglectRisk: number;
+    /**
+     * Share points this domain is short by. Positive means starved.
+     *
+     * Optional because a caller that has not computed shares should get the
+     * old importance ordering rather than a wrong answer dressed as a better
+     * one — unknown is permissive, the same rule `lifeShape` follows.
+     */
+    shortfall?: number;
+  }>,
 ): SeasonSuggestion {
-  const atRisk = domains
-    .filter((d) => d.importance > 0 && d.neglectRisk >= NEGLECT_THRESHOLD)
+  const ranked = domains.filter((d) => d.importance > 0);
+
+  const atRisk = ranked
+    .filter((d) => d.neglectRisk >= NEGLECT_THRESHOLD)
     .sort((a, b) => b.neglectRisk - a.neglectRisk);
-  const focus =
-    atRisk[0]?.domainType ??
-    [...domains].filter((d) => d.importance > 0).sort((a, b) => b.importance - a.importance)[0]?.domainType ??
-    'family';
+
+  if (atRisk.length) {
+    const focus = atRisk[0].domainType;
+    return {
+      focusDomain: focus,
+      atRiskDomains: atRisk.map((d) => d.domainType),
+      reason: 'rescue',
+      framingText: `You can't pour into all of it at once, and trying is why most people quit. For the next 90 days, let ${focus} be the season — it's the one closest to a regret. The rest only needs to stay above zero.`,
+    };
+  }
+
+  const knowsShares = ranked.some((d) => typeof d.shortfall === 'number');
+  const short = ranked
+    .filter((d) => (d.shortfall ?? 0) > 0)
+    .sort((a, b) => (b.shortfall ?? 0) - (a.shortfall ?? 0) || b.importance - a.importance);
+
+  if (knowsShares && !short.length) {
+    /* Everything is getting at least what it was promised. There is no
+       domain to deepen that would not be funded by another, so the honest
+       move is to hand the question back rather than crown the largest. */
+    const nearest = [...ranked].sort((a, b) => (a.shortfall ?? 0) - (b.shortfall ?? 0)).pop();
+    const focus = nearest?.domainType ?? ranked[0]?.domainType ?? 'family';
+    return {
+      focusDomain: focus,
+      atRiskDomains: [],
+      reason: 'settled',
+      framingText: `Every area you ranked is getting at least the share you asked for — genuinely rare. There is no season to pick here without taking the hours from something else, so the useful question is whether the ranking itself still fits.`,
+    };
+  }
+
+  const focus = (short[0] ?? [...ranked].sort((a, b) => b.importance - a.importance)[0])
+    ?.domainType ?? 'family';
   return {
     focusDomain: focus,
-    atRiskDomains: atRisk.map((d) => d.domainType),
-    framingText: atRisk.length
-      ? `You can't pour into all of it at once, and trying is why most people quit. For the next 90 days, let ${focus} be the season — it's the one closest to a regret. The rest only needs to stay above zero.`
-      : `Nothing is drifting into the danger zone — a genuinely rare, aligned place to be. Pick a season to deepen rather than rescue: ${focus} would compound nicely.`,
+    atRiskDomains: [],
+    reason: 'deepen',
+    /* Sentence-cased because the domain opens the sentence, and a lowered
+       name there reads as a typo — the same reason `nameOf` is wrapped on
+       the healthspan card. */
+    framingText: `Nothing is drifting into the danger zone — a genuinely rare, aligned place to be. ${sentenceCase(focus)} is the one with the most room left against what you said you wanted, so it is the season with somewhere to go.`,
   };
 }
