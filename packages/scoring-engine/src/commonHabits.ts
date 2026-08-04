@@ -139,6 +139,18 @@ const COMMON: Recognized[] = [
       because: 'You find out what you think by writing it, not before.',
     },
   },
+  /* Before the generic read entry, because the array is checked in order
+     and first match wins — "read to the kids" contains a book, but the
+     habit is the child, and the generic pattern would call it thirty
+     minutes of growth in an armchair. */
+  {
+    test: /^read(?:ing)?\s+(?:to|with)\s+(?:the\s+|my\s+)?(?:kids?|children|son|daughter)\b/,
+    rhythm: {
+      key: 'common.readkids', title: 'Read to them', perWeek: 3, minutes: 15,
+      when: 'evening',
+      because: 'What they remember is the thing that was theirs.',
+    },
+  },
   {
     test: /^read(?:ing)?\b/,
     rhythm: {
@@ -163,6 +175,79 @@ const COMMON: Recognized[] = [
       key: 'common.callhome', title: 'Call home', perWeek: 1, minutes: 20,
       when: 'evening', needs: ['canSpeakFreely'],
       because: 'Family drifts on no particular day, which is why it needs a particular day.',
+    },
+  },
+  {
+    test: /^(?:call|ring|phone|text|message|catch\s+up\s+with)\s+(?:a\s+|my\s+|an?\s+old\s+)?friend/,
+    rhythm: {
+      key: 'common.friend', title: 'Reach a friend', perWeek: 1, minutes: 15,
+      when: 'any',
+      because: 'Friendships end from nothing happening, not from anything happening.',
+    },
+  },
+  {
+    test: /^date\s+(?:night|with)\b/,
+    rhythm: {
+      key: 'common.datenight', title: 'Date night', perWeek: 1, minutes: 120,
+      when: 'evening', needs: ['canMove'],
+      because: 'Partnership is not maintained by living in the same house.',
+    },
+  },
+  {
+    test: /^(?:family\s+(?:dinner|time|night)|dinner\s+with\s+(?:the\s+)?family)\b/,
+    rhythm: {
+      key: 'common.familytime', title: 'Family time', perWeek: 1, minutes: 60,
+      when: 'evening', needs: ['canMove'],
+      because: 'A standing hour beats a good intention, every single time.',
+    },
+  },
+  {
+    test: /^play(?:ing)?\s+with\s+(?:the\s+|my\s+)?(?:kids?|children|son|daughter)\b/,
+    rhythm: {
+      key: 'common.playkids', title: 'Play with them', perWeek: 2, minutes: 45,
+      when: 'evening', needs: ['canMove'],
+      because: 'Children measure attention by whether the phone is in the room.',
+    },
+  },
+  // ---- the wider life -----------------------------------------------------
+  {
+    test: /^volunteer(?:ing)?\b/,
+    rhythm: {
+      key: 'common.volunteer', title: 'Volunteer', perWeek: 1, minutes: 60,
+      when: 'any', prefersWeekend: true, needs: ['canMove'],
+      because: 'The help that lands is the help that is regular.',
+    },
+  },
+  {
+    test: /^mentor(?:ing)?\b/,
+    rhythm: {
+      key: 'common.mentor', title: 'Mentor', perWeek: 1, minutes: 30,
+      when: 'any', needs: ['canSpeakFreely'],
+      because: 'Most people who need help have already asked someone, once.',
+    },
+  },
+  {
+    test: /^(?:side\s+(?:project|hustle)|my\s+project)\b/,
+    rhythm: {
+      key: 'common.project', title: 'The project', perWeek: 2, minutes: 60,
+      when: 'morning', needs: ['hasScreen'], sharp: true,
+      because: 'Creative work does not wait for a free weekend. It waits for a fixed hour.',
+    },
+  },
+  {
+    test: /^network(?:ing)?\b/,
+    rhythm: {
+      key: 'common.network', title: 'One conversation', perWeek: 1, minutes: 20,
+      when: 'any',
+      because: 'The work that gets you the next thing is never the work that is due today.',
+    },
+  },
+  {
+    test: /^plan\s+(?:a\s+|the\s+|our\s+)?(?:trip|travel|holiday|vacation)\b/,
+    rhythm: {
+      key: 'common.plantrip', title: 'Plan the trip', perWeek: 1, minutes: 30,
+      when: 'evening', needs: ['hasScreen'],
+      because: 'Years blur when they are made of the same week, repeated.',
     },
   },
 

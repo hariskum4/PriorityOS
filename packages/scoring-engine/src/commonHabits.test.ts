@@ -48,8 +48,44 @@ describe('recognizing the habits people write for themselves', () => {
     ['Meal prep Sundays', 'common.cook'],
     ['Track my spending', 'common.money'],
     ['Budgeting', 'common.money'],
+    // The wider life — the domains the trackers never measure.
+    ['Date night', 'common.datenight'],
+    ['Date with my wife', 'common.datenight'],
+    ['Family dinner', 'common.familytime'],
+    ['Dinner with the family', 'common.familytime'],
+    ['Play with the kids', 'common.playkids'],
+    ['Playing with my daughter', 'common.playkids'],
+    ['Read to the kids', 'common.readkids'],
+    ['Reading with my son', 'common.readkids'],
+    ['Call a friend', 'common.friend'],
+    ['Text an old friend', 'common.friend'],
+    ['Catch up with a friend', 'common.friend'],
+    ['Volunteering at the shelter', 'common.volunteer'],
+    ['Mentor a junior', 'common.mentor'],
+    ['Side project', 'common.project'],
+    ['Side hustle hour', 'common.project'],
+    ['Networking coffee', 'common.network'],
+    ['Plan a trip', 'common.plantrip'],
+    ['Plan our holiday', 'common.plantrip'],
   ])('"%s" → %s', (title, key) => {
     expect(recognizeHabit(title)?.key).toBe(key);
+  });
+
+  /**
+   * Order in the table is behaviour: first match wins, and "read to the
+   * kids" contains a book. The generic reader must never take it.
+   */
+  it('reads to the kids before it reads', () => {
+    expect(recognizeHabit('Read to the kids')?.key).toBe('common.readkids');
+    expect(recognizeHabit('Read 20 minutes')?.key).toBe('common.read');
+  });
+
+  it('a call to a friend is not a call home, and neither is a date', () => {
+    expect(recognizeHabit('Call a friend')?.key).toBe('common.friend');
+    expect(recognizeHabit('Call mum')?.key).toBe('common.callhome');
+    /* "Date entry in the ledger" leads with the keyword and is bookkeeping —
+       the pattern demands "night" or "with" for exactly this reason. */
+    expect(recognizeHabit('Date entry in the ledger')).toBeNull();
   });
 
   // ---- the edges of the day ----------------------------------------------

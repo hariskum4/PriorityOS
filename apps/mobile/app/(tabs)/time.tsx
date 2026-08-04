@@ -692,6 +692,33 @@ export default function TimeReality() {
     onError: (_e, l) => setStartedLevers((p) => p.filter((k) => k !== l.key)),
   });
 
+  /**
+   * Crediting a day of not-doing.
+   *
+   * An abstinence is kept by nothing happening, so its tick is a reading of
+   * the whole day rather than a record of an act — which is why the chip
+   * lives at the day's edge and why tapping it twice must cost nothing.
+   * The draft is the same optimistic shape the Today tab uses: the chip
+   * changes on the press, the server catches up, a failure puts it back.
+   */
+  const [heldDraft, setHeldDraft] = useState<Record<string, boolean>>({});
+  const settleHeld = (id: string) =>
+    setHeldDraft((p) => { const { [id]: _drop, ...rest } = p; return rest; });
+  const holdDay = useMutation({
+    mutationFn: ({ id, undo }: { id: string; undo: boolean }) =>
+      api(`/habits/${id}/${undo ? 'uncomplete' : 'complete'}`, { method: 'POST', body: {} }),
+    onSuccess: (_d, { id }) => {
+      qc.invalidateQueries({ queryKey: ['habits'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      settleHeld(id);
+    },
+    onError: (_e, { id }) => settleHeld(id),
+  });
+  const toggleHeld = (id: string, doneNow: boolean) => {
+    setHeldDraft((p) => ({ ...p, [id]: !doneNow }));
+    holdDay.mutate({ id, undo: doneNow });
+  };
+
   const [ageDraft, setAgeDraft] = useState('');
   const saveAge = useMutation({
     mutationFn: () =>
@@ -1779,6 +1806,26 @@ export default function TimeReality() {
   );
 
   /**
+   * The habits kept by nothing happening, and how today stands on each.
+   *
+   * These have no slot anywhere in the day on purpose — see `allday` — so
+   * the sleep row is their one home: a day of not-doing is only complete
+   * when the day is, and the row that says where the day ends is the only
+   * honest place to ask. `done` reads the draft first so the chip answers
+   * the finger, not the network.
+   */
+  const todayKey = new Date().toDateString();
+  const alldayRows = (habits ?? [])
+    .filter((h: any) => h.isActive !== false && rhythmForHabit(h.title)?.when === 'allday')
+    .map((h: any) => ({
+      id: h.id as string,
+      title: h.title as string,
+      done: heldDraft[h.id] ?? (h.logs ?? []).some(
+        (l: any) => new Date(l.completedAt).toDateString() === todayKey,
+      ),
+    }));
+
+  /**
    * The rhythms that need a clear head rather than merely a free hour.
    *
    * Counted only where the catalog knows both that it is focused work and
@@ -2416,10 +2463,54 @@ export default function TimeReality() {
                          been kept against it, in which case fading the one
                          commitment on the row to 45% is the fix for the
                          seven o'clock bedtime undone by its own styling. */
-                      const faded = b.kind === 'sleep' && !b.note;
+                      const askHeld = b.kind === 'sleep' && alldayRows.length > 0;
+                      const faded = b.kind === 'sleep' && !b.note && !askHeld;
                       return (
-                        <View key={key} style={[s.dayRow, faded && { opacity: 0.45 }]}>
+                        <View
+                          key={key}
+                          style={[
+                            s.dayRow,
+                            faded && { opacity: 0.45 },
+                            askHeld && { flexDirection: 'column', alignItems: 'stretch', gap: space(2) },
+                          ]}
+                        >
                           {face}
+                          {/* The all-day habits, asked about once, here at the
+                              day's edge. Held is a tap; silence is free — an
+                              unanswered evening is not evidence of anything,
+                              and no cross is ever drawn. */}
+                          {askHeld ? (
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space(2), marginLeft: 96 + 10 }}>
+                              {alldayRows.map((r: { id: string; title: string; done: boolean }) => (
+                                <Pressable
+                                  key={r.id}
+                                  onPress={() => toggleHeld(r.id, r.done)}
+                                  disabled={holdDay.isPending}
+                                  hitSlop={6}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected: r.done }}
+                                  accessibilityLabel={r.done ? `${r.title}, held today — tap to undo` : `${r.title} — held today?`}
+                                  style={({ pressed }) => [
+                                    s.heldChip,
+                                    r.done && s.heldChipOn,
+                                    pressed && { transform: [{ scale: 0.96 }] },
+                                  ]}
+                                >
+                                  {r.done ? (
+                                    <Ionicons name="checkmark" size={12} color={colors.green} />
+                                  ) : null}
+                                  <Text
+                                    style={[
+                                      type.faint,
+                                      r.done && { color: colors.green, fontWeight: '600' },
+                                    ]}
+                                  >
+                                    {r.done ? `${r.title} — held` : `${r.title} — held?`}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                          ) : null}
                         </View>
                       );
                     }
@@ -2714,6 +2805,20 @@ export default function TimeReality() {
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Ionicons name="repeat-outline" size={14} color={colors.textDim} />
                     <Label>The week your rhythms run on</Label>
+                    <View style={{ flex: 1 }} />
+                    {/* The one door to the full catalog. Rhythms are dealt one
+                        at a time everywhere else, which is right for deciding
+                        and useless for wondering — a person cannot want what
+                        they have never seen. */}
+                    <Pressable
+                      onPress={() => router.push('/catalog')}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Browse the full catalog"
+                      style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                    >
+                      <Text style={[type.faint, { color: colors.amber }]}>browse all</Text>
+                    </Pressable>
                   </View>
 
                   <View style={s.weekHead}>
@@ -3667,6 +3772,13 @@ const s = StyleSheet.create({
     backgroundColor: alpha(colors.amber, 0.06),
   },
   dayTime: { width: 96 },
+  /** The day-end question for a habit kept by nothing happening. */
+  heldChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderWidth: 1, borderColor: colors.line, borderRadius: 14,
+    paddingHorizontal: 10, paddingVertical: 5,
+  },
+  heldChipOn: { borderColor: colors.green, backgroundColor: alpha(colors.green, 0.08) },
   /** The one surface on a block whose only meaning is "drag me". */
   grip: {
     width: 28, alignItems: 'center', justifyContent: 'center',
