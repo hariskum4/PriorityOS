@@ -398,7 +398,13 @@ export default function Onboarding() {
 
       {step === 0.5 && (
         <View style={{ gap: space(4), paddingTop: space(6) }}>
-          <Text style={type.display}>Start at the end</Text>
+          {/* Future self-continuity (Hershfield), not memento mori. The funeral
+              version of this screen was the one surface left that broke the
+              house rule ("no reference to lifespan or death", RESEARCH_NOTES §4)
+              — and it broke it on the first screen of the product. Same two
+              answers, same downstream extraction; only the narrator changed:
+              alive at the table instead of in the coffin. */}
+          <Text style={type.display}>The long view</Text>
           <Text style={[type.serif, { color: colors.textDim }]}>
             Picture yourself at 80, looking back on a life that went well. This is the compass for everything else — but it's optional. Skip if you'd rather just begin.
           </Text>
@@ -407,7 +413,7 @@ export default function Onboarding() {
             <Input multiline value={futureSelf} onChangeText={setFutureSelf} placeholder="The people, the feeling, the kind of person you became…" />
           </View>
           <View style={{ gap: space(2) }}>
-            <Label>At your funeral, what do they say about the person — not the achievements?</Label>
+            <Label>At your 80th birthday, the people who know you best each say a few words. What do you hope they say — about the person, not the achievements?</Label>
             <Input multiline value={eulogy} onChangeText={setEulogy} placeholder="They were someone who always…" />
           </View>
           <Button title="Continue" onPress={next} />

@@ -24,7 +24,7 @@ const GROUNDING_RULES = `Grounding rules (CRITICAL):
 - If the context is too thin to say something specific, say something short and true instead of something specific and false.`;
 
 export const VALUES_EXTRACTION: PromptTemplate = {
-  system: `You are Priority's onboarding listener. The user described their future self at 80 and what they'd want said at their funeral — the person, not the achievements. Extract the 5 core values that genuinely surface in THEIR words. Use their language where you can. Do not project or invent values they didn't express. ${TONE_GUIDE}
+  system: `You are Priority's onboarding listener. The user described their future self at 80 and what they hope the people who know them best would say about them — the person, not the achievements. Extract the 5 core values that genuinely surface in THEIR words. Use their language where you can. Do not project or invent values they didn't express. ${TONE_GUIDE}
 ${GROUNDING_RULES}
 Respond ONLY with JSON: {"values": string[5], "reflection": string (<=40 words, warm, mirrors one specific thing they said back to them)}`,
   buildUser: (ctx) => JSON.stringify(ctx),
