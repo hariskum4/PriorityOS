@@ -715,4 +715,23 @@ describe('it never claims to know more than it does', () => {
       expect(s.blocks[i].startMinutes).toBeGreaterThanOrEqual(s.blocks[i - 1].endMinutes);
     }
   });
+
+  it('names a homemaker\'s spoken-for hours as the household, not a job', () => {
+    // Same shape, different word — "Work 9–5" over a homemaker's day is the
+    // card describing a job she does not have.
+    const s = dayShape({ workType: 'homemaker', workStartHour: 8, workEndHour: 18 });
+    const block = s.blocks.find((b) => b.kind === 'work')!;
+    expect(block.label).toBe('The household');
+    expect(s.assumptions.join(' ')).toMatch(/the household day/);
+    expect(s.assumptions.join(' ')).not.toMatch(/: work /);
+
+    // And an employee's day still reads as work.
+    const office = dayShape({ workType: 'office_9_5', workStartHour: 9, workEndHour: 17 });
+    expect(office.blocks.find((b) => b.kind === 'work')!.label).toBe('Work');
+  });
+
+  it('spreads a homemaker\'s stated week and says whose hours they are', () => {
+    const s = dayShape({ workType: 'homemaker', workHoursPerWeek: 45 });
+    expect(s.assumptions.join(' ')).toMatch(/the household takes/);
+  });
 });

@@ -24,6 +24,8 @@
  *    (choice overload, §2).
  */
 
+import { lifeShape } from './lifeShape';
+
 export type BlockKind = 'sleep' | 'commute' | 'work' | 'open' | 'suggested' | 'meal';
 
 /**
@@ -337,6 +339,10 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
      home but said they are travelling has more transit than usual, not less. */
   const remote = dayType === 'remote'
     || (dayType === 'usual' && (input.workType ?? '').toLowerCase() === 'remote');
+  /* The block is the same shape either way — hours that are spoken for — but
+     calling a homemaker's day "Work" is the card describing a job she does
+     not have, one word at a time. */
+  const careWork = lifeShape(input.workType).careWorkIsWork;
 
   const stated = input.workStartHour != null && input.workEndHour != null;
   /* Their own week, before any house default. Someone who said sixty hours
@@ -380,7 +386,7 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       startMinutes: workStart,
       endMinutes: workEnd,
       kind: 'work',
-      label: 'Work',
+      label: careWork ? 'The household' : 'Work',
     });
     if (commute > 0) {
       fixed.push({
@@ -603,12 +609,13 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     off: 'You marked today as a day off, so no work is drawn into it',
   };
 
+  const claimed = careWork ? 'the household day' : 'work';
   const workLine = stated
-    ? `Built from the hours you gave: work ${formatSpan(workStart, workEnd)}${commute ? `, ${commute} minutes each way` : ''}`
+    ? `Built from the hours you gave: ${claimed} ${formatSpan(workStart, workEnd)}${commute ? `, ${commute} minutes each way` : ''}`
     : noWorkAtAll
       ? 'You said you are not working right now, so nothing here is blocked out for it'
       : derivedHours != null
-        ? `Spread from the ~${Math.round(Number(input.workHoursPerWeek))}h week you gave — about ${Math.round(derivedHours)}h a day, guessed to start at ${formatClock(ASSUMED.workStart * HOUR)}. Set the hours if that is wrong`
+        ? `Spread from the ~${Math.round(Number(input.workHoursPerWeek))}h ${careWork ? 'the household takes' : 'week you gave'} — about ${Math.round(derivedHours)}h a day, guessed to start at ${formatClock(ASSUMED.workStart * HOUR)}. Set the hours if that is wrong`
         : `No work hours set — this assumes ${formatSpan(ASSUMED.workStart * HOUR, ASSUMED.workEnd * HOUR)}`;
 
   const assumptions = [
@@ -658,7 +665,7 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
        one, and the person living it already knows that — what they need is
        the app agreeing rather than suggesting they try harder. */
     framingText = longest === 0
-      ? `Between getting home and sleeping there is nothing left at all. That is worth ` +
+      ? `Between ${careWork ? 'the day ending' : 'getting home'} and sleeping there is nothing left at all. That is worth ` +
         `seeing plainly: it is a scheduling problem, not a discipline one.`
       : `The longest unbroken stretch in this day is ${describeGap(longest)}. Adding up to ` +
         `${describeGap(freeMinutes)} across the day does not make it an hour you could ` +

@@ -1563,8 +1563,8 @@ export default function TimeReality() {
                         : 'Only the start really matters — the length comes from the week you already gave.'}
                     </Text>
                     {([
-                      { key: 'workStartHour', label: 'Work starts', opts: [6, 7, 8, 9, 10], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
-                      { key: 'workEndHour', label: 'Work ends', opts: [15, 16, 17, 18, 19, 21], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
+                      { key: 'workStartHour', label: lifeShape(me.workType).careWorkIsWork ? 'The household day starts' : 'Work starts', opts: [6, 7, 8, 9, 10], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
+                      { key: 'workEndHour', label: lifeShape(me.workType).careWorkIsWork ? 'The household day ends' : 'Work ends', opts: [15, 16, 17, 18, 19, 21], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
                       { key: 'commuteMinutes', label: 'Commute each way', opts: [0, 15, 30, 45, 60, 90], fmt: (n: number) => (n === 0 ? 'none' : `${n}m`) },
                     ] as const)
                       /* Judged on the work type alone, not the stored minutes:
