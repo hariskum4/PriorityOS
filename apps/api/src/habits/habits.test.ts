@@ -14,7 +14,10 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
+import { validateSync } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 import { HabitsService } from './habits.service';
+import { SetHabitScheduleDto } from './habits.dto';
 
 const DAY = 86_400_000;
 
@@ -220,5 +223,100 @@ describe('checking a rhythm off', () => {
     await expect(svc.complete('someone-else', 'h1')).rejects.toThrow(NotFoundException);
     await expect(svc.uncomplete('someone-else', 'h1')).rejects.toThrow(NotFoundException);
     expect(logs).toHaveLength(0);
+  });
+});
+
+/**
+ * When a rhythm runs, kept with the account.
+ *
+ * These answers lived in device storage first, so the walk somebody set to
+ * Tuesday on a phone was still on the engine's guess on their laptop. The
+ * two halves move independently, and clearing one is a real instruction —
+ * not the same as saying nothing about it.
+ */
+describe('the schedule a reader sets themselves', () => {
+  it('stores chosen days, sorted and without repeats', async () => {
+    const { svc } = make([{ ...active }]);
+    const out = await svc.setSchedule('u1', 'h1', { plannedDays: [5, 1, 5] });
+    expect(out.plannedDays).toEqual([1, 5]);
+  });
+
+  it('stores an hour as minutes from midnight', async () => {
+    const { svc } = make([{ ...active }]);
+    const out = await svc.setSchedule('u1', 'h1', { plannedMinute: 435 });
+    expect(out.plannedMinute).toBe(435);
+  });
+
+  it('moves each half without disturbing the other', async () => {
+    const { svc } = make([{ ...active }]);
+    await svc.setSchedule('u1', 'h1', { plannedDays: [2], plannedMinute: 420 });
+    const out = await svc.setSchedule('u1', 'h1', { plannedMinute: 1140 });
+    expect(out.plannedDays).toEqual([2]);
+    expect(out.plannedMinute).toBe(1140);
+  });
+
+  /**
+   * The same claim, made against the object the controller really passes.
+   *
+   * A DTO from class-transformer carries every declared property, so a
+   * request naming only the hour still has a `plannedDays` key holding
+   * undefined. Asserted with a plain literal the test above passes while
+   * the wire wipes the days — which is exactly what it did.
+   */
+  it('leaves the days alone when the request only named the hour', async () => {
+    const { svc } = make([{ ...active }]);
+    await svc.setSchedule('u1', 'h1', { plannedDays: [2], plannedMinute: 420 });
+    const asControllerSends = plainToInstance(SetHabitScheduleDto, { plannedMinute: 1140 });
+    expect('plannedDays' in asControllerSends).toBe(true); // the trap itself
+    const out = await svc.setSchedule('u1', 'h1', asControllerSends);
+    expect(out.plannedDays).toEqual([2]);
+    expect(out.plannedMinute).toBe(1140);
+  });
+
+  it('clears an answer when told to, rather than ignoring it', async () => {
+    const { svc } = make([{ ...active }]);
+    await svc.setSchedule('u1', 'h1', { plannedDays: [2], plannedMinute: 420 });
+    const out = await svc.setSchedule('u1', 'h1', { plannedDays: null, plannedMinute: null });
+    expect(out.plannedDays).toBeNull();
+    expect(out.plannedMinute).toBeNull();
+  });
+
+  it('treats an emptied week as no answer, never as a week with no days', async () => {
+    // Stored as [] it would read to the due check as "no planned days left",
+    // which offers the rhythm every day — the opposite of clearing it.
+    const { svc } = make([{ ...active }]);
+    const out = await svc.setSchedule('u1', 'h1', { plannedDays: [] });
+    expect(out.plannedDays).toBeNull();
+  });
+
+  it("refuses to reschedule someone else's rhythm", async () => {
+    const { svc, updates } = make([{ ...active }]);
+    await expect(svc.setSchedule('someone-else', 'h1', { plannedMinute: 60 }))
+      .rejects.toThrow(NotFoundException);
+    expect(updates).toHaveLength(0);
+  });
+});
+
+describe('the schedule request is checked at the door', () => {
+  const check = (body: Record<string, unknown>) =>
+    validateSync(plainToInstance(SetHabitScheduleDto, body));
+
+  it('accepts a real week and a real minute', () => {
+    expect(check({ plannedDays: [0, 6], plannedMinute: 1439 })).toHaveLength(0);
+    expect(check({})).toHaveLength(0);
+  });
+
+  it('rejects a day that is not a day', () => {
+    expect(check({ plannedDays: [7] }).length).toBeGreaterThan(0);
+    expect(check({ plannedDays: [-1] }).length).toBeGreaterThan(0);
+  });
+
+  it('rejects an hour outside the day', () => {
+    expect(check({ plannedMinute: 1440 }).length).toBeGreaterThan(0);
+    expect(check({ plannedMinute: -1 }).length).toBeGreaterThan(0);
+  });
+
+  it('rejects a week longer than a week', () => {
+    expect(check({ plannedDays: [0, 1, 2, 3, 4, 5, 6, 0] }).length).toBeGreaterThan(0);
   });
 });

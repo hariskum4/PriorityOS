@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { HabitsService } from './habits.service';
+import { SetHabitScheduleDto } from './habits.dto';
 
 @UseGuards(JwtGuard)
 @Controller('habits')
@@ -21,6 +22,20 @@ export class HabitsController {
   @Post()
   create(@CurrentUser() u: JwtUser, @Body() body: any) {
     return this.habits.create(u.userId, body);
+  }
+
+  /**
+   * Which days a rhythm runs on and at what hour — the reader's own answer,
+   * kept with the account rather than on the device that happened to be in
+   * their hand. A PATCH because each half moves independently.
+   */
+  @Patch(':id/schedule')
+  setSchedule(
+    @CurrentUser() u: JwtUser,
+    @Param('id') id: string,
+    @Body() body: SetHabitScheduleDto,
+  ) {
+    return this.habits.setSchedule(u.userId, id, body);
   }
 
   @Post(':id/complete')

@@ -352,6 +352,12 @@ model Habit {
   domainType         String
   relationshipId     String?
   targetPerWeek      Int        @default(3)   // frequency target, not daily-perfect
+  // When this rhythm runs, once the reader has said so themselves. Both null
+  // until then, and the engine derives the answer from what they actually do.
+  // Lived in device storage first, which meant an answer given on a phone was
+  // a different answer from the one given on a laptop.
+  plannedDays        Json?                    // Weekday numbers, 0 = Sunday
+  plannedMinute      Int?                     // Minutes from local midnight
   streakCurrent      Int        @default(0)
   streakBest         Int        @default(0)
   graceRemaining     Int        @default(1)   // forgiving streaks

@@ -737,25 +737,63 @@ export default function TimeReality() {
     }
   };
   /**
-   * The weekdays each rhythm was moved to, by habit id.
-   *
-   * An empty array is a real answer meaning "work it out again" — the
-   * engine reads it as no override — so entries are dropped rather than
-   * emptied when somebody clears a row.
+   * When each rhythm runs, as the reader answered it — from the habit rows
+   * themselves, so the walk set to Tuesday on a phone is on Tuesday on a
+   * laptop. An absent answer is not an empty one: the engine goes back to
+   * deriving it from what they actually do.
    */
-  const [rhythmDays, setRhythmDays] = useState<Record<string, number[]>>({});
-  React.useEffect(() => {
-    if (!me?.id) return;
-    let alive = true;
-    AsyncStorage.getItem(RHYTHM_DAYS_KEY)
-      .then((raw) => {
-        if (!alive || !raw) return;
-        const saved = JSON.parse(raw);
-        if (saved?.userId === me.id && saved?.days) setRhythmDays(saved.days);
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [me?.id]);
+  const rhythmDays = React.useMemo(() => {
+    const out: Record<string, number[]> = {};
+    for (const h of habits ?? []) {
+      if (Array.isArray((h as any).plannedDays) && (h as any).plannedDays.length) {
+        out[(h as any).id] = (h as any).plannedDays;
+      }
+    }
+    return out;
+  }, [habits]);
+  const rhythmHours = React.useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const h of habits ?? []) {
+      if (typeof (h as any).plannedMinute === 'number') {
+        out[(h as any).id] = (h as any).plannedMinute;
+      }
+    }
+    return out;
+  }, [habits]);
+
+  /**
+   * A schedule change, shown before it lands.
+   *
+   * Written straight into the cached habit row so the tap is instant and
+   * survives the round trip; the refetch afterwards only ever confirms it.
+   * Sending `null` clears an answer, which the server distinguishes from
+   * omitting the field.
+   */
+  const setSchedule = useMutation({
+    mutationFn: (p: { habitId: string; plannedDays?: number[] | null; plannedMinute?: number | null }) =>
+      api(`/habits/${p.habitId}/schedule`, {
+        method: 'PATCH',
+        body: {
+          ...('plannedDays' in p ? { plannedDays: p.plannedDays } : {}),
+          ...('plannedMinute' in p ? { plannedMinute: p.plannedMinute } : {}),
+        },
+      }),
+    onMutate: (p) => {
+      for (const key of [['habits'], ['habits', 'all']]) {
+        qc.setQueryData(key, (old: any) => (Array.isArray(old) ? old.map((h: any) => (
+          h.id === p.habitId
+            ? {
+              ...h,
+              ...('plannedDays' in p ? { plannedDays: p.plannedDays } : {}),
+              ...('plannedMinute' in p ? { plannedMinute: p.plannedMinute } : {}),
+            }
+            : h
+        )) : old));
+      }
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['habits'] }),
+  });
+
   /**
    * `current` is the row's days as drawn — derived or already chosen — so
    * the first tap edits the plan the reader can see rather than starting
@@ -765,51 +803,56 @@ export default function TimeReality() {
     const next = current.includes(weekday)
       ? current.filter((d) => d !== weekday)
       : [...current, weekday].sort((a, b) => a - b);
-    const all = { ...rhythmDays };
-    if (next.length) all[habitId] = next;
-    else delete all[habitId];
-    setRhythmDays(all);
-    if (me?.id) {
-      AsyncStorage
-        .setItem(RHYTHM_DAYS_KEY, JSON.stringify({ userId: me.id, days: all }))
-        .catch(() => {});
-    }
+    setSchedule.mutate({ habitId, plannedDays: next.length ? next : null });
   };
 
-  /** The hour each rhythm was moved to, by habit id. Outlives the day. */
-  const [rhythmHours, setRhythmHours] = useState<Record<string, number>>({});
+  /**
+   * Answers given before these lived on the account, carried up once.
+   *
+   * Losing somebody's own answer to make room for a better place to keep it
+   * is the exact failure this whole feature exists to avoid, so anything
+   * still in device storage is pushed to the row that has none — never over
+   * a server answer, which is either newer or the same — and the local copy
+   * is dropped so this can only happen once.
+   */
+  const adopted = useRef(false);
   React.useEffect(() => {
-    if (!me?.id) return;
-    let alive = true;
-    AsyncStorage.getItem(RHYTHM_HOURS_KEY)
-      .then((raw) => {
-        if (!alive || !raw) return;
-        const saved = JSON.parse(raw);
-        if (saved?.userId === me.id && saved?.hours) setRhythmHours(saved.hours);
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [me?.id]);
-  const setRhythmHour = (habitId: string, minutes: number) => {
-    const next = { ...rhythmHours, [habitId]: ((Math.round(minutes) % 1440) + 1440) % 1440 };
-    setRhythmHours(next);
-    if (me?.id) {
-      AsyncStorage
-        .setItem(RHYTHM_HOURS_KEY, JSON.stringify({ userId: me.id, hours: next }))
-        .catch(() => {});
-    }
-  };
+    if (adopted.current || !me?.id || !habits?.length) return;
+    adopted.current = true;
+    (async () => {
+      const [rawDays, rawHours] = await Promise.all([
+        AsyncStorage.getItem(RHYTHM_DAYS_KEY).catch(() => null),
+        AsyncStorage.getItem(RHYTHM_HOURS_KEY).catch(() => null),
+      ]);
+      const days = rawDays ? JSON.parse(rawDays) : null;
+      const hours = rawHours ? JSON.parse(rawHours) : null;
+      const mine = (v: any) => (v?.userId === me.id ? v : null);
+      const localDays = mine(days)?.days ?? {};
+      const localHours = mine(hours)?.hours ?? {};
+
+      for (const h of habits as any[]) {
+        const patch: { plannedDays?: number[]; plannedMinute?: number } = {};
+        if (!h.plannedDays?.length && localDays[h.id]?.length) patch.plannedDays = localDays[h.id];
+        if (h.plannedMinute == null && typeof localHours[h.id] === 'number') {
+          patch.plannedMinute = localHours[h.id];
+        }
+        if (Object.keys(patch).length) setSchedule.mutate({ habitId: h.id, ...patch });
+      }
+      await Promise.all([
+        AsyncStorage.removeItem(RHYTHM_DAYS_KEY).catch(() => {}),
+        AsyncStorage.removeItem(RHYTHM_HOURS_KEY).catch(() => {}),
+      ]);
+    })();
+  }, [me?.id, habits]);
+
+  const setRhythmHour = (habitId: string, minutes: number) =>
+    setSchedule.mutate({
+      habitId,
+      plannedMinute: ((Math.round(minutes) % 1440) + 1440) % 1440,
+    });
   /** Hand the hour back to the engine — the reset the strip offers. */
-  const clearRhythmHour = (habitId: string) => {
-    const next = { ...rhythmHours };
-    delete next[habitId];
-    setRhythmHours(next);
-    if (me?.id) {
-      AsyncStorage
-        .setItem(RHYTHM_HOURS_KEY, JSON.stringify({ userId: me.id, hours: next }))
-        .catch(() => {});
-    }
-  };
+  const clearRhythmHour = (habitId: string) =>
+    setSchedule.mutate({ habitId, plannedMinute: null });
 
   /** Which placed thing is open for editing. One at a time. */
   const [openBlock, setOpenBlock] = useState<string | null>(null);

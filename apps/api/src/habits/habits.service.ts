@@ -157,6 +157,48 @@ export class HabitsService {
     };
   }
 
+  /**
+   * When this rhythm runs, as the reader said it.
+   *
+   * Omitting a field leaves it alone; sending `null` clears it and hands
+   * that half of the question back to the engine. Those are different
+   * intentions, and collapsing them would make "I have no opinion about
+   * the hour" indistinguishable from "I said nothing this time".
+   *
+   * An empty day list is stored as no answer rather than as an empty week:
+   * a rhythm with no days reads to the due check as having no planned days
+   * left, which offers it every day — the opposite of what clearing asked.
+   */
+  async setSchedule(
+    userId: string,
+    id: string,
+    patch: { plannedDays?: number[] | null; plannedMinute?: number | null },
+  ) {
+    const habit = await this.prisma.habit.findFirst({ where: { id, userId } });
+    if (!habit) throw new NotFoundException('Habit not found');
+
+    /* `undefined` is "said nothing", `null` is "clear it" — and the two must
+       not be told apart with `in`. The DTO arrives from class-transformer
+       with every declared property present, so a request that mentioned only
+       the hour still carries a `plannedDays` key holding undefined, and the
+       key test quietly wiped the days it never asked about. */
+    const data: Record<string, unknown> = {};
+    if (patch.plannedDays !== undefined) {
+      const days = patch.plannedDays;
+      data.plannedDays = days?.length
+        ? [...new Set(days)].sort((a, b) => a - b)
+        : null;
+    }
+    if (patch.plannedMinute !== undefined) data.plannedMinute = patch.plannedMinute ?? null;
+
+    const saved = await this.prisma.habit.update({ where: { id }, data });
+    return {
+      habitId: id,
+      plannedDays: saved.plannedDays,
+      plannedMinute: saved.plannedMinute,
+    };
+  }
+
   /** How many days this week this rhythm has been kept. Days, not taps. */
   private async doneThisWeek(userId: string, habitId: string): Promise<number> {
     return this.prisma.habitLog.count({
