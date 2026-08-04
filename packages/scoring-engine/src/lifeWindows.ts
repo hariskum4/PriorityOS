@@ -109,21 +109,37 @@ export function careerWindow(
 }
 
 // ---------------------------------------------------------------------------
-// Body windows — only what is still OPEN
+// Body windows — open AND closed, because closed is not the end of the story
 // ---------------------------------------------------------------------------
 
 export interface BodyWindow {
   key: string;
   label: string;
-  yearsLeft: number | null; // null = open-ended
+  /** Years until it closes; null for open-ended OR already closed — read
+      `state` first. */
+  yearsLeft: number | null;
   framingText: string;
   /**
-   * The standing rhythm that uses this window while it is open, named by its
-   * catalog key the way the healthspan levers name their twins. A window
-   * without one is scenery — the same sentence for every person of the same
-   * age, read once and never again. With one, a closing window is a reason
-   * to begin something this week, which is the only register this app is
-   * allowed to use scarcity in.
+   * Open, or closed with something to say. There is no "closing" state on
+   * purpose: the chip already shows ~N yrs, and a third register between
+   * "open" and "closed" would be the app performing urgency it cannot
+   * measure.
+   */
+  state: 'open' | 'closed';
+  /** The age it closed around, for the one line the card says about it. */
+  closedAround: number | null;
+  /**
+   * The standing rhythm that uses this window, named by its catalog key the
+   * way the healthspan levers name their twins. A window without one is
+   * scenery — the same sentence for every person of the same age, read once
+   * and never again. With one, a closing window is a reason to begin
+   * something this week, which is the only register this app is allowed to
+   * use scarcity in.
+   *
+   * Deliberately KEPT on a closed window. The window closing is a fact
+   * about big gains coming easily; the rhythm behind it usually matters
+   * more after the close, not less — strength at 55 is kept, not found,
+   * and "kept" still needs the session.
    */
   rhythmKey: string | null;
   /** Where the habit belongs when it is begun from here. */
@@ -132,6 +148,22 @@ export interface BodyWindow {
 
 const BODY_WINDOWS: Array<{
   key: string; label: string; closesAround: number | null; framing: string;
+  /**
+   * What the closure means now — the second act, in the house voice.
+   *
+   * These exist because of what the filtered version of this list did to a
+   * 71-year-old: one row, nothing to do, a card that gave the reader less
+   * the older they got. Hiding a closed door was meant as kindness and
+   * read as "nothing here for you" — and it was substantively wrong,
+   * because every window here closes on the *easy gains*, not on the
+   * activity. The line is written per window because the honest next move
+   * differs: closed strength wants strength, closed endurance wants steady
+   * movement, closed rough travel wants near places.
+   *
+   * Register rules, same as everywhere: the stake, never the scold. No
+   * "should have", no time-running-out. The tone tests pin this.
+   */
+  closedFraming: string | null;
   rhythmKey: string | null; domainType: string | null;
 }> = [
   {
@@ -139,6 +171,10 @@ const BODY_WINDOWS: Array<{
     label: 'Peak strength building',
     closesAround: 40,
     framing: 'Muscle built now compounds for decades. The gym you join today is the mobility you keep at 70.',
+    closedFraming:
+      'The easy-gains window has passed — which is exactly why strength is now '
+      + 'the biggest single lever you hold. From here muscle is kept, not found, '
+      + 'and keeping it is the same one session a week.',
     rhythmKey: 'health.strength', domainType: 'health',
   },
   {
@@ -146,6 +182,10 @@ const BODY_WINDOWS: Array<{
     label: 'Big endurance feats',
     closesAround: 55,
     framing: 'Marathons, treks, long rides — very trainable in this window at any starting fitness.',
+    closedFraming:
+      'The big-feats window has passed; the engine that powered them still '
+      + 'wants using. Steady movement is what keeps every other row on this '
+      + 'card open.',
     rhythmKey: 'health.move', domainType: 'health',
   },
   {
@@ -153,6 +193,10 @@ const BODY_WINDOWS: Array<{
     label: 'Rough-and-ready travel',
     closesAround: 70,
     framing: 'Overnight buses, mountain trails, sleeping anywhere. Comfort travel lasts far longer — this is the rough kind.',
+    closedFraming:
+      'The sleeping-anywhere kind has mostly had its day. Comfort travel is '
+      + 'wide open, and the places within an hour of home never needed the '
+      + 'rough version anyway.',
     rhythmKey: 'experiences.near', domainType: 'experiences',
   },
   {
@@ -160,23 +204,48 @@ const BODY_WINDOWS: Array<{
     label: 'Being fully present',
     closesAround: null,
     framing: 'The one window that never closes. Every other number here serves this one.',
+    closedFraming: null,
     /* No action on purpose. Presence is what the whole app is for, and a
        button on it would be a habit called "be present", which is nothing. */
     rhythmKey: null, domainType: null,
   },
 ];
 
+/**
+ * Every window, honestly stated for this age.
+ *
+ * This used to filter — "only what is still OPEN" was the section heading —
+ * and the result decayed monotonically with age: four rows and three actions
+ * at 25, one row and no actions at 71. The reader with the least time to
+ * waste got the least from the card, and no test could see it because the
+ * function returned only survivors.
+ *
+ * Now a closed window converts instead of vanishing: state flips, the
+ * framing becomes what the closure means *now*, and the rhythm stays
+ * offerable — because the windows close on easy gains, never on the
+ * activity. The card owes every age the same number of rows and at least
+ * as many reasons to act; the persona sweep in personaSanity.test.ts pins
+ * that for every age from 18 to 90.
+ */
 export function bodyWindows(age: number): BodyWindow[] {
-  return BODY_WINDOWS.filter(
-    (w) => w.closesAround === null || w.closesAround - age >= 1,
-  ).map((w) => ({
-    key: w.key,
-    label: w.label,
-    yearsLeft: w.closesAround === null ? null : Math.round(w.closesAround - age),
-    framingText: w.framing,
-    rhythmKey: w.rhythmKey,
-    domainType: w.domainType,
-  }));
+  return BODY_WINDOWS.map((w) => {
+    const open = w.closesAround === null || w.closesAround - age >= 1;
+    return {
+      key: w.key,
+      label: w.label,
+      state: (open ? 'open' : 'closed') as BodyWindow['state'],
+      yearsLeft: open && w.closesAround !== null ? Math.round(w.closesAround - age) : null,
+      closedAround: open ? null : w.closesAround,
+      framingText: open ? w.framing : (w.closedFraming ?? w.framing),
+      rhythmKey: w.rhythmKey,
+      domainType: w.domainType,
+    };
+  });
+}
+
+/** The open ones alone, for callers that genuinely only want doors. */
+export function openBodyWindows(age: number): BodyWindow[] {
+  return bodyWindows(age).filter((w) => w.state === 'open');
 }
 
 // ---------------------------------------------------------------------------

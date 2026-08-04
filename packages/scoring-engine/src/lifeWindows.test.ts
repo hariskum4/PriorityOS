@@ -4,6 +4,7 @@ import {
   weekendsRemaining,
   careerWindow,
   bodyWindows,
+  openBodyWindows,
   lifeWindows,
 } from './lifeWindows';
 
@@ -71,19 +72,62 @@ describe('body windows', () => {
     expect(w.map((x) => x.key)).toEqual([
       'peak_strength', 'endurance', 'adventure_travel', 'presence',
     ]);
+    expect(w.every((x) => x.state === 'open')).toBe(true);
     expect(w[0].yearsLeft).toBe(8);
   });
 
-  it('passed windows are silently absent — never shown as closed', () => {
+  /**
+   * This test used to assert the opposite, under the name "passed windows
+   * are silently absent — never shown as closed", and it pinned a design
+   * decision that was wrong twice over. Silence read as "nothing here for
+   * you", and it was substantively backwards: the windows close on easy
+   * gains, not on the activity — strength at 58 is kept rather than found,
+   * and keeping it still wants the session. A closed window now converts:
+   * state flips, the framing says what the closure means today, and the
+   * rhythm stays offerable.
+   */
+  it('a passed window converts instead of vanishing', () => {
     const w = bodyWindows(58);
-    expect(w.map((x) => x.key)).toEqual(['adventure_travel', 'presence']);
+    expect(w.map((x) => x.key)).toEqual([
+      'peak_strength', 'endurance', 'adventure_travel', 'presence',
+    ]);
+    const strength = w.find((x) => x.key === 'peak_strength')!;
+    expect(strength.state).toBe('closed');
+    expect(strength.closedAround).toBe(40);
+    expect(strength.yearsLeft).toBeNull();
+    /* The second act, not the obituary: the framing changes to what the
+       closure means now, and the action survives it. */
+    expect(strength.framingText).toMatch(/kept, not found/);
+    expect(strength.rhythmKey).toBe('health.strength');
+    const travel = w.find((x) => x.key === 'adventure_travel')!;
+    expect(travel.state).toBe('open');
+    expect(travel.yearsLeft).toBe(12);
   });
 
-  it('presence keeps the list non-empty at any age', () => {
-    const w = bodyWindows(90);
-    expect(w.length).toBe(1);
-    expect(w[0].key).toBe('presence');
-    expect(w[0].yearsLeft).toBeNull();
+  it('every age sees all four rows, and never fewer actions than before', () => {
+    for (const age of [18, 25, 40, 41, 55, 56, 70, 71, 90]) {
+      const w = bodyWindows(age);
+      expect(w).toHaveLength(4);
+      /* Three rhythms are offerable at every age — the card no longer
+         decays to a single actionless row at 71. */
+      expect(w.filter((x) => x.rhythmKey != null)).toHaveLength(3);
+      expect(w.find((x) => x.key === 'presence')!.state).toBe('open');
+    }
+  });
+
+  /**
+   * The register rule, enforced rather than hoped for: a closed window is
+   * the stake, never the scold. Same forbidden set the day shape uses.
+   */
+  it('closed framings never guilt', () => {
+    const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted|lazy|should have/i;
+    for (const w of bodyWindows(90)) {
+      expect(w.framingText).not.toMatch(FORBIDDEN);
+    }
+  });
+
+  it('openBodyWindows is the old behaviour, for callers that only want doors', () => {
+    expect(openBodyWindows(58).map((x) => x.key)).toEqual(['adventure_travel', 'presence']);
   });
 });
 

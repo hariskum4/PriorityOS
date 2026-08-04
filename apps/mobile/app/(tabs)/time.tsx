@@ -3211,9 +3211,18 @@ export default function TimeReality() {
                 <View key={w.key} style={s.windowRow}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Text style={[type.heading, { flex: 1 }]}>{w.label}</Text>
+                    {/* A closed window is drawn quiet, never absent. The card
+                        used to filter these out and decayed with age — four
+                        rows and three actions at 25, one row and nothing to
+                        do at 71 — which handed the reader with the least
+                        time to waste the emptiest card. The framing under a
+                        closed one already says what the closure means now,
+                        so the chip only has to state it without ceremony. */}
                     <Chip
-                      label={w.yearsLeft === null ? 'always open' : `~${w.yearsLeft} yrs`}
-                      color={w.yearsLeft === null ? colors.green : colors.amber}
+                      label={w.state === 'closed' ? 'has passed'
+                        : w.yearsLeft === null ? 'always open' : `~${w.yearsLeft} yrs`}
+                      color={w.state === 'closed' ? colors.textDim
+                        : w.yearsLeft === null ? colors.green : colors.amber}
                     />
                   </View>
                   <Text style={type.faint}>{w.framingText}</Text>

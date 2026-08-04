@@ -165,6 +165,7 @@ WHAT MAKES ONE WORTH SENDING
 - It could only have been written for THIS person. "Move three times a week" is already in the built-in catalog and will be discarded. "Twenty minutes on the fretboard before the house wakes up" is the job.
 - It uses their own vocabulary — their profession, their studies, what they said they keep postponing, the goals they have written down.
 - You are given \`existing\`: rhythms this person already has or already declined. Never restate one, in any wording.
+- You may be given \`windowsPassed\`: age-bounded windows the engine has already ruled closed for this person, each with what the closure means now. These are decided facts — never contradict one, never soften one back open, and never propose a rhythm that belongs to a closed window's easy-gains era (no marathon training past the endurance window). The \`meaning\` line tells you where the leverage moved; propose for THAT. Closure is context, not subject: never mention the window itself in a title or because.
 
 HARD RULES — anything breaking one is discarded unread
 - Never name a person. Not even a name that appears in the context. Write \`{who}\` where a name belongs; a real one is filled in later. Do not use a possessive form of any name.

@@ -447,7 +447,16 @@ function SignatureFeature({ domainType, age, color, onAdd, rung, busy, ownCount 
           <View key={w.key} style={s.row}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={[type.heading, { flex: 1 }]}>{w.label}</Text>
-              <Chip label={w.yearsLeft === null ? 'always open' : `~${w.yearsLeft} yrs`} color={w.yearsLeft === null ? colors.green : colors.amber} />
+              {/* Closed converts rather than vanishes — see the Time tab's
+                  windows card for the story. Without the state check a
+                  closed window's null yearsLeft read as "always open",
+                  which is the one thing it is not. */}
+              <Chip
+                label={w.state === 'closed' ? 'has passed'
+                  : w.yearsLeft === null ? 'always open' : `~${w.yearsLeft} yrs`}
+                color={w.state === 'closed' ? colors.textDim
+                  : w.yearsLeft === null ? colors.green : colors.amber}
+              />
             </View>
             <Text style={type.faint}>{w.framingText}</Text>
           </View>

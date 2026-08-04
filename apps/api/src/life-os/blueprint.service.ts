@@ -27,6 +27,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { BLUEPRINT_CRAFT } from '@priority/ai-prompts';
 import {
+  bodyWindows,
   judgeBlueprint,
   lifeShape,
   roleOfRelation,
@@ -236,6 +237,20 @@ export class BlueprintService {
         /* Roles, never names. The judge would reject a named person anyway,
            but there is no reason to send the names at all. */
         peopleRoles: [...new Set(relationships.map((r) => r.relationType))],
+        /* What the engine has already ruled out for this age, and what each
+           closure means now. The model never decides these — the arithmetic
+           did — but a model that does not know the strength window has
+           passed will write "build serious muscle" for a 70-year-old, and a
+           model that does know can write the truer thing: what is kept, and
+           what the closure makes more important. Facts in, narration out —
+           the same division of labour as everywhere else. */
+        windowsPassed: user?.dob
+          ? bodyWindows(
+            Math.floor((Date.now() - user.dob.getTime()) / (365.25 * DAY_MS)),
+          )
+            .filter((w) => w.state === 'closed')
+            .map((w) => ({ what: w.label, meaning: w.framingText }))
+          : [],
         existing: takenTitles,
       },
       { rhythms: [], stacks: [] },
