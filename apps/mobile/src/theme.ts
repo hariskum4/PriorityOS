@@ -179,6 +179,19 @@ export const monoFamily = Platform.select({
  */
 export const liningNums = ['lining-nums', 'tabular-nums'] as TextStyle['fontVariant'];
 
+/**
+ * Let an unbroken run of characters break rather than leave the screen.
+ *
+ * Prose wraps at spaces, so this never fires for ordinary writing — but a
+ * pasted URL or a run-on with no whitespace has no break opportunity, and a
+ * journal entry containing one rendered as a single line clipped at the
+ * viewport edge, carrying the card's layout out with it. Web-only: native
+ * `Text` already breaks inside a word rather than overflowing its parent.
+ */
+export const breakLongWords = (Platform.OS === 'web'
+  ? { wordBreak: 'break-word', overflowWrap: 'anywhere' }
+  : {}) as TextStyle;
+
 export const type = {
   display: {
     fontFamily: serifFamily, fontSize: 30, lineHeight: 36,

@@ -178,7 +178,7 @@ export function XpBar({ into, needed }: { into: number; needed: number }) {
  * as paired bars. The visible gap IS the product.
  */
 export function GapBar({ importance, attention, color }: {
-  importance: number; attention: number; color?: string;
+  importance: number; attention: number | null; color?: string;
 }) {
   return (
     <View style={{ gap: 7 }}>
@@ -188,16 +188,31 @@ export function GapBar({ importance, attention, color }: {
   );
 }
 
-function Row({ label, value, color }: { label: string; value: number; color: string }) {
+/**
+ * A null value is "we have not measured this yet", which is not the same
+ * statement as zero. Rendering an unmeasured domain as an empty bar labelled 0
+ * told people they were doing none of the thing they had just said mattered
+ * most — a number the app invented, on the screen meant to earn their trust.
+ */
+function Row({ label, value, color }: { label: string; value: number | null; color: string }) {
+  const measured = value != null;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
       <Text style={[type.label, { width: 52, fontSize: 9.5 }]}>{label}</Text>
       <View style={s.track}>
-        <View style={[s.fill, { width: `${Math.min(100, value)}%`, backgroundColor: color }]} />
+        {measured && (
+          <View style={[s.fill, { width: `${Math.min(100, value)}%`, backgroundColor: color }]} />
+        )}
       </View>
-      <Text style={[type.label, { width: 26, textAlign: 'right', fontSize: 10, fontVariant: liningNums }]}>
-        {Math.round(value)}
-      </Text>
+      {measured ? (
+        <Text style={[type.label, { width: 26, textAlign: 'right', fontSize: 10, fontVariant: liningNums }]}>
+          {Math.round(value)}
+        </Text>
+      ) : (
+        <Text style={[type.label, { width: 26, textAlign: 'right', fontSize: 8.5, opacity: 0.6 }]}>
+          —
+        </Text>
+      )}
     </View>
   );
 }

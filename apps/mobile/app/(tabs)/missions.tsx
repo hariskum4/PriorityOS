@@ -229,12 +229,26 @@ export default function Missions() {
     mutationFn: (id: string) => api(`/missions/${id}/complete`, { method: 'POST' }),
     onSuccess: invalidate,
   });
+  /**
+   * Snooze moves the due date a day but leaves the card exactly where it was,
+   * so a successful "Later" was indistinguishable from a dead button. This is
+   * the receipt.
+   */
+  const [snoozedTitle, setSnoozedTitle] = React.useState<string | null>(null);
   const snooze = useMutation({
-    mutationFn: (id: string) => api(`/missions/${id}/snooze`, { method: 'POST' }),
-    onSuccess: invalidate,
+    mutationFn: (m: any) => api(`/missions/${m.id}/snooze`, { method: 'POST' }),
+    onSuccess: (_res, m) => {
+      setSnoozedTitle(m.title ?? 'That mission');
+      invalidate();
+    },
   });
+  React.useEffect(() => {
+    if (!snoozedTitle) return;
+    const t = setTimeout(() => setSnoozedTitle(null), 4000);
+    return () => clearTimeout(t);
+  }, [snoozedTitle]);
   /** Which row is mid-flight, so only that card's buttons go quiet. */
-  const busyId = complete.isPending ? complete.variables : snooze.isPending ? snooze.variables : null;
+  const busyId = complete.isPending ? complete.variables : snooze.isPending ? snooze.variables?.id : null;
 
   const openGoals = (goals ?? []).filter((g) => g.status !== 'achieved' && g.status !== 'done');
 
@@ -265,6 +279,14 @@ export default function Missions() {
               error={complete.error ?? snooze.error}
               onRetry={() => { complete.reset(); snooze.reset(); }}
             />
+          ) : null}
+          {snoozedTitle ? (
+            <View style={s.snoozeNote}>
+              <Ionicons name="time-outline" size={15} color={colors.textDim} />
+              <Text style={[type.faint, { flex: 1 }]}>
+                Moved to tomorrow: {snoozedTitle}
+              </Text>
+            </View>
           ) : null}
 
           {/* Goals fold. Seven of them, each with a title, an input and a
@@ -315,14 +337,26 @@ export default function Missions() {
         const busy = busyId === m.id;
         return (
           <Card style={{ gap: space(3) }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+            {/* This row used to be two unshrinkable halves, so a longish name
+                pushed it 89px past the viewport: the list scrolled sideways,
+                the XP chip left the screen entirely, and the buttons below
+                drifted out from under the reader's thumb. The breadcrumb now
+                yields space and the chips hold theirs. */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}>
                 <DomainDot domain={m.domainType} />
-                <Text style={[type.faint, { color: domainColor(m.domainType), fontWeight: '600', textTransform: 'capitalize' }]}>
-                  {m.domainType}{m.relationship ? ` · ${m.relationship.name}` : ''}
+                <Text
+                  numberOfLines={1}
+                  style={[type.faint, { color: domainColor(m.domainType), fontWeight: '600', flexShrink: 1 }]}
+                >
+                  {/* `capitalize` belongs to the domain word alone. Applied to
+                      the whole string it rewrote people's names — "de Souza"
+                      became "De Souza". */}
+                  <Text style={{ textTransform: 'capitalize' }}>{m.domainType}</Text>
+                  {m.relationship ? ` · ${m.relationship.name}` : ''}
                 </Text>
               </View>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
+              <View style={{ flexDirection: 'row', gap: 6, flexShrink: 0 }}>
                 {m.estimatedMinutes ? <Chip label={`${m.estimatedMinutes} min`} /> : null}
                 <Chip label={`+${m.xpReward} XP`} color={colors.amber} />
               </View>
@@ -347,7 +381,7 @@ export default function Missions() {
                   disabled={busy}
                 />
               </View>
-              <Button title="Later" kind="ghost" small onPress={() => snooze.mutate(m.id)} disabled={busy} />
+              <Button title="Later" kind="ghost" small onPress={() => snooze.mutate(m)} disabled={busy} />
             </View>
           </Card>
         );
@@ -385,6 +419,10 @@ export default function Missions() {
 const s = StyleSheet.create({
   wrap: { padding: space(5), paddingTop: space(14), gap: space(3), paddingBottom: space(10), maxWidth: 560, width: '100%', alignSelf: 'center' },
   doneRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: colors.surfaceSunken, borderRadius: 10, padding: 10,
+  },
+  snoozeNote: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: colors.surfaceSunken, borderRadius: 10, padding: 10,
   },

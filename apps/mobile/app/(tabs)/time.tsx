@@ -1611,6 +1611,17 @@ export default function TimeReality() {
   const peopleInsights = (insights ?? []).filter((i) =>
     ['visits_remaining', 'childhood_windows', 'calls_per_year'].includes(i.kind),
   );
+  /**
+   * How many *people* these insights are about, not how many insights there are.
+   *
+   * The engine routinely writes several rows against one relationship — a
+   * visits-remaining and a calls-per-year for the same mother — so counting
+   * rows under a heading that says "your people" told someone with one
+   * relationship that they had two, and would have said five soon enough.
+   */
+  const peopleCounted = new Set(
+    peopleInsights.map((i: any) => i.relationshipId).filter(Boolean),
+  ).size;
 
   // "Fit it all in" — the synthesis layer.
   /**
@@ -3711,7 +3722,13 @@ export default function TimeReality() {
         <Section
           icon="people-outline"
           title="Your people, in numbers"
-          preview={`${peopleInsights.length} counted`}
+          preview={
+            // Insights are not guaranteed to name a relationship; when none
+            // do, count what we actually have rather than claiming 0 people.
+            peopleCounted === 0
+              ? `${peopleInsights.length} counted`
+              : peopleCounted === 1 ? '1 person' : `${peopleCounted} people`
+          }
         >
         <Card style={{ gap: space(3) }}>
           {peopleInsights.slice(0, 4).map((i) => (

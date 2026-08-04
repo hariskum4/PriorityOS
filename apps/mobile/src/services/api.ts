@@ -39,6 +39,34 @@ function resolveBase(): string {
 
 const BASE = resolveBase();
 
+/**
+ * Is the API answering?
+ *
+ * Unauthenticated and body-less on purpose: this asks one question — is there
+ * something on the other end — so it stays correct whether or not the reader
+ * is signed in, and cannot itself be the thing that fails.
+ *
+ * *Any* HTTP response counts as reachable, including an error one. Checking
+ * `res.ok` conflated "the server is down" with "the server said no": probing
+ * every few seconds trips the API's own rate limiter, and the resulting 429 —
+ * which is proof of a server that is very much alive — read as still offline
+ * and pinned the offline banner up permanently. Only a transport failure,
+ * where nothing answers at all, means unreachable.
+ */
+export async function pingServer(): Promise<boolean> {
+  if (!BASE) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
+  try {
+    await fetch(`${BASE}/health`, { signal: controller.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Fail with the cause, not with a timeout against nothing. */
 function requireBase(): string {
   if (!BASE) {
@@ -64,11 +92,18 @@ let inFlight: Promise<boolean> | null = null;
 async function doRefresh(): Promise<boolean> {
   const refreshToken = await storage.getItem('refreshToken');
   if (!refreshToken) return false;
-  const res = await fetch(`${requireBase()}/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${requireBase()}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    // Offline mid-refresh is not "your session ended" — let the original
+    // request report the network failure instead of signing anyone out.
+    return false;
+  }
   if (!res.ok) return false;
   const tokens = await res.json();
   await useAuth.getState().setTokens(tokens);
@@ -82,20 +117,73 @@ function refreshTokens(): Promise<boolean> {
   return inFlight;
 }
 
+/**
+ * How long to wait before calling it dead.
+ *
+ * A refused connection rejects immediately, but a request that is *accepted*
+ * and never answered — a paused database behind the API, a captive wifi
+ * portal, a server mid-restart — hangs forever, and every caller of this
+ * client renders that as a permanently disabled button. There is no state in
+ * this app worth waiting more than fifteen seconds for.
+ */
+const TIMEOUT_MS = 15_000;
+
+/** A failure that means "the network, not the server" — worth saying differently. */
+export class OfflineError extends Error {
+  constructor(message = "Couldn't reach Priority — check your connection.") {
+    super(message);
+    this.name = 'OfflineError';
+    // Extending a builtin breaks the prototype chain once this is downlevelled,
+    // which silently turns every `instanceof OfflineError` into false. Restored
+    // here, but callers should still prefer `isOfflineError` below.
+    Object.setPrototypeOf(this, OfflineError.prototype);
+  }
+}
+
+/**
+ * Identify an offline failure without trusting `instanceof`.
+ *
+ * The bundler can hand the same logical class to two modules as two different
+ * constructors, so a prototype check is not a safe basis for whether the user
+ * sees "you are offline". The name is stable across every path.
+ */
+export function isOfflineError(e: unknown): boolean {
+  return (e as { name?: string } | null)?.name === 'OfflineError';
+}
+
 export async function api<T = unknown>(
   path: string,
   options: { method?: string; body?: unknown } = {},
   retry = true,
 ): Promise<T> {
   const token = useAuth.getState().accessToken;
-  const res = await fetch(`${requireBase()}${path}`, {
-    method: options.method ?? 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  // Resolved before the try: a missing base URL is a build mistake with its own
+  // actionable message, and catching it here would relabel it as "you're
+  // offline" — sending someone to check their wifi over an unset env var.
+  const url = `${requireBase()}${path}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: options.method ?? 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (e: any) {
+    // An abort here is our own timeout; a TypeError is fetch's way of saying
+    // the request never left. Both are "offline" as far as a reader cares.
+    if (e?.name === 'AbortError') {
+      throw new OfflineError("That took too long — Priority couldn't be reached.");
+    }
+    throw new OfflineError();
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 401 && retry && (await refreshTokens())) {
     return api<T>(path, options, false);
   }

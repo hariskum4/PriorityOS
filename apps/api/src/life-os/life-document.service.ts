@@ -1,7 +1,7 @@
 /**
  * The Life Document.
  *
- * A readable record of everything PriorityOS knows about a person and every
+ * A readable record of everything Priority knows about a person and every
  * connection it has drawn — rendered as markdown, on demand, from Postgres.
  *
  * **It is deliberately not a stored file.** Every fact in here already lives in
@@ -99,7 +99,7 @@ export class LifeDocumentService {
     out.push(`# ${user.fullName}`);
     out.push('');
     out.push(
-      `*A record of what PriorityOS knows, generated ${iso(now)}. `
+      `*A record of what Priority knows, generated ${iso(now)}. `
       + `Nothing here is stored as a document — it is read from your data each time you open it, `
       + `so it cannot drift out of date. Everything in it is yours to correct.*`,
     );
@@ -113,7 +113,7 @@ export class LifeDocumentService {
     ].filter(Boolean);
     if (facts.length) out.push(facts.join(' · '));
     out.push('');
-    out.push(`Using PriorityOS since ${iso(user.createdAt)} — ${ago(user.createdAt, now)}.`);
+    out.push(`Using Priority since ${iso(user.createdAt)} — ${ago(user.createdAt, now)}.`);
     out.push('');
 
     // ---- people ---------------------------------------------------------
@@ -272,7 +272,7 @@ export class LifeDocumentService {
     out.push('');
     out.push(
       'These are the influence paths the system reasons over. The sentences are '
-      + 'fixed to the connection, not generated — when PriorityOS explains a '
+      + 'fixed to the connection, not generated — when Priority explains a '
       + 'recommendation, this is the wording it uses.',
     );
     out.push('');

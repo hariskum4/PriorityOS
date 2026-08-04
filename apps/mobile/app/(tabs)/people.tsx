@@ -143,6 +143,13 @@ export default function People() {
       invalidateLifeRecord(qc);
     },
   });
+  /**
+   * Which row is mid-flight. `isPending` is a property of the shared mutation,
+   * so keying the disabled state off it dimmed the call/message/visit buttons
+   * on every person in the list while one of them saved — the whole screen
+   * went inert for a tap on one card.
+   */
+  const loggingId = logContact.isPending ? logContact.variables?.id : null;
 
   const daysSince = (iso: string | null) =>
     iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000) : null;
@@ -246,11 +253,17 @@ export default function People() {
                   ([kind, iconName]) => (
                     <Pressable
                       key={kind}
-                      disabled={logContact.isPending}
+                      disabled={loggingId === r.id}
                       onPress={() => logContact.mutate({ id: r.id, kind })}
+                      // Bare Pressables reach assistive tech as anonymous
+                      // `generic` nodes: the three most-used controls in the
+                      // app were unreachable and unnamed.
+                      accessibilityRole="button"
+                      accessibilityLabel={`Log ${kind} with ${r.name}`}
+                      accessibilityState={{ disabled: loggingId === r.id }}
                       style={({ pressed }) => [
                         s.tapChip,
-                        logContact.isPending && { opacity: 0.5 },
+                        loggingId === r.id && { opacity: 0.5 },
                         pressed && { backgroundColor: colors.surfaceRaised, transform: [{ scale: 0.96 }] },
                       ]}
                     >

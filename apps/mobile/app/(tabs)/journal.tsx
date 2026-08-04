@@ -10,7 +10,7 @@ import { useMemoryDraft } from '@/store/memoryDraft';
 import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
-import { colors, type, space, alpha } from '@/theme';
+import { colors, type, space, alpha, breakLongWords } from '@/theme';
 
 const MEMORY_TYPES: Record<string, string> = {
   relationship: 'together', experience: 'experience', achievement: 'achievement',
@@ -300,23 +300,23 @@ function Reflect() {
             ) : null}
             {(e.domainTags ?? []).slice(0, 4).map((d: string) => <DomainDot key={d} domain={d} size={7} />)}
           </View>
-          {e.whatMattered ? <Text style={type.serif}>{e.whatMattered}</Text> : null}
+          {e.whatMattered ? <Text style={[type.serif, breakLongWords]}>{e.whatMattered}</Text> : null}
           {e.whatIAvoided ? (
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Ionicons name="eye-off-outline" size={14} color={colors.textFaint} style={{ marginTop: 3 }} />
-              <Text style={[type.dim, { flex: 1 }]}>{e.whatIAvoided}</Text>
+              <Text style={[type.dim, { flex: 1, minWidth: 0 }, breakLongWords]}>{e.whatIAvoided}</Text>
             </View>
           ) : null}
           {e.gratitude ? (
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Ionicons name="leaf-outline" size={14} color={colors.green} style={{ marginTop: 3 }} />
-              <Text style={[type.dim, { flex: 1 }]}>{e.gratitude}</Text>
+              <Text style={[type.dim, { flex: 1, minWidth: 0 }, breakLongWords]}>{e.gratitude}</Text>
             </View>
           ) : null}
           {e.gladNotPostponed ? (
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Ionicons name="checkmark-done-outline" size={14} color={colors.amber} style={{ marginTop: 3 }} />
-              <Text style={[type.dim, { flex: 1 }]}>{e.gladNotPostponed}</Text>
+              <Text style={[type.dim, { flex: 1, minWidth: 0 }, breakLongWords]}>{e.gladNotPostponed}</Text>
             </View>
           ) : null}
           {/* A private journal you cannot take something back out of is not

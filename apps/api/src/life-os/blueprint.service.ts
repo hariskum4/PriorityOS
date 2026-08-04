@@ -116,11 +116,19 @@ export class BlueprintService {
    * thing they said no to, which reads as the app not listening.
    */
   async retire(userId: string, key: string): Promise<boolean> {
-    const { count } = await this.prisma.personalCatalogItem.updateMany({
-      where: { userId, key },
-      data: { isActive: false },
-    });
-    return count > 0;
+    // Guarded for the same reason `read` is: on a deploy where the migration
+    // has not run there is no such table, and an unguarded write turned a
+    // missing enhancement into a 500 on a button the reader can see.
+    try {
+      const { count } = await this.prisma.personalCatalogItem.updateMany({
+        where: { userId, key },
+        data: { isActive: false },
+      });
+      return count > 0;
+    } catch (err) {
+      this.logger.warn(`Personal catalog unwritable for ${userId}: ${String(err)}`);
+      return false;
+    }
   }
 
   /**

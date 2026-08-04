@@ -1,5 +1,5 @@
 /**
- * Record — everything PriorityOS knows about you, readable.
+ * Record — everything Priority knows about you, readable.
  *
  * Deliberately the least interactive screen in the app. It has no cards to
  * dismiss, no scores to improve, nothing to tap for XP. It exists so a person
@@ -25,6 +25,11 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { Organism } from '@/components/Organism';
 import { colors, type, space, alpha, serifFamily, monoFamily, skyGradient } from '@/theme';
+
+/** `3 goals`, `1 goal`, `1 person` — the count and its noun, agreeing. */
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 
 /* ── markdown → the Observatory's three voices ───────────────────────── */
 
@@ -211,8 +216,14 @@ export default function Record() {
           <Text style={type.label}>Your record</Text>
           {sum ? (
             <Text style={type.faint}>
-              {sum.people} people · {sum.goals} goals · {sum.decisions} decisions
-              {' · '}{sum.knowledge} things read · {sum.memories} moments · {sum.weeks} weeks of history
+              {/* "1 people · 1 goals · 1 weeks of history" was the first line
+                  of the screen. Counts here are usually small — a new account
+                  reads 1 for most of them — so the plural-by-default was
+                  wrong more often than right. */}
+              {plural(sum.people, 'person', 'people')} · {plural(sum.goals, 'goal')}
+              {' · '}{plural(sum.decisions, 'decision')}
+              {' · '}{plural(sum.knowledge, 'thing')} read · {plural(sum.memories, 'moment')}
+              {' · '}{plural(sum.weeks, 'week')} of history
             </Text>
           ) : null}
         </View>

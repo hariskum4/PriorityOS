@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, useWindowDimensions } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { OfflineBar } from '@/components/OfflineBar';
@@ -12,6 +12,17 @@ const icon = (name: keyof typeof Ionicons.glyphMap, focusedName: keyof typeof Io
   );
 
 export default function TabsLayout() {
+  /**
+   * Eight tabs is more than a narrow phone can label.
+   *
+   * Below this width the words ran together into "TodayTimeMissionsPeople…"
+   * and clipped at the edge. The icons are distinct on their own, so the
+   * labels are what gives way — a legible icon row beats an illegible word
+   * row, and every destination stays reachable either way.
+   */
+  const { width } = useWindowDimensions();
+  const showLabels = width >= 360;
+
   return (
     // The bar sits above the whole tab stack rather than inside each screen:
     // being offline is a fact about the app, not about Today.
@@ -32,7 +43,9 @@ export default function TabsLayout() {
           paddingTop: 8,
           elevation: 0,
         },
+        tabBarShowLabel: showLabels,
         tabBarLabelStyle: { fontSize: 10.5, fontWeight: '500', letterSpacing: 0.2 },
+        tabBarItemStyle: { paddingHorizontal: 0 },
         tabBarActiveTintColor: colors.amber,
         tabBarInactiveTintColor: colors.textFaint,
       }}

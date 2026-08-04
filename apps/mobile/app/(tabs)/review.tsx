@@ -6,7 +6,7 @@ import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
-import { colors, type, space, domainColor, alpha } from '@/theme';
+import { colors, type, space, domainColor, alpha, liningNums } from '@/theme';
 
 /**
  * The Sunday Session — 6 steps, ~15 minutes, the retention backbone.
@@ -298,13 +298,30 @@ export default function Review() {
                     <Text style={[type.heading, { textTransform: 'capitalize', flex: 1 }]}>{d.domainType}</Text>
                     {v > 0 && <Text style={[type.dim, { color: c, fontWeight: '700' }]}>{v}</Text>}
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 5 }}>
+                  {/* Ten bare 25×26 segments with no numbers in them: below the
+                      44px minimum, invisible to assistive tech, and easy to
+                      mis-hit. These scores feed the scoring engine, so a
+                      mis-tap writes bad data. Now labelled, announced, and tall
+                      enough to aim at. */}
+                  <View style={{ flexDirection: 'row', gap: 4 }}>
                     {Array.from({ length: 10 }).map((_, i) => (
                       <Pressable
                         key={i}
                         onPress={() => setPulse({ ...pulse, [d.domainType]: i + 1 })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${d.domainType} ${i + 1} out of 10`}
+                        accessibilityState={{ selected: i < v }}
                         style={[s.pulseSeg, i < v && { backgroundColor: c, borderColor: c }]}
-                      />
+                      >
+                        <Text
+                          style={[
+                            s.pulseSegLabel,
+                            { color: i < v ? colors.bg : colors.textFaint },
+                          ]}
+                        >
+                          {i + 1}
+                        </Text>
+                      </Pressable>
                     ))}
                   </View>
                 </Card>
@@ -456,9 +473,11 @@ const s = StyleSheet.create({
   progressSeg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.surfaceRaised },
   missionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 4 },
   pulseSeg: {
-    flex: 1, height: 26, borderRadius: 6,
+    flex: 1, height: 44, borderRadius: 6,
+    alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surfaceSunken,
   },
+  pulseSegLabel: { fontSize: 11, fontWeight: '700', fontVariant: liningNums },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   chip: {
     borderWidth: 1, borderColor: colors.line, borderRadius: 20,

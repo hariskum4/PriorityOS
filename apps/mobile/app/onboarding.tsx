@@ -248,6 +248,15 @@ export default function Onboarding() {
 
   const [reveal, setReveal] = useState<any>(null);
   const [insights, setInsights] = useState<any[]>([]);
+  /**
+   * The same importance scores every other screen shows, keyed by domain.
+   *
+   * The reveal used to compute its own "you say" number from rank position,
+   * so Family read 100 here and 68 on Today one tap later — two formulas
+   * wearing one label. The server's score is the only one the rest of the app
+   * agrees with, so this screen reads it too.
+   */
+  const [domainScores, setDomainScores] = useState<Record<string, number> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -375,6 +384,14 @@ export default function Onboarding() {
       setReveal(res.reveal);
       api<any[]>('/insights/opportunities')
         .then((list) => setInsights(list ?? []))
+        .catch(() => {});
+      api<any>('/dashboard')
+        .then((d) => {
+          const rows: any[] = d?.domains ?? [];
+          setDomainScores(
+            Object.fromEntries(rows.map((r) => [r.domainType, Number(r.importance) || 0])),
+          );
+        })
         .catch(() => {});
       setStep(QUESTION_STEPS + 1);
     } catch (e: any) {
@@ -560,11 +577,16 @@ export default function Onboarding() {
                     pressed && { transform: [{ scale: 0.96 }] },
                   ]}
                 >
-                  {on && (
-                    <View style={[s.rankBadge, { backgroundColor: c }]}>
+                  {/* The badge is always in the layout, visible only once
+                      ranked. Mounting it on selection grew the chip and
+                      reflowed the whole wrapped grid between taps — and this
+                      input asks for three to five *ordered* taps, so the chip
+                      a reader was aiming at had already moved. */}
+                  <View style={[s.rankBadge, on && { backgroundColor: c }]}>
+                    {on && (
                       <Text style={{ color: colors.bg, fontSize: 11, fontWeight: '800' }}>{idx + 1}</Text>
-                    </View>
-                  )}
+                    )}
+                  </View>
                   <Text style={[type.body, on && { color: c, fontWeight: '700' }]}>
                     {DOMAIN_LABELS[d]}
                   </Text>
@@ -823,6 +845,7 @@ export default function Onboarding() {
           insights={insights}
           ranking={ranking}
           reality={reality}
+          domainScores={domainScores}
           feeling={feeling}
           person={person.name ? { ...person, callFrequency, desired, visitFrequency } : null}
           ledger={revealLedger({
@@ -932,20 +955,36 @@ function CountUp({ value, color, delay }: { value: number; color: string; delay:
   );
 }
 
-function Reveal({ reveal, insights, ranking, reality, feeling, person, ledger, onDone }: {
+function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, person, ledger, onDone }: {
   reveal: any;
   insights: any[];
   ranking: string[];
   reality: Record<string, number>;
+  domainScores: Record<string, number> | null;
   feeling: string;
   person: { name: string; relationType: string; callFrequency: string; desired: string; visitFrequency: string } | null;
   ledger: RevealLedger | null;
   onDone: () => void;
 }) {
   const top3 = (reveal.topPriorities ?? ranking).slice(0, 3);
-  /** Share of stated importance carried by rank position i, 0..100. */
+  /**
+   * Share of stated importance carried by rank position i, 0..100.
+   *
+   * Kept only as the fallback for when `/dashboard` has not answered yet —
+   * see `statedImportance`.
+   */
   const rankedCount = Math.max(ranking.length, top3.length, 1);
   const rankedShare = (i: number) => Math.round((100 * (rankedCount - i)) / rankedCount);
+  /**
+   * "You say", from whoever the rest of the app believes.
+   *
+   * This screen used to derive its own number from rank position while every
+   * other surface read the server's `calculateImportanceScore`. The two
+   * disagreed by 32 points on the very first tap out of onboarding — Family
+   * read 100 on the reveal and 68 on Today. The server's score wins; the rank
+   * share survives only for the moment before the dashboard call returns.
+   */
+  const statedImportance = (d: string, i: number) => domainScores?.[d] ?? rankedShare(i);
   const visits = insights.find((i) => i.kind === 'visits_remaining');
   const callDelta = insights.find((i) => i.kind === 'calls_per_year');
 
@@ -1035,18 +1074,23 @@ function Reveal({ reveal, insights, ranking, reality, feeling, person, ledger, o
                 <Text style={[type.heading, { textTransform: 'capitalize', flex: 1 }]}>{d}</Text>
                 {reality[d] && <Text style={type.faint}>living it {reality[d]}/5</Text>}
               </View>
-              {/* "You say" was `90 - i * 15`: everyone's #1 read 90 and their
-                  #2 read 75, whatever they had answered. It is now their own
-                  ranking — #1 of n fills the bar, #n gets 1/n of it — so the
-                  gap this screen dramatises is one they actually made. */}
+              {/* "You do" is only a measurement on the long path, which asks
+                  for it. Quick start never does, and `?? 0` printed that
+                  silence as a score — telling a new user they do none of the
+                  thing they just said matters most. Unmeasured now reads as
+                  unmeasured. */}
               <GapBar
-                importance={rankedShare(i)}
-                attention={(reality[d] ?? 0) * 20}
+                importance={statedImportance(d, i)}
+                attention={reality[d] != null ? reality[d] * 20 : null}
                 color={domainColor(d)}
               />
             </View>
           ))}
-          <Text style={type.faint}>The gap between those bars is what Priority works on.</Text>
+          <Text style={type.faint}>
+            {top3.some((d: string) => reality[d] != null)
+              ? 'The gap between those bars is what Priority works on.'
+              : "We haven't measured how you're living these yet — that starts today."}
+          </Text>
         </Card>
       </Stage>
 

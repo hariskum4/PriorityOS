@@ -45,6 +45,25 @@ export class OnboardingService {
     private blueprint: BlueprintService,
   ) {}
 
+  /**
+   * Quote someone without appearing to misquote them.
+   *
+   * A hard `slice` inside quotation marks ended the reader's own sentence
+   * mid-word and closed the quote as if that were all they had written:
+   * `"Visit Amma for a full week and actually stay long enough that leaving "`.
+   * Cutting at the last word boundary and marking the cut says plainly that
+   * there is more, which is the difference between an excerpt and a mistake.
+   */
+  private quoteFragment(text: string, max: number): string {
+    const clean = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (clean.length <= max) return clean;
+    const cut = clean.slice(0, max);
+    const lastSpace = cut.lastIndexOf(' ');
+    // A single word longer than the limit has no boundary to fall back on.
+    const body = lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut;
+    return `${body.replace(/[,;:.\s]+$/, '')}…`;
+  }
+
   async saveAnswers(
     userId: string,
     answers: { section: string; key: string; value: unknown }[],
@@ -130,10 +149,7 @@ export class OnboardingService {
     if (futureSelf || eulogy) {
       // Fallback mirrors a fragment of THEIR words back — the difference
       // between "an app" and "it heard me", even with the LLM off.
-      const fragment = String(eulogy || futureSelf || '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 90);
+      const fragment = this.quoteFragment(String(eulogy || futureSelf || ''), 90);
       extractedValues = await this.ai.generate(
         userId,
         'values_extraction',
@@ -142,7 +158,7 @@ export class OnboardingService {
         {
           values: ranked.slice(0, 5),
           reflection: fragment
-            ? `"${fragment}${fragment.length >= 90 ? '…' : ''}" — hold onto that. Everything Priority asks of you is in service of that person.`
+            ? `"${fragment}" — hold onto that. Everything Priority asks of you is in service of that person.`
             : 'You described a life measured in people and presence, not achievements. That is what Priority will help you protect.',
         },
       );
@@ -186,7 +202,7 @@ export class OnboardingService {
             : `You put ${topDomain} first and rated it ${topReality}/5 — the honest middle, where most weeks sit. Priority's job is to move it.`,
     );
     if (postponing) {
-      narrativeParts.push(`You told us what keeps sliding: "${postponing.slice(0, 70)}". Not someday — this week, one small step.`);
+      narrativeParts.push(`You told us what keeps sliding: "${this.quoteFragment(postponing, 70)}". Not someday — this week, one small step.`);
     }
     if (person) {
       narrativeParts.push(`And ${person} is in this plan by name.`);

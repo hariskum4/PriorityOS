@@ -426,7 +426,16 @@ export default function Today() {
   const complete = useMutation({
     mutationFn: (m: any) => api<any>(`/missions/${m.id}/complete`, { method: 'POST' }),
     onSuccess: (res, m) => {
-      setJustCompleted({ ...m, next: res?.next ?? null });
+      // The row's `xpReward` and what the server actually banks are two
+      // different numbers: awards go by event type, so a relationship mission
+      // pays 40 whatever the column says. Only the response is authoritative —
+      // and it arrives as the award record, not a bare number.
+      const awarded = typeof res?.xp === 'number' ? res.xp : res?.xp?.amount;
+      setJustCompleted({
+        ...m,
+        xpAwarded: typeof awarded === 'number' ? awarded : null,
+        next: res?.next ?? null,
+      });
       invalidate();
     },
   });
@@ -1077,7 +1086,11 @@ export default function Today() {
           <View style={s.doneBanner}>
             <Ionicons name="checkmark-circle" size={17} color={obs.brass} />
             <Text style={[obsType.dim, { flex: 1 }]}>
-              <Text style={{ color: obs.ink }}>Done, +{justCompleted.xpReward} XP. </Text>
+              <Text style={{ color: obs.ink }}>
+                {justCompleted.xpAwarded != null
+                  ? `Done, +${justCompleted.xpAwarded} XP. `
+                  : 'Done. '}
+              </Text>
               {justCompleted.next
                 ? 'The engine lined up what comes next.'
                 : 'Your plate already holds what matters.'}
