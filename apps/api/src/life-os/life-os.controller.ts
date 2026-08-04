@@ -19,6 +19,8 @@ import { StacksService } from './stacks.service';
 import { RhythmsService } from './rhythms.service';
 import { FocusService } from './focus.service';
 import { BlueprintService } from './blueprint.service';
+import { RankingService } from './ranking.service';
+import { SetDomainRankingDto } from './ranking.dto';
 
 @UseGuards(JwtGuard)
 @Controller('life-os')
@@ -32,6 +34,7 @@ export class LifeOsController {
     private rhythms: RhythmsService,
     private focusSvc: FocusService,
     private blueprint: BlueprintService,
+    private ranking: RankingService,
   ) {}
 
   /**
@@ -210,6 +213,21 @@ export class LifeOsController {
   @Get('rhythms')
   missingRhythms(@CurrentUser() u: JwtUser) {
     return this.rhythms.forUser(u.userId);
+  }
+
+  /**
+   * A new order for what matters.
+   *
+   * The ranking given at onboarding drove every derived number on the Time
+   * tab and could never be revised, so a life that had moved on had no way
+   * to say so. This moves `priorityRank` — the actual input — rather than
+   * the importance score it produces, because that score is recomputed on
+   * every habit tick and a weight written straight onto the row would
+   * silently revert the first time the reader ticked anything.
+   */
+  @Patch('domains/ranking')
+  reorderDomains(@CurrentUser() u: JwtUser, @Body() body: SetDomainRankingDto) {
+    return this.ranking.setOrder(u.userId, body.order);
   }
 
   /**

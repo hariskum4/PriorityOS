@@ -115,6 +115,16 @@ export class DashboardService {
       supportingMissions: ranked.slice(1, 3),
       domains: domains.map((d) => ({
         domainType: d.domainType,
+        /**
+         * The position the reader put this in, not just the score it produces.
+         *
+         * Importance is the rank plus a bonus for active goals and flags, so
+         * two domains can swap places on score without their ranking having
+         * moved. That was harmless while a ranking was permanent. Now that it
+         * can be reordered, a card sorted by score would show somebody an
+         * order they did not set and read as their change not having landed.
+         */
+        priorityRank: d.priorityRank,
         importance: Number(d.importanceScore),
         attention: Number(d.attentionScore),
         neglectRisk: Number(d.neglectRiskScore),

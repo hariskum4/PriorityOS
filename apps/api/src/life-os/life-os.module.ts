@@ -9,6 +9,8 @@ import { StacksService } from './stacks.service';
 import { RhythmsService } from './rhythms.service';
 import { FocusService } from './focus.service';
 import { BlueprintService } from './blueprint.service';
+import { RankingService } from './ranking.service';
+import { ScoringModule } from '../scoring/scoring.module';
 
 /**
  * The Life OS host module.
@@ -17,11 +19,12 @@ import { BlueprintService } from './blueprint.service';
  * cycle without going through HTTP.
  */
 @Module({
+  imports: [ScoringModule],
   controllers: [LifeOsController],
   providers: [
     LifeOsService, LifeOsJobs, LifeDocumentService,
     LifeTimelineService, LifeOrganismService, StacksService, FocusService,
-    RhythmsService, BlueprintService,
+    RhythmsService, BlueprintService, RankingService,
   ],
   exports: [
     LifeOsService, LifeDocumentService, LifeTimelineService,

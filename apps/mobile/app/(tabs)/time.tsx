@@ -306,6 +306,124 @@ function DraggableBlock({
   );
 }
 
+/** How tall one allocation row runs — label, bar, and the gap beneath it. */
+const RANK_ROW_H = 44;
+
+/**
+ * The ranking, as something you can move.
+ *
+ * The order given at onboarding drove every derived number on this tab and
+ * could never be revised. That is fine on day one and wrong by month three:
+ * the reader whose health is running at a hundred against a claim of seventy
+ * had no way to tell the app it had the order wrong, and every reading
+ * downstream went on inheriting a day-one answer.
+ *
+ * Its own component because the card renders below this screen's early
+ * returns, and drag state living up there would be a hook count that changes
+ * between the loading pass and the loaded one — the crash this file has now
+ * produced twice.
+ *
+ * What moves is the RANK. There is no free-form weight to set: importance is
+ * 60 points of inverted rank plus goals and flags, recomputed on every habit
+ * tick, so a dragged-to weight would hold until the reader ticked anything
+ * and then quietly revert. Dragging reorders, the bars reflow as it happens,
+ * and what persists is the position.
+ */
+function RankableAllocation({
+  allotments, onReorder, pending, children,
+}: {
+  allotments: Array<{ domainType: string }>;
+  onReorder: (order: string[]) => void;
+  pending: boolean;
+  children: (row: {
+    index: number;
+    domainType: string;
+    handlers: GestureResponderHandlers;
+    dragging: boolean;
+  }) => React.ReactNode;
+}) {
+  const [held, setHeld] = useState<{ from: number; to: number } | null>(null);
+  const dy = useRef(new Animated.Value(0)).current;
+
+  const keys = allotments.map((a) => a.domainType);
+
+  /* One responder per row, rebuilt when the order does — a responder kept in
+     a ref would go on reporting the index it was born with. */
+  const responderFor = (from: number) => PanResponder.create({
+    /* On a grip, for the reason the day card's blocks use one: a row that is
+       draggable everywhere fights the scroll carrying the page. A grip means
+       exactly one thing and never has to negotiate for the finger. */
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: () => setHeld({ from, to: from }),
+    onPanResponderMove: (_e, g) => {
+      dy.setValue(g.dy);
+      const to = Math.max(0, Math.min(
+        keys.length - 1,
+        from + Math.round(g.dy / RANK_ROW_H),
+      ));
+      setHeld((h) => (h && h.to === to ? h : { from, to }));
+    },
+    onPanResponderRelease: (_e, g) => {
+      const to = Math.max(0, Math.min(
+        keys.length - 1,
+        from + Math.round(g.dy / RANK_ROW_H),
+      ));
+      dy.setValue(0);
+      setHeld(null);
+      if (to !== from) onReorder(moveItem(keys, from, to));
+    },
+    onPanResponderTerminate: () => { dy.setValue(0); setHeld(null); },
+  });
+
+  /**
+   * Where a row sits while another is being carried past it.
+   *
+   * The dragged row follows the finger; everything between where it started
+   * and where it would land steps one place out of the way, so the gap the
+   * reader is aiming at is visible before they let go.
+   */
+  const shiftFor = (i: number): number => {
+    if (!held || i === held.from) return 0;
+    if (held.to > held.from && i > held.from && i <= held.to) return -RANK_ROW_H;
+    if (held.to < held.from && i < held.from && i >= held.to) return RANK_ROW_H;
+    return 0;
+  };
+
+  return (
+    <View style={pending ? { opacity: 0.6 } : undefined}>
+      {allotments.map((a, i) => {
+        const isHeld = held?.from === i;
+        return (
+          <Animated.View
+            key={a.domainType}
+            style={[
+              { transform: [{ translateY: isHeld ? dy : shiftFor(i) }] },
+              isHeld && { zIndex: 10, opacity: 0.95 },
+            ]}
+          >
+            {children({
+              index: i,
+              domainType: a.domainType,
+              handlers: responderFor(i).panHandlers,
+              dragging: !!isHeld,
+            })}
+          </Animated.View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** A copy of the list with one item moved. */
+function moveItem<T>(list: T[], from: number, to: number): T[] {
+  const out = [...list];
+  const [item] = out.splice(from, 1);
+  out.splice(to, 0, item);
+  return out;
+}
+
 function Big({ value, unit, caption }: { value: string; unit: string; caption: string }) {
   return (
     <View style={{ flex: 1, alignItems: 'center', gap: 2 }}>
@@ -797,6 +915,40 @@ export default function TimeReality() {
       }
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ['habits'] }),
+  });
+
+  /**
+   * A new order for what matters.
+   *
+   * Optimistic against the dashboard cache so the bars reflow on release
+   * rather than after a round trip — and the server recalculates every
+   * derived score before it answers, so what comes back is the real reading
+   * rather than the guess this made.
+   *
+   * The optimism is deliberately shallow: it moves `priorityRank` and leaves
+   * the scores alone. Recomputing importance here would mean a second copy
+   * of a formula that lives in the engine, and the two would drift.
+   */
+  const reorderDomains = useMutation({
+    mutationFn: (order: string[]) => api('/life-os/domains/ranking', {
+      method: 'PATCH',
+      body: { order },
+    }),
+    onMutate: (order) => {
+      const rankOf = new Map(order.map((d, i) => [d, i + 1]));
+      qc.setQueryData(['dashboard'], (old: any) => (old?.domains ? {
+        ...old,
+        domains: old.domains.map((d: any) => (rankOf.has(d.domainType)
+          ? { ...d, priorityRank: rankOf.get(d.domainType) }
+          : d)),
+      } : old));
+    },
+    /* Everything on this tab reads from these two. A ranking that moved and
+       a set of bars that did not would be worse than no change at all. */
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['life-rhythms'] });
+    },
   });
 
   /**
@@ -1358,7 +1510,18 @@ export default function TimeReality() {
   );
 
   // "Fit it all in" — the synthesis layer.
-  const activeDomains = (dashboard?.domains ?? []).filter((d: any) => d.importance > 0);
+  /**
+   * Ranked domains, in the order the reader actually put them.
+   *
+   * By rank rather than by score, now that the order is something they can
+   * move. Importance is the rank plus a bonus for active goals and flags, so
+   * two domains can trade places on score without the ranking having moved —
+   * and a card sorted by score would answer a drag by showing an order
+   * nobody set. A domain with no rank sorts last rather than first.
+   */
+  const activeDomains = (dashboard?.domains ?? [])
+    .filter((d: any) => d.importance > 0)
+    .sort((a: any, b: any) => (a.priorityRank ?? 99) - (b.priorityRank ?? 99));
 
   /**
    * The people a stack can name, each with how far past their own rhythm they
@@ -1517,6 +1680,19 @@ export default function TimeReality() {
     activeDomains.map((d: any) => ({ domainType: d.domainType, importance: d.importance })),
     commitments,
   );
+  /**
+   * The same allotments, in the reader's own order.
+   *
+   * `weeklyAllocation` sorts by hours, which is the right default for a card
+   * nobody can touch. This one can be dragged, so it has to be drawn in the
+   * order being edited — otherwise a row moved to the top could reappear
+   * second because a goal bonus outweighed the rank change, and the drag
+   * would read as having failed.
+   */
+  const rankedAllotments = activeDomains
+    .map((d: any) => allocation.allotments.find((a) => a.domainType === d.domainType))
+    .filter(Boolean) as typeof allocation.allotments;
+
   const season = suggestSeason(
     /* The share table, not raw importance. Without it the deepen branch picks
        whatever was ranked highest — which is usually the domain already being
@@ -2506,7 +2682,13 @@ export default function TimeReality() {
                       ranking and what has been set up against it. */}
                   <Label>What you ranked, against what you have set up</Label>
                 </View>
-                {allocation.allotments.map((a) => {
+                <RankableAllocation
+                  allotments={rankedAllotments}
+                  pending={reorderDomains.isPending}
+                  onReorder={(order) => reorderDomains.mutate(order)}
+                >
+                {({ index, domainType, handlers, dragging }) => {
+                  const a = rankedAllotments[index];
                   /* The committed bar is drawn inside the claimed one, on the
                      same scale, so the empty remainder IS the gap. Two bars
                      side by side would have made them look like two separate
@@ -2516,7 +2698,7 @@ export default function TimeReality() {
                     ? Math.min(a.committedHours / a.hours, 1) * claimedPct
                     : 0;
                   return (
-                    <View key={a.domainType} style={{ gap: 4 }}>
+                    <View key={domainType} style={{ gap: 4, height: RANK_ROW_H }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <DomainDot domain={a.domainType} size={9} />
                         <Text style={[type.body, { flex: 1, textTransform: 'capitalize' }]}>{a.domainType}</Text>
@@ -2524,6 +2706,38 @@ export default function TimeReality() {
                           {a.committedHours}
                           <Text style={type.faint}> of {a.hours}h</Text>
                         </Text>
+                        {/* The grip. On its own surface for the reason the day
+                            card's blocks have one — a row draggable everywhere
+                            fights the scroll carrying the page. */}
+                        <View
+                          {...handlers}
+                          accessibilityRole="adjustable"
+                          accessibilityLabel={`${a.domainType}, ranked ${index + 1} of ${rankedAllotments.length}`}
+                          accessibilityHint="Drag to change where this sits in your ranking"
+                          accessibilityActions={[
+                            { name: 'increment', label: 'Move up' },
+                            { name: 'decrement', label: 'Move down' },
+                          ]}
+                          /* A drag is unusable with a switch or a screen
+                             reader, so the same move is reachable as two
+                             discrete actions on the same control. */
+                          onAccessibilityAction={(e) => {
+                            const to = e.nativeEvent.actionName === 'increment'
+                              ? index - 1
+                              : index + 1;
+                            if (to < 0 || to >= rankedAllotments.length) return;
+                            reorderDomains.mutate(moveItem(
+                              rankedAllotments.map((x) => x.domainType), index, to,
+                            ));
+                          }}
+                          style={{ paddingHorizontal: 4, paddingVertical: 2 }}
+                        >
+                          <Ionicons
+                            name="reorder-two-outline"
+                            size={16}
+                            color={dragging ? colors.amber : colors.textFaint}
+                          />
+                        </View>
                       </View>
                       <View style={s.allocTrack}>
                         {/* What the ranking implies — the outline of the claim. */}
@@ -2559,8 +2773,13 @@ export default function TimeReality() {
                       ) : null}
                     </View>
                   );
-                })}
+                }}
+                </RankableAllocation>
                 <Text style={type.faint}>{allocation.framing}</Text>
+                <Text style={type.faint}>
+                  Drag a row to change the order. The hours follow — this is the
+                  ranking you gave at the start, and it is allowed to change.
+                </Text>
               </Card>
 
               {/* 3. Season */}
