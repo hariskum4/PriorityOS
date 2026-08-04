@@ -855,3 +855,83 @@ describe('an hour that was asked for is not tidied away', () => {
     }
   });
 });
+
+/**
+ * A meeting dies and two hours appear.
+ *
+ * The shape is a typical day everywhere else; this is the one thing it is
+ * told about today in particular, and only because the reader said so.
+ */
+describe('time that was spoken for and is not any more', () => {
+  const freed = [{ startMinutes: 13 * 60, endMinutes: 15 * 60 }]; // 1–3pm
+
+  it('splits the working day either side of the hole', () => {
+    const s = dayShape({ ...nineToFive, freed });
+    const work = s.blocks.filter((b) => b.kind === 'work');
+    expect(work).toHaveLength(2);
+    expect(formatSpan(work[0].startMinutes, work[0].endMinutes)).toBe('9 am–1 pm');
+    expect(formatSpan(work[1].startMinutes, work[1].endMinutes)).toBe('3 pm–5 pm');
+  });
+
+  it('hands the freed hours back as ordinary free time', () => {
+    const before = dayShape(nineToFive).freeMinutes;
+    const after = dayShape({ ...nineToFive, freed }).freeMinutes;
+    expect(after - before).toBe(120);
+  });
+
+  it('will place something in it', () => {
+    const s = dayShape({
+      ...nineToFive,
+      freed,
+      suggestions: [{
+        key: 'rhythm:career.deep',
+        action: 'One block nobody is allowed to interrupt',
+        minutes: 90,
+        domains: ['career'],
+        at: 13 * 60,
+      }],
+    });
+    expect(formatClock(s.placedIn!.startMinutes)).toBe('1 pm');
+  });
+
+  it('leaves the day continuous, with nothing overlapping', () => {
+    const s = dayShape({ ...nineToFive, freed });
+    for (let i = 1; i < s.blocks.length; i++) {
+      expect(s.blocks[i].startMinutes).toBe(s.blocks[i - 1].endMinutes);
+    }
+  });
+
+  it('drops a block the hole covers entirely', () => {
+    const s = dayShape({
+      ...nineToFive,
+      freed: [{ startMinutes: 8 * 60, endMinutes: 9 * 60 }], // the morning commute
+    });
+    const commutes = s.blocks.filter((b) => b.kind === 'commute');
+    expect(commutes).toHaveLength(1); // only the trip home survives
+  });
+
+  it('cannot free the night, however wide the window it is given', () => {
+    // Waking hours bound every gap, so "the whole day is free" clears the
+    // work out of it and still does not hand anybody their sleep to spend.
+    const s = dayShape({
+      ...nineToFive,
+      freed: [{ startMinutes: 0, endMinutes: 24 * 60 }],
+    });
+    expect(s.blocks.some((b) => b.kind === 'sleep')).toBe(true);
+    expect(s.freeMinutes).toBeLessThanOrEqual(16 * 60); // 7am–11pm, no more
+    expect(s.blocks.some((b) => b.kind === 'work')).toBe(false);
+  });
+
+  it('ignores a window that is not one', () => {
+    const s = dayShape({
+      ...nineToFive,
+      freed: [{ startMinutes: 15 * 60, endMinutes: 13 * 60 }] as never,
+    });
+    expect(s.freeMinutes).toBe(dayShape(nineToFive).freeMinutes);
+  });
+
+  it('changes nothing when no meeting died', () => {
+    expect(dayShape({ ...nineToFive, freed: [] }).freeMinutes)
+      .toBe(dayShape(nineToFive).freeMinutes);
+  });
+});

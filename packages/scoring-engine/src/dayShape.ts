@@ -105,6 +105,19 @@ export interface DayShapeInput {
   isWorkday?: boolean;
   /** What kind of day today is. Defaults to `usual`. */
   dayType?: DayType | null;
+  /**
+   * Time that was spoken for and is not any more — a cancelled meeting.
+   *
+   * Cut out of the fixed blocks rather than added to the free ones, so a
+   * two-hour hole in the middle of the working day becomes what it really
+   * is: an ordinary gap, splitting work either side of it, that the rest
+   * of this function can place into without knowing why it appeared.
+   *
+   * The shape stays a typical day everywhere else. This is the one place
+   * it is told about today in particular, and only because the reader
+   * said so.
+   */
+  freed?: Array<{ startMinutes: number; endMinutes: number }> | null;
   /** The one thing to place, already chosen by the ranking engines. */
   suggestion?: DaySuggestion | null;
   /**
@@ -407,7 +420,29 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   }
 
   const inDay = (b: DayBlock) => b.endMinutes > wake && b.startMinutes < sleep;
-  const bounded = fixed
+
+  /**
+   * Cut the freed time out of whatever claimed it.
+   *
+   * A block the hole sits inside becomes two, one either side; a block the
+   * hole covers entirely disappears. Everything downstream then treats the
+   * result as an ordinary day that simply has less work in it, which is
+   * exactly what a cancelled meeting makes true.
+   */
+  const freed = (input.freed ?? []).filter(
+    (f) => Number.isFinite(f?.startMinutes) && Number.isFinite(f?.endMinutes)
+      && f.endMinutes > f.startMinutes,
+  );
+  const carved = freed.reduce<DayBlock[]>((blocks, hole) => blocks.flatMap((b) => {
+    if (hole.endMinutes <= b.startMinutes || hole.startMinutes >= b.endMinutes) return [b];
+    const left = hole.startMinutes > b.startMinutes
+      ? [{ ...b, endMinutes: hole.startMinutes }] : [];
+    const right = hole.endMinutes < b.endMinutes
+      ? [{ ...b, startMinutes: hole.endMinutes }] : [];
+    return [...left, ...right];
+  }), fixed);
+
+  const bounded = carved
     .filter(inDay)
     .map((b) => ({
       ...b,
