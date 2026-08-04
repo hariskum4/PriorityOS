@@ -60,7 +60,7 @@ describe('foundTime — where you are decides before what matters', () => {
   it('says which domain the place ruled out, rather than quietly demoting it', () => {
     const r = foundTime({ minutes: 120, where: setting('desk'), candidates: [callHome, deepBlock] });
     expect(r.ruledOut?.domain).toBe('family');
-    expect(r.ruledOut?.limits).toContain('nothing that needs a private call');
+    expect(r.ruledOut?.limits).toEqual(['nothing that needs a private call']);
   });
 
   it('keeps quiet when the place cost them nothing', () => {
@@ -79,6 +79,19 @@ describe('foundTime — where you are decides before what matters', () => {
     });
     expect(r.primary?.key).toBe('career.deep');
     expect(r.ruledOut).toBeNull();
+  });
+
+  it('blames the requirement that actually blocked it, not the room in general', () => {
+    // A desk forbids calls and walks both. A blocked walk must be explained
+    // by the walk's own unmet need, or the sentence is true about the desk
+    // and wrong about the walk.
+    const r = foundTime({
+      minutes: 120,
+      where: setting('desk'),
+      candidates: [{ ...walk, neglectRisk: 99 }, deepBlock],
+    });
+    expect(r.ruledOut?.domain).toBe('health');
+    expect(r.ruledOut?.limits).toEqual(['nothing that needs you on your feet']);
   });
 
   it('says so plainly when the place fits nothing at all', () => {

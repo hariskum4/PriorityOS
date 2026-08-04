@@ -36,6 +36,10 @@ import {
   preferredTime,
   isPlaceable,
   weekPlan,
+  foundTime,
+  setting,
+  SETTING_LABELS,
+  type SettingKey,
   WEEK_COLUMNS,
   WEEKDAY_INITIALS,
   WEEKDAY_NAMES,
@@ -53,6 +57,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LIFE_TO_DOMAIN, type LifeDomain } from '@priority/types';
 import { api } from '@/services/api';
+import { calendarSupported, readFreeGaps, type CalendarState } from '@/services/calendarFree';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { Button, Card, Chip, DomainDot, ErrorNote, Input, Label } from '@/components/ui';
@@ -854,6 +859,29 @@ export default function TimeReality() {
   const clearRhythmHour = (habitId: string) =>
     setSchedule.mutate({ habitId, plannedMinute: null });
 
+  /**
+   * A window that opened up — the cancelled-meeting case.
+   *
+   * Held for today only, like the day type beside it: a meeting that died
+   * this afternoon says nothing about next Tuesday. `where` is the part the
+   * app could never derive, and the part that decides whether any of this
+   * is help or nonsense.
+   *
+   * Above the early returns, like every other hook on this screen.
+   */
+  const [foundMinutes, setFoundMinutes] = useState<number | null>(null);
+  const [foundWhere, setFoundWhere] = useState<SettingKey>('desk');
+  const [foundWindow, setFoundWindow] = useState<number | null>(null);
+  /**
+   * The calendar's own answer, when there is a calendar to ask.
+   *
+   * Never read unprompted: it costs a permission dialog, and an app that
+   * demands one before it has been useful gets the answer it deserves. So
+   * this stays null until the reader taps, and on web it never becomes
+   * anything — the manual chips above are the whole feature there.
+   */
+  const [calendar, setCalendar] = useState<CalendarState | null>(null);
+
   /** Which placed thing is open for editing. One at a time. */
   const [openBlock, setOpenBlock] = useState<string | null>(null);
 
@@ -1540,6 +1568,98 @@ export default function TimeReality() {
        actually claimed and spaces everything else around it. */
     .map((s) => (durations[s.key] ? { ...s, minutes: durations[s.key] } : s));
 
+  /**
+   * A window that opened up — the cancelled-meeting case.
+   *
+   * Held for today only, like the day type beside it: a meeting that died
+   * this afternoon says nothing about next Tuesday. `where` is the part
+   * the app could never derive, and the part that decides whether any of
+   * this is help or nonsense.
+   */
+  /**
+   * The freed window, once it has been put into the day rather than merely
+   * asked about. Starts now — a meeting that has just been cancelled frees
+   * the time in front of you, not a tidy slot at the top of the hour.
+   *
+   * A plain value rather than a memo: it is two numbers, and the hooks it
+   * would cost have to sit above the early returns, which is a worse trade
+   * than recomputing them.
+   */
+  const freedWindows = (() => {
+    if (!foundWindow) return [];
+    const now = new Date();
+    const start = now.getHours() * 60 + now.getMinutes();
+    return [{ startMinutes: start, endMinutes: start + foundWindow }];
+  })();
+
+  /**
+   * Everything that could fill it, from all three sources the app has.
+   *
+   * Rhythms carry what the week still owes them, which is the one claim
+   * strong enough to lead — a commitment already made beats anything the
+   * app merely thinks is a good idea.
+   */
+  const foundCandidates = (() => {
+    const riskOf = (d: string) =>
+      (dashboard?.domains ?? []).find((x: any) => x.domainType === d)?.neglectRisk ?? 0;
+    const owed = new Map(weekRows.map((r) => [r.key, r.remaining]));
+
+    const fromRhythms = (habits ?? [])
+      .filter((h: any) => h.isActive !== false)
+      .map((h: any) => {
+        const catalog = rhythmByTitle(h.title);
+        return {
+          key: `rhythm:${h.id}`,
+          action: h.title,
+          minutes: catalog?.minutes ?? 30,
+          domain: h.domainType,
+          because: catalog?.because,
+          needs: catalog?.needs,
+          owedThisWeek: owed.get(h.id) ?? 0,
+          neglectRisk: riskOf(h.domainType),
+        };
+      })
+      /* Only what the week still owes. A rhythm already kept its three
+         times has no claim on found time, and offering it a fourth is the
+         app failing to keep count. */
+      .filter((c: { owedThisWeek: number }) => c.owedThisWeek > 0);
+
+    const fromStacks = stacks.map((st) => ({
+      key: `stack:${st.key}`,
+      action: st.action,
+      minutes: 60,
+      domain: st.covers?.[0] ?? st.domains[0] ?? 'growth',
+      because: st.framing,
+      needs: st.setting,
+      neglectRisk: riskOf(st.covers?.[0] ?? st.domains[0] ?? 'growth'),
+    }));
+
+    const fromProposals = (lifeOs?.proposals ?? [])
+      .filter((p: any) => p?.action)
+      .map((p: any) => {
+        const domain = p.domain ? LIFE_TO_DOMAIN[p.domain as LifeDomain] ?? 'growth' : 'growth';
+        return {
+          key: `proposal:${p.id ?? p.action}`,
+          action: p.action,
+          minutes: p.effortMinutes || 30,
+          domain,
+          because: p.because,
+          neglectRisk: riskOf(domain),
+        };
+      });
+
+    return [...fromRhythms, ...fromStacks, ...fromProposals]
+      .filter((c, i, all) => all.findIndex((o) => o.action === c.action) === i);
+  })();
+
+  const found = foundMinutes
+    ? foundTime({
+      minutes: foundMinutes,
+      where: setting(foundWhere),
+      candidates: foundCandidates,
+    })
+    : null;
+
   const shape = dayShape({
     workStartHour: me.workStartHour,
     workEndHour: me.workEndHour,
@@ -1554,6 +1674,7 @@ export default function TimeReality() {
     activeAt,
     suggestions: placeable,
     nudges,
+    freed: freedWindows,
   });
   const dayHoursKnown = me.workStartHour != null && me.workEndHour != null;
   /* Where the placed things came from, said once and quietly. A card that puts
@@ -2072,6 +2193,162 @@ export default function TimeReality() {
                     writes anything down. */}
                 <Text style={type.serif}>{shape.framingText}</Text>
                 <Text style={type.faint}>{dayNotes.join('. ')}.</Text>
+              </Card>
+
+              {/* 1a. An hour that appeared.
+                  Above the day card on purpose: when a meeting dies, the
+                  typical Tuesday drawn below is no longer the question. */}
+              <Card style={{ gap: space(3) }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="flash-outline" size={14} color={colors.textDim} />
+                  <Label>Something got cancelled</Label>
+                </View>
+                <Text style={type.dim}>
+                  How long are you free? Where you are decides what is actually possible —
+                  an hour at a desk is not an hour at home.
+                </Text>
+
+                {/* Offered, never taken. Reading a calendar costs a
+                    permission dialog, and an app that demands one before it
+                    has been useful gets the answer it deserves. */}
+                {calendarSupported && (
+                  <Pressable
+                    onPress={async () => {
+                      const state = await readFreeGaps({
+                        workStartHour: me.workStartHour ?? 9,
+                        workEndHour: me.workEndHour ?? 17,
+                      });
+                      setCalendar(state);
+                      if (state.status === 'ready' && state.best) {
+                        setFoundMinutes(Math.min(state.best.minutes, 120));
+                      }
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Find it from my calendar"
+                    style={({ pressed }) => [s.chip, { alignSelf: 'flex-start' }, pressed && { opacity: 0.6 }]}
+                  >
+                    <Text style={[type.body, { color: colors.amber }]}>
+                      Find it from my calendar
+                    </Text>
+                  </Pressable>
+                )}
+                {calendar?.status === 'denied' && (
+                  <Text style={type.faint}>
+                    No calendar access — no matter, the question below is the same one.
+                  </Text>
+                )}
+                {calendar?.status === 'ready' && !calendar.best && (
+                  <Text style={type.faint}>
+                    Nothing free in your working day that is long enough to plan around.
+                  </Text>
+                )}
+                {calendar?.status === 'ready' && calendar.best && (
+                  <Text style={type.faint}>
+                    Your longest free stretch today is {formatSpan(
+                      calendar.best.startMinutes, calendar.best.endMinutes,
+                    )}.
+                  </Text>
+                )}
+
+                <View style={s.chips}>
+                  {[15, 30, 60, 120].map((m) => {
+                    const on = foundMinutes === m;
+                    return (
+                      <Pressable
+                        key={m}
+                        onPress={() => setFoundMinutes(on ? null : m)}
+                        accessibilityRole="button"
+                        accessibilityLabel={m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? 's' : ''}`}
+                        accessibilityState={{ selected: on }}
+                        style={[s.chip, on && s.chipOn]}
+                      >
+                        <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                          {m < 60 ? `${m}m` : `${m / 60}h`}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {foundMinutes != null && (
+                  <>
+                    <View style={s.chips}>
+                      {(Object.keys(SETTING_LABELS) as SettingKey[]).map((k) => {
+                        const on = foundWhere === k;
+                        return (
+                          <Pressable
+                            key={k}
+                            onPress={() => setFoundWhere(k)}
+                            accessibilityRole="button"
+                            accessibilityLabel={SETTING_LABELS[k]}
+                            accessibilityState={{ selected: on }}
+                            style={[s.chip, on && s.chipOn]}
+                          >
+                            <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                              {SETTING_LABELS[k]}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    {found?.primary ? (
+                      <View style={{ gap: space(2) }}>
+                        <View style={s.priorityRow}>
+                          <DomainDot domain={found.primary.domain} size={10} />
+                          <View style={{ flex: 1, gap: 2 }}>
+                            <Text style={[type.heading, { color: colors.amber }]}>
+                              {found.primary.action}
+                            </Text>
+                            {!!found.primary.because && (
+                              <Text style={type.faint}>{found.primary.because}</Text>
+                            )}
+                          </View>
+                          <Text style={type.faint}>{found.primary.minutes}m</Text>
+                        </View>
+                        {found.alternates.map((alt) => (
+                          <View key={alt.key} style={[s.priorityRow, { opacity: 0.75 }]}>
+                            <DomainDot domain={alt.domain} size={8} />
+                            <Text style={[type.body, { flex: 1 }]} numberOfLines={1}>{alt.action}</Text>
+                            <Text style={type.faint}>{alt.minutes}m</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={type.serif}>{found?.restNote}</Text>
+                    )}
+
+                    {/* Said out loud rather than silently demoted — the reader
+                        should know the starved part of their life lost to the
+                        room, not to the app's opinion of it. */}
+                    {found?.ruledOut && (
+                      <Text style={type.faint}>
+                        {found.ruledOut.domain} is what is drifting most, but not from here —
+                        {' '}{found.ruledOut.limits[0]}. It keeps its own hour later.
+                      </Text>
+                    )}
+
+                    {/* A toggle, not a one-way door: a window put into the
+                        day by mistake has to come back out, and the meeting
+                        that was cancelled is sometimes un-cancelled. */}
+                    <Pressable
+                      onPress={() => setFoundWindow(foundWindow ? null : foundMinutes)}
+                      accessibilityRole="button"
+                      accessibilityLabel={foundWindow ? 'Take it back out of my day' : 'Put it in my day'}
+                      accessibilityState={{ selected: !!foundWindow }}
+                      style={({ pressed }) => [
+                        s.chip,
+                        { alignSelf: 'flex-start' },
+                        !!foundWindow && s.chipOn,
+                        pressed && { opacity: 0.6 },
+                      ]}
+                    >
+                      <Text style={[type.body, { color: colors.amber }]}>
+                        {foundWindow ? 'In your day below — tap to undo' : 'Put it in my day'}
+                      </Text>
+                    </Pressable>
+                  </>
+                )}
               </Card>
 
               {/* 1b. The week the standing commitments run on.
@@ -2846,6 +3123,13 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.surface,
   },
   chipOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
+  /** A wrapping row of chips — the duration and where-you-are pickers. */
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
+  /** One offered thing, with room for its reason under the action. */
+  priorityRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: space(3),
+  },
   /** Seven equal columns, so a rhythm's days line up with the header
       letters no matter how long its title is. */
   weekHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },

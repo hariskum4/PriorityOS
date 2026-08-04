@@ -80,19 +80,36 @@ export function fitsSetting(
   return needs.every((n) => where[n]);
 }
 
+const LIMIT: Record<keyof Setting, string> = {
+  canSpeakFreely: 'nothing that needs a private call',
+  canMove: 'nothing that needs you on your feet',
+  hasScreen: 'nothing that needs a desk',
+  isPrivate: 'nothing you would rather nobody read',
+};
+
+const ALL_NEEDS = Object.keys(LIMIT) as Array<keyof Setting>;
+
 /**
- * What this setting rules out, said plainly.
+ * Why *this* thing cannot happen here.
  *
- * A found hour that quietly drops half the catalog owes the reader an
- * explanation, or the app looks like it has simply run out of ideas. Used
- * to say "family is what is drifting — but not from a desk" rather than
- * silently offering the second-best domain as if it were the first.
+ * The reason has to come from the thing's own unmet requirements, not from
+ * the setting's general shortcomings. A desk forbids both calls and walks,
+ * so explaining a blocked walk with "nothing that needs a private call" is
+ * a true sentence about the desk and a wrong answer about the walk — and
+ * the reader, who knows perfectly well why they cannot go running from
+ * their chair, learns that the app is reciting rather than reasoning.
+ */
+export function limitsFor(
+  needs: Array<keyof Setting> | undefined,
+  where: Setting,
+): string[] {
+  return (needs ?? []).filter((n) => !where[n]).map((n) => LIMIT[n]);
+}
+
+/**
+ * Everything this setting rules out, for copy that is about the place
+ * rather than about any one suggestion.
  */
 export function settingLimits(where: Setting): string[] {
-  const out: string[] = [];
-  if (!where.canSpeakFreely) out.push('nothing that needs a private call');
-  if (!where.canMove) out.push('nothing that needs you on your feet');
-  if (!where.hasScreen) out.push('nothing that needs a desk');
-  if (!where.isPrivate) out.push('nothing you would rather nobody read');
-  return out;
+  return limitsFor(ALL_NEEDS, where);
 }

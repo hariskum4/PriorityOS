@@ -32,12 +32,20 @@
 
 import type { DomainShare } from './alignment';
 import type { LifeShape } from './lifeShape';
+import type { Setting } from './setting';
 
 /** The relationships a stack can be built around. */
 export type PersonRole = 'parent' | 'child' | 'partner' | 'friend';
 
 export interface Stack {
   key: string;
+  /**
+   * What the place has to allow. A stack is one hour serving two parts of
+   * a life, and most of them need legs or a person — which is why almost
+   * none of these survive a found hour at an open-plan desk, and why the
+   * ones that do are worth finding rather than guessing at.
+   */
+  setting?: Array<keyof Setting>;
   /** The action. `{who}` is where a real name belongs, when there is one. */
   action: string;
   domains: string[];
@@ -96,6 +104,8 @@ export interface StackPerson {
 
 export interface StackSuggestion {
   key: string;
+  /** Carried through from the catalog, so a found hour can filter on it. */
+  setting?: Array<keyof Setting>;
   /** The action, with a real name in it wherever one was available. */
   action: string;
   framing: string;
@@ -130,47 +140,47 @@ const ANONYMOUS: Record<PersonRole, string> = {
 };
 
 const CATALOG: Stack[] = [
-  { key: 'walk_call_parent', action: 'Take your walk while calling {who}', domains: ['health', 'family'], framing: 'Movement and a real conversation in the same 20 minutes.', role: 'parent' },
-  { key: 'cook_with_kid', action: 'Cook dinner with {who}, no screens', domains: ['children', 'health'], framing: 'A shared ritual that also feeds you both well.', role: 'child' },
-  { key: 'commute_learn', action: 'Turn your commute into an audiobook or course', domains: ['growth', 'experiences'], framing: 'Reclaimed dead time becomes the skill you keep postponing.', needs: ['hasCommute'] },
-  { key: 'chore_learn', action: 'Put an audiobook on while cooking or folding', domains: ['growth', 'experiences'], framing: 'The chores take the hour either way; you keep the ideas.' },
-  { key: 'workout_friend', action: 'Train with {who} once a week', domains: ['health', 'friends'], framing: 'Accountability and the friendship, in one slot.', role: 'friend' },
-  { key: 'weekend_trip_family', action: 'Plan a weekend trip with the family', domains: ['family', 'experiences'], framing: 'A memory and time together, from the same weekend.' },
-  { key: 'gratitude_partner', action: 'Share one gratitude with {who} at night', domains: ['partner', 'reflection'], framing: 'Presence and inner practice in sixty seconds.', role: 'partner' },
-  { key: 'teach_skill', action: 'Teach someone the thing you are learning', domains: ['growth', 'impact'], framing: 'Learning sticks when you give it away.' },
-  { key: 'creative_with_kid', action: 'Make something with {who} — draw, build, record', domains: ['purpose', 'children'], framing: 'Your creative practice, and their childhood, at once.', role: 'child' },
-  { key: 'volunteer_family', action: 'Volunteer together as a family', domains: ['impact', 'family'], framing: 'Contribution that your kids will remember you for.' },
-  { key: 'walk_meeting', action: 'Take one work call as a walking meeting', domains: ['career', 'health'], hosts: ['career'], framing: 'The work still happens; your body stops paying for it.', needs: ['hasDeskJob'] },
-  { key: 'money_date', action: 'A monthly money review with {who}', domains: ['finance', 'partner'], framing: 'Shared clarity beats separate anxiety.', role: 'partner' },
-  { key: 'nature_reflect', action: 'A quiet walk outdoors, phone in your pocket', domains: ['health', 'reflection'], framing: 'The cheapest reset there is — moving and thinking.' },
+  { key: 'walk_call_parent', action: 'Take your walk while calling {who}', domains: ['health', 'family'], framing: 'Movement and a real conversation in the same 20 minutes.', role: 'parent', setting: ['canMove', 'canSpeakFreely'] },
+  { key: 'cook_with_kid', action: 'Cook dinner with {who}, no screens', domains: ['children', 'health'], framing: 'A shared ritual that also feeds you both well.', role: 'child', setting: ['canMove'] },
+  { key: 'commute_learn', action: 'Turn your commute into an audiobook or course', domains: ['growth', 'experiences'], framing: 'Reclaimed dead time becomes the skill you keep postponing.', needs: ['hasCommute'], setting: ['canMove'] },
+  { key: 'chore_learn', action: 'Put an audiobook on while cooking or folding', domains: ['growth', 'experiences'], framing: 'The chores take the hour either way; you keep the ideas.', setting: ['canMove'] },
+  { key: 'workout_friend', action: 'Train with {who} once a week', domains: ['health', 'friends'], framing: 'Accountability and the friendship, in one slot.', role: 'friend', setting: ['canMove'] },
+  { key: 'weekend_trip_family', action: 'Plan a weekend trip with the family', domains: ['family', 'experiences'], framing: 'A memory and time together, from the same weekend.', setting: ['hasScreen'] },
+  { key: 'gratitude_partner', action: 'Share one gratitude with {who} at night', domains: ['partner', 'reflection'], framing: 'Presence and inner practice in sixty seconds.', role: 'partner', setting: ['canSpeakFreely'] },
+  { key: 'teach_skill', action: 'Teach someone the thing you are learning', domains: ['growth', 'impact'], framing: 'Learning sticks when you give it away.', setting: ['canSpeakFreely'] },
+  { key: 'creative_with_kid', action: 'Make something with {who} — draw, build, record', domains: ['purpose', 'children'], framing: 'Your creative practice, and their childhood, at once.', role: 'child', setting: ['canMove'] },
+  { key: 'volunteer_family', action: 'Volunteer together as a family', domains: ['impact', 'family'], framing: 'Contribution that your kids will remember you for.', setting: ['canMove'] },
+  { key: 'walk_meeting', action: 'Take one work call as a walking meeting', domains: ['career', 'health'], hosts: ['career'], framing: 'The work still happens; your body stops paying for it.', needs: ['hasDeskJob'], setting: ['canMove', 'canSpeakFreely'] },
+  { key: 'money_date', action: 'A monthly money review with {who}', domains: ['finance', 'partner'], framing: 'Shared clarity beats separate anxiety.', role: 'partner', setting: ['canSpeakFreely', 'isPrivate'] },
+  { key: 'nature_reflect', action: 'A quiet walk outdoors, phone in your pocket', domains: ['health', 'reflection'], framing: 'The cheapest reset there is — moving and thinking.', setting: ['canMove'] },
 
   /* Three at a time.
      Nothing about stacking stops at two — an afternoon outdoors with the
      family is health and family and a memory, and pretending it is only two of
      those undersells the hour it costs. The pairs above are still here because
      a pair is often the honest count; these are the cases where it is not. */
-  { key: 'family_outing', action: 'Walk somewhere new with the family, phones away', domains: ['family', 'health', 'experiences'], framing: 'One afternoon doing the work of three.' },
-  { key: 'partner_walk_month', action: 'Walk with {who} and talk through the month', domains: ['partner', 'health', 'reflection'], framing: 'The conversation you keep meaning to have, while moving.', role: 'partner' },
-  { key: 'kid_outdoors', action: 'Take {who} outdoors instead of to a screen', domains: ['children', 'health', 'experiences'], framing: 'They remember the weather, not the tablet.', role: 'child' },
-  { key: 'kid_money_choice', action: 'Let {who} help with one real money decision', domains: ['children', 'finance', 'growth'], hosts: ['finance'], framing: 'A lesson that lands because the money is real.', role: 'child' },
-  { key: 'volunteer_with_friend', action: 'Volunteer somewhere with {who} once a month', domains: ['impact', 'friends', 'experiences'], framing: 'Contribution, company, and a day unlike the others.', role: 'friend' },
-  { key: 'build_in_public', action: 'Publish one small piece of the thing you are building', domains: ['purpose', 'career', 'impact'], framing: 'The work stops being private, and starts being useful.' },
-  { key: 'trip_around_learning', action: 'Plan one trip around something you want to learn', domains: ['experiences', 'growth', 'purpose'], framing: 'Go somewhere to become someone, not just to be away.' },
-  { key: 'mentor_hour', action: 'Mentor someone for one hour a month', domains: ['career', 'impact', 'growth'], framing: 'You get sharper by explaining what you already know.' },
+  { key: 'family_outing', action: 'Walk somewhere new with the family, phones away', domains: ['family', 'health', 'experiences'], framing: 'One afternoon doing the work of three.', setting: ['canMove'] },
+  { key: 'partner_walk_month', action: 'Walk with {who} and talk through the month', domains: ['partner', 'health', 'reflection'], framing: 'The conversation you keep meaning to have, while moving.', role: 'partner', setting: ['canMove', 'canSpeakFreely'] },
+  { key: 'kid_outdoors', action: 'Take {who} outdoors instead of to a screen', domains: ['children', 'health', 'experiences'], framing: 'They remember the weather, not the tablet.', role: 'child', setting: ['canMove'] },
+  { key: 'kid_money_choice', action: 'Let {who} help with one real money decision', domains: ['children', 'finance', 'growth'], hosts: ['finance'], framing: 'A lesson that lands because the money is real.', role: 'child', setting: ['canSpeakFreely'] },
+  { key: 'volunteer_with_friend', action: 'Volunteer somewhere with {who} once a month', domains: ['impact', 'friends', 'experiences'], framing: 'Contribution, company, and a day unlike the others.', role: 'friend', setting: ['canMove'] },
+  { key: 'build_in_public', action: 'Publish one small piece of the thing you are building', domains: ['purpose', 'career', 'impact'], framing: 'The work stops being private, and starts being useful.', setting: ['hasScreen'] },
+  { key: 'trip_around_learning', action: 'Plan one trip around something you want to learn', domains: ['experiences', 'growth', 'purpose'], framing: 'Go somewhere to become someone, not just to be away.', setting: ['hasScreen'] },
+  { key: 'mentor_hour', action: 'Mentor someone for one hour a month', domains: ['career', 'impact', 'growth'], framing: 'You get sharper by explaining what you already know.', setting: ['canSpeakFreely'] },
 
   /* The catalog used to run five deep on health and one deep on purpose,
      friends, career and finance — thinnest exactly where lives starve, and the
      single `purpose` entry required having a child. These even it out, and none
      of them assume anyone you have not told us about. */
-  { key: 'purpose_walk', action: 'Walk and think through the thing you keep postponing', domains: ['purpose', 'health'], framing: 'The work you never start gets its hour, and your body gets it too.' },
-  { key: 'purpose_tell_friend', action: 'Tell {who} what you are actually trying to build', domains: ['purpose', 'friends'], framing: 'Saying it out loud is how it stops being a secret.', role: 'friend' },
-  { key: 'friend_cook', action: 'Cook for {who} instead of meeting at a restaurant', domains: ['friends', 'health'], framing: 'Longer, cheaper, and you both eat better for it.', role: 'friend' },
-  { key: 'career_first_hour', action: 'Give the first thirty minutes of work to the skill, not the inbox', domains: ['career', 'growth'], framing: 'The compounding half of the job, before the day takes it.', needs: ['hasDeskJob'] },
+  { key: 'purpose_walk', action: 'Walk and think through the thing you keep postponing', domains: ['purpose', 'health'], framing: 'The work you never start gets its hour, and your body gets it too.', setting: ['canMove'] },
+  { key: 'purpose_tell_friend', action: 'Tell {who} what you are actually trying to build', domains: ['purpose', 'friends'], framing: 'Saying it out loud is how it stops being a secret.', role: 'friend', setting: ['canSpeakFreely'] },
+  { key: 'friend_cook', action: 'Cook for {who} instead of meeting at a restaurant', domains: ['friends', 'health'], framing: 'Longer, cheaper, and you both eat better for it.', role: 'friend', setting: ['canMove'] },
+  { key: 'career_first_hour', action: 'Give the first thirty minutes of work to the skill, not the inbox', domains: ['career', 'growth'], framing: 'The compounding half of the job, before the day takes it.', needs: ['hasDeskJob'], setting: ['hasScreen'] },
   /* The same protected hour, for a life whose day answers to no employer —
      the homemaker who wrote "I will have my own business", the student, the
      founder. Career here is the thing being built, not a job being kept. */
-  { key: 'build_first_hour', action: 'Give the first quiet hour of the day to the thing you want to build', domains: ['career', 'purpose'], framing: 'The plan you keep postponing starts as one protected hour, before the day fills.', needs: ['selfDirectedWork'] },
-  { key: 'school_run_talk', action: 'Make the school run a real conversation with {who}', domains: ['children', 'family'], framing: 'The trip happens anyway; the conversation is the upgrade.', role: 'child' },
+  { key: 'build_first_hour', action: 'Give the first quiet hour of the day to the thing you want to build', domains: ['career', 'purpose'], framing: 'The plan you keep postponing starts as one protected hour, before the day fills.', needs: ['selfDirectedWork'], setting: ['hasScreen'] },
+  { key: 'school_run_talk', action: 'Make the school run a real conversation with {who}', domains: ['children', 'family'], framing: 'The trip happens anyway; the conversation is the upgrade.', role: 'child', setting: ['canMove', 'canSpeakFreely'] },
 
   /* Career, where the hour is actually career.
      Once a walking meeting stopped counting as career time, a life short on
@@ -178,10 +188,10 @@ const CATALOG: Stack[] = [
      whatever was broadly useful. These are moves where the work itself is
      different afterwards, and none of them need a person we have not been
      told about. */
-  { key: 'career_write_up', action: 'Write up one thing you learned this month', domains: ['career', 'growth', 'reflection'], framing: 'The month stops blurring, and it is there when someone asks what you did.' },
-  { key: 'career_show_work', action: 'Spend an hour on work that would show someone what you can do', domains: ['career', 'purpose'], framing: 'Proof travels further than a description of yourself.' },
-  { key: 'finance_small_review', action: 'Cancel or renegotiate one recurring cost this week', domains: ['finance', 'reflection'], framing: 'Ten minutes once, instead of a worry every month.' },
-  { key: 'finance_read', action: 'Read about money for fifteen minutes', domains: ['finance', 'growth'], framing: 'A subject that compounds faster than almost anything else you could read.' },
+  { key: 'career_write_up', action: 'Write up one thing you learned this month', domains: ['career', 'growth', 'reflection'], framing: 'The month stops blurring, and it is there when someone asks what you did.', setting: ['hasScreen'] },
+  { key: 'career_show_work', action: 'Spend an hour on work that would show someone what you can do', domains: ['career', 'purpose'], framing: 'Proof travels further than a description of yourself.', setting: ['hasScreen'] },
+  { key: 'finance_small_review', action: 'Cancel or renegotiate one recurring cost this week', domains: ['finance', 'reflection'], framing: 'Ten minutes once, instead of a worry every month.', setting: ['hasScreen', 'isPrivate'] },
+  { key: 'finance_read', action: 'Read about money for fifteen minutes', domains: ['finance', 'growth'], framing: 'A subject that compounds faster than almost anything else you could read.', setting: ['hasScreen'] },
 ];
 
 /**
@@ -334,6 +344,7 @@ export function suggestStacks(
       personId: person?.id ?? null,
       reason: arguesFrom ? reasonFor(short.get(arguesFrom)!, person) : '',
       reasonDomain: arguesFrom,
+      setting: chosen.setting,
     });
 
     // Decay only what was fed. A hosted domain is exactly as short after this

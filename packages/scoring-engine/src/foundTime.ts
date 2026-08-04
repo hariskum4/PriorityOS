@@ -22,7 +22,7 @@
  * returns it as one, in the place a suggestion would have gone.
  */
 
-import { fitsSetting, settingLimits, type Setting } from './setting';
+import { fitsSetting, limitsFor, type Setting } from './setting';
 
 /** Something that could fill the window, from any of the app's sources. */
 export interface Candidate {
@@ -126,7 +126,7 @@ export function foundTime(input: FoundTimeInput): FoundTimeResult {
   const bestAnywhere = [...sized].sort(rank)[0];
   const ruledOut = bestAnywhere && !fitsSetting(bestAnywhere.needs, input.where)
     && (!ranked[0] || rank(bestAnywhere, ranked[0]) < 0)
-    ? { domain: bestAnywhere.domain, limits: settingLimits(input.where) }
+    ? { domain: bestAnywhere.domain, limits: limitsFor(bestAnywhere.needs, input.where) }
     : null;
 
   if (!ranked.length) {
