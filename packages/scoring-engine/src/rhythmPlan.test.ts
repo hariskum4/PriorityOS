@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   rhythmWeekdays, rhythmDueToday, preferredMinutes, isPlaceable, type Weekday,
+  weekPlan, WEEK_COLUMNS, WEEKDAY_INITIALS,
 } from './rhythmPlan';
 
 /** A date on a known weekday, local time. 2026-08-03 is a Monday. */
@@ -148,5 +149,85 @@ describe('preferredMinutes', () => {
   it('never returns an hour outside a day', () => {
     expect(preferredMinutes({ observedMinutes: 1500 })).toBe(60);
     expect(preferredMinutes({ observedMinutes: -60 })).toBe(23 * 60);
+  });
+});
+
+describe('a day the reader picked themselves', () => {
+  it('beats both the reading and the spread', () => {
+    const everyWednesday = [day(2), day(9), day(16), day(23)];
+    const { days, basis } = rhythmWeekdays({
+      key: 'health.move', perWeek: 1, history: everyWednesday,
+      override: [5], now: day(24),
+    });
+    expect(days).toEqual([5]);
+    expect(basis).toBe('chosen');
+  });
+
+  it('cannot produce a week with the same day twice', () => {
+    const { days } = rhythmWeekdays({
+      key: 'health.move', perWeek: 2, override: [3, 3, 1] as never, now: MON,
+    });
+    expect(days).toEqual([1, 3]);
+  });
+
+  it('ignores days that are not days', () => {
+    const { basis } = rhythmWeekdays({
+      key: 'health.move', perWeek: 1, override: [9, -1] as never, now: MON,
+    });
+    expect(basis).toBe('spread');
+  });
+
+  it('an emptied choice hands the question back to the engine', () => {
+    const { basis } = rhythmWeekdays({
+      key: 'health.move', perWeek: 3, override: [], now: MON,
+    });
+    expect(basis).toBe('spread');
+  });
+});
+
+describe('weekPlan', () => {
+  it('reads a week Monday first, so the Sunday Session ends it', () => {
+    expect(WEEK_COLUMNS).toEqual([1, 2, 3, 4, 5, 6, 0]);
+    expect(WEEK_COLUMNS.map((d) => WEEKDAY_INITIALS[d]).join('')).toBe('MTWTFSS');
+  });
+
+  it('lays each rhythm across the week with its ticks', () => {
+    const [row] = weekPlan([{
+      key: 'health.move',
+      perWeek: 3,
+      thisWeek: [day(0, 8), day(2, 8)], // Mon and Wed
+    }], day(3));
+    expect(row.doneDays).toEqual([1, 3]);
+    expect(row.doneThisWeek).toBe(2);
+    expect(row.remaining).toBe(1);
+    expect(row.days).toHaveLength(3);
+  });
+
+  it('a finished week has nothing remaining, and no debt for extra', () => {
+    const [row] = weekPlan([{
+      key: 'health.move',
+      perWeek: 2,
+      thisWeek: [day(0, 8), day(1, 8), day(2, 8)],
+    }], day(3));
+    expect(row.remaining).toBe(0);
+    expect(row.doneThisWeek).toBe(3);
+  });
+
+  it('counts two ticks on one day as one day kept', () => {
+    const [row] = weekPlan([{
+      key: 'health.move', perWeek: 3, thisWeek: [day(0, 8), day(0, 19)],
+    }], day(1));
+    expect(row.doneDays).toEqual([1]);
+    expect(row.doneThisWeek).toBe(2);
+  });
+
+  it('carries the chosen days through', () => {
+    const [row] = weekPlan([{ key: 'health.move', perWeek: 2, override: [2, 4] }], MON);
+    expect(row.days).toEqual([2, 4]);
+    expect(row.basis).toBe('chosen');
+  });
+
+  it('is empty for someone with no rhythms', () => {
+    expect(weekPlan([], MON)).toEqual([]);
   });
 });

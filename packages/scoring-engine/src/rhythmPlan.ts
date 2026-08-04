@@ -108,13 +108,19 @@ export interface WeekdayPlanInput {
   /** Every recorded completion of THIS rhythm. */
   history?: Array<string | number | Date | null | undefined>;
   prefersWeekend?: boolean;
+  /**
+   * Days the reader picked themselves. Beats both the reading and the
+   * spread — an app that recalculates over somebody's own answer has
+   * asked them a question and then ignored it.
+   */
+  override?: Weekday[] | null;
   now?: Date;
 }
 
 export interface WeekdayPlan {
   days: Weekday[];
-  /** Whether the days came from what they do or from an even spread. */
-  basis: 'observed' | 'spread';
+  /** Where the days came from: their choice, their record, or the spread. */
+  basis: 'chosen' | 'observed' | 'spread';
 }
 
 /**
@@ -128,6 +134,16 @@ export interface WeekdayPlan {
  */
 export function rhythmWeekdays(input: WeekdayPlanInput): WeekdayPlan {
   const perWeek = Math.max(1, Math.min(Math.round(input.perWeek) || 1, 7));
+
+  /* Their own answer, before any arithmetic gets a say. Deduped and sorted
+     so a caller cannot hand us Tuesday twice and get a week with two of it. */
+  if (input.override?.length) {
+    const chosen = [...new Set(input.override)]
+      .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+      .sort((a, b) => a - b) as Weekday[];
+    if (chosen.length) return { days: chosen, basis: 'chosen' };
+  }
+
   if (perWeek >= 7) return { days: [0, 1, 2, 3, 4, 5, 6], basis: 'spread' };
 
   const now = input.now ?? new Date();
@@ -229,4 +245,82 @@ export function preferredMinutes(input: PreferredTimeInput): number | null {
 /** Whether this rhythm should be offered a slot in the day's free time. */
 export function isPlaceable(when?: TimeOfDay): boolean {
   return when !== 'work';
+}
+
+// ---------------------------------------------------------------------------
+// The week, seen at once
+// ---------------------------------------------------------------------------
+
+/**
+ * Weekday columns in the order a week is read, Monday first.
+ *
+ * The product counts weeks Monday to Sunday everywhere else — the Sunday
+ * Session sits at the end of one — and a strip that opened on Sunday would
+ * put the review before the week it reviews.
+ */
+export const WEEK_COLUMNS: Weekday[] = [1, 2, 3, 4, 5, 6, 0];
+export const WEEKDAY_INITIALS: Record<Weekday, string> = {
+  1: 'M', 2: 'T', 3: 'W', 4: 'T', 5: 'F', 6: 'S', 0: 'S',
+};
+export const WEEKDAY_NAMES: Record<Weekday, string> = {
+  0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday',
+  4: 'Thursday', 5: 'Friday', 6: 'Saturday',
+};
+
+export interface WeekPlanEntry {
+  key: string;
+  perWeek: number;
+  history?: Array<string | number | Date | null | undefined>;
+  /** Completions inside the current week, for the ticks. */
+  thisWeek?: Array<string | number | Date | null | undefined>;
+  prefersWeekend?: boolean;
+  override?: Weekday[] | null;
+}
+
+export interface WeekPlanRow {
+  key: string;
+  perWeek: number;
+  days: Weekday[];
+  basis: WeekdayPlan['basis'];
+  /** Weekdays already kept this week — ticks, not obligations met. */
+  doneDays: Weekday[];
+  doneThisWeek: number;
+  /** How many are still wanted. Never negative: extra is not a debt. */
+  remaining: number;
+}
+
+/**
+ * Every standing rhythm laid across one week.
+ *
+ * Deliberately says nothing about whether a passed day was "missed". A
+ * planned day that went unused is simply not ticked — the week counts to
+ * the target and a target already met leaves `remaining` at zero, which is
+ * the only state any copy above this should be reading.
+ */
+export function weekPlan(entries: WeekPlanEntry[], now: Date = new Date()): WeekPlanRow[] {
+  return (entries ?? []).map((e) => {
+    const perWeek = Math.max(1, Math.min(Math.round(e.perWeek) || 1, 7));
+    const { days, basis } = rhythmWeekdays({
+      key: e.key,
+      perWeek,
+      history: e.history,
+      prefersWeekend: e.prefersWeekend,
+      override: e.override,
+      now,
+    });
+    const done = (e.thisWeek ?? [])
+      .map(toDate)
+      .filter((d): d is Date => d != null);
+    const doneDays = [...new Set(done.map((d) => d.getDay() as Weekday))]
+      .sort((a, b) => a - b);
+    return {
+      key: e.key,
+      perWeek,
+      days,
+      basis,
+      doneDays,
+      doneThisWeek: done.length,
+      remaining: Math.max(0, perWeek - done.length),
+    };
+  });
 }

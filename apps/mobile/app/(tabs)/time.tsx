@@ -34,6 +34,10 @@ import {
   rhythmDueToday,
   preferredMinutes,
   isPlaceable,
+  weekPlan,
+  WEEK_COLUMNS,
+  WEEKDAY_INITIALS,
+  WEEKDAY_NAMES,
   dayShape,
   activeHour,
   activeHourByKey,
@@ -87,6 +91,15 @@ const CADENCE_DAYS: Record<string, number> = {
 const DAY_TYPE_KEY = 'priority-day-type-v1';
 const NUDGE_KEY = 'priority-day-nudges-v1';
 const DURATION_KEY = 'priority-day-durations-v1';
+/**
+ * Which weekdays a rhythm was moved to.
+ *
+ * Unlike the nudges beside it, this is not keyed to a date: a person who
+ * says their walk is Tuesday and Thursday means it every week, and having
+ * that revert at midnight would be the app forgetting an answer it asked
+ * for. Device-local for now, like the rest of this file's memory.
+ */
+const RHYTHM_DAYS_KEY = 'priority-rhythm-days-v1';
 
 /**
  * One step of "earlier" or "later".
@@ -692,6 +705,46 @@ export default function TimeReality() {
         .catch(() => {});
     }
   };
+  /**
+   * The weekdays each rhythm was moved to, by habit id.
+   *
+   * An empty array is a real answer meaning "work it out again" — the
+   * engine reads it as no override — so entries are dropped rather than
+   * emptied when somebody clears a row.
+   */
+  const [rhythmDays, setRhythmDays] = useState<Record<string, number[]>>({});
+  React.useEffect(() => {
+    if (!me?.id) return;
+    let alive = true;
+    AsyncStorage.getItem(RHYTHM_DAYS_KEY)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        const saved = JSON.parse(raw);
+        if (saved?.userId === me.id && saved?.days) setRhythmDays(saved.days);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [me?.id]);
+  /**
+   * `current` is the row's days as drawn — derived or already chosen — so
+   * the first tap edits the plan the reader can see rather than starting
+   * from an empty week they never asked for.
+   */
+  const toggleRhythmDay = (habitId: string, weekday: number, current: number[]) => {
+    const next = current.includes(weekday)
+      ? current.filter((d) => d !== weekday)
+      : [...current, weekday].sort((a, b) => a - b);
+    const all = { ...rhythmDays };
+    if (next.length) all[habitId] = next;
+    else delete all[habitId];
+    setRhythmDays(all);
+    if (me?.id) {
+      AsyncStorage
+        .setItem(RHYTHM_DAYS_KEY, JSON.stringify({ userId: me.id, days: all }))
+        .catch(() => {});
+    }
+  };
+
   /** Which placed thing is open for editing. One at a time. */
   const [openBlock, setOpenBlock] = useState<string | null>(null);
 
@@ -1013,6 +1066,7 @@ export default function TimeReality() {
           perWeek,
           history: h.history ?? [],
           prefersWeekend: catalog?.prefersWeekend,
+          override: rhythmDays[h.id] as any,
         });
         const due = rhythmDueToday({
           days,
@@ -1034,7 +1088,44 @@ export default function TimeReality() {
         };
       })
       .filter((r: any): r is NonNullable<typeof r> => r != null);
-  }, [habits, habitHours]);
+  }, [habits, habitHours, rhythmDays]);
+
+  /**
+   * The same rhythms laid across a week rather than a day.
+   *
+   * The day card answers "what fits today"; this answers the question a
+   * frequency actually raises — three times a week, but which three — and
+   * is the only place the answer can be corrected. Ticks are shown so a
+   * kept week reads as kept, never as four boxes and two failures.
+   */
+  const todayWeekday = new Date().getDay();
+  const weekRows = useMemo(() => {
+    const entries = (habits ?? [])
+      .filter((h: any) => h.isActive !== false)
+      .map((h: any) => {
+        const catalog = rhythmByTitle(h.title);
+        return {
+          /* The same key the placement uses, or the spread seeds from two
+             different strings and the strip draws a week the day card does
+             not agree with. Rows are re-keyed to habit ids below, since
+             that is what the taps and the overrides are stored against. */
+          key: catalog?.key ?? h.id,
+          habitId: h.id,
+          perWeek: Math.max(1, Number(h.targetPerWeek) || 1),
+          history: h.history ?? [],
+          thisWeek: (h.logs ?? []).map((l: any) => l.completedAt),
+          prefersWeekend: catalog?.prefersWeekend,
+          override: rhythmDays[h.id] as any,
+        };
+      });
+    const rows = weekPlan(entries);
+    const byId = new Map((habits ?? []).map((h: any) => [h.id, h]));
+    return rows.map((r, i) => {
+      const habitId = entries[i].habitId;
+      const h: any = byId.get(habitId);
+      return { ...r, key: habitId, title: h?.title ?? '', domain: h?.domainType ?? 'growth' };
+    });
+  }, [habits, rhythmDays]);
 
   const age = ageFromDob(me?.dob);
   const birthYear = me?.dob ? new Date(me.dob).getUTCFullYear() : null;
@@ -1860,6 +1951,94 @@ export default function TimeReality() {
                 <Text style={type.faint}>{dayNotes.join('. ')}.</Text>
               </Card>
 
+              {/* 1b. The week the standing commitments run on.
+                  A frequency raises a question a single day cannot answer —
+                  three times a week, but which three — and this is the only
+                  surface where the answer can be corrected. Ticks, never
+                  crosses: a planned day that passed unused is drawn as an
+                  ordinary empty box, because the week counts to the target
+                  and missing a Tuesday is not a fact about the person. */}
+              {weekRows.length > 0 && (
+                <Card style={{ gap: space(3) }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="repeat-outline" size={14} color={colors.textDim} />
+                    <Label>The week your rhythms run on</Label>
+                  </View>
+
+                  <View style={s.weekHead}>
+                    <View style={{ flex: 1 }} />
+                    {WEEK_COLUMNS.map((d, i) => (
+                      <Text
+                        key={`${d}-${i}`}
+                        style={[
+                          type.faint,
+                          s.weekCellText,
+                          d === todayWeekday && { color: colors.amber, fontWeight: '800' },
+                        ]}
+                      >
+                        {WEEKDAY_INITIALS[d]}
+                      </Text>
+                    ))}
+                  </View>
+
+                  {weekRows.map((row) => (
+                    <View key={row.key} style={{ gap: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <DomainDot domain={row.domain} size={8} />
+                        <Text style={[type.body, { flex: 1 }]} numberOfLines={1}>{row.title}</Text>
+                        <Text style={type.faint}>
+                          {row.doneThisWeek}/{row.perWeek}
+                        </Text>
+                      </View>
+                      <View style={s.weekRow}>
+                        <View style={{ flex: 1 }} />
+                        {WEEK_COLUMNS.map((d, i) => {
+                          const planned = row.days.includes(d);
+                          const done = row.doneDays.includes(d);
+                          const c = domainColor(row.domain);
+                          return (
+                            <Pressable
+                              key={`${row.key}-${d}-${i}`}
+                              onPress={() => toggleRhythmDay(row.key, d, row.days)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${row.title}, ${WEEKDAY_NAMES[d]}`}
+                              accessibilityState={{ selected: planned }}
+                              style={({ pressed }) => [
+                                s.weekCell,
+                                planned && { borderColor: c, backgroundColor: alpha(c, 0.14) },
+                                done && { backgroundColor: c, borderColor: c },
+                                d === todayWeekday && !done && { borderColor: colors.amber },
+                                pressed && { transform: [{ scale: 0.9 }] },
+                              ]}
+                            >
+                              {done && <Ionicons name="checkmark" size={12} color={colors.bg} />}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ))}
+
+                  {/* The last day is not removable in any meaningful sense —
+                      a rhythm with no days is not a rhythm, and the due
+                      check would read an empty week as "offer it every day",
+                      which is the opposite of what the tap asked for. So
+                      clearing a row hands it back to the engine, and the
+                      copy says which of the two just happened. */}
+                  <Text style={type.faint}>
+                    Tap a day to move a rhythm; clear them all to hand it back to Priority.
+                    Filled days are kept, outlined ones are where it is offered — the week
+                    counts to the number, not to the boxes.
+                    {weekRows.some((r) => r.basis === 'observed')
+                      ? ' Some are the days you already use.'
+                      : ''}
+                    {weekRows.some((r) => r.basis === 'chosen')
+                      ? ' Some you chose yourself.'
+                      : ''}
+                  </Text>
+                </Card>
+              )}
+
               {/* 2. Weekly allocation */}
               <Card style={{ gap: space(3) }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -2519,6 +2698,16 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, backgroundColor: colors.surface,
   },
   chipOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
+  /** Seven equal columns, so a rhythm's days line up with the header
+      letters no matter how long its title is. */
+  weekHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  weekRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  weekCellText: { width: 30, textAlign: 'center' },
+  weekCell: {
+    width: 30, height: 30, borderRadius: 8,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
+    alignItems: 'center', justifyContent: 'center',
+  },
   /** Sharp hours claimed by work against the ones left over — the split is
       the point, so it is drawn once rather than described twice. */
   energyBar: { flexDirection: 'row', height: 8, borderRadius: 999, overflow: 'hidden', backgroundColor: colors.lineSoft },
