@@ -163,7 +163,13 @@ export function goalRisks(
   const stalled = daysStalled(goal, now);
 
   if (goalMomentum(goal, now) < STALLED_MOMENTUM) {
-    risks.push({ kind: 'stalled', note: `Nothing has moved for ${stalled} days.` });
+    risks.push({
+      kind: 'stalled',
+      // Day zero is a start, not a stall — see the isNew guard in the engine.
+      note: goal.progressAt.length === 0 && stalled <= 1
+        ? 'No first step yet.'
+        : `Nothing has moved for ${stalled} days.`,
+    });
   }
   const blockers = (goal.dependsOn ?? [])
     .map((id) => byId.get(id))
@@ -215,6 +221,13 @@ export const goalEngine: Engine = {
 
       const obsId = `goal:${goal.id}`;
       const blocked = risks.find((r) => r.kind === 'blocked');
+      /**
+       * A goal made this morning has "not moved in 0 days" — which is not a
+       * stall, it is a birth. The stall framing on day zero read as an
+       * accusation delivered before the person had slept once, over arithmetic
+       * that could not yet mean anything.
+       */
+      const isNew = goal.progressAt.length === 0 && stalled <= 1;
 
       observations.push({
         id: obsId,
@@ -224,7 +237,9 @@ export const goalEngine: Engine = {
           ? `“${goal.title}” is moving — ${goal.milestonesDone} of ${goal.milestonesTotal} done, last step ${stalled} day(s) ago.`
           : blocked
             ? `“${goal.title}” is stuck, and not for the reason it looks like. ${blocked.note}`
-            : `“${goal.title}” has not moved in ${stalled} days.`,
+            : isNew
+              ? `“${goal.title}” is new — it has no first step yet.`
+              : `“${goal.title}” has not moved in ${stalled} days.`,
         magnitude: momentum,
         pressure: 'whisper',
         evidence,
@@ -276,7 +291,9 @@ export const goalEngine: Engine = {
           action: `Take the smallest possible step on “${goal.title}”`,
           because: goal.purpose
             ? `You said this matters because: ${goal.purpose}`
-            : `Nothing has moved in ${stalled} days, which usually means the next step is too big rather than that you are.`,
+            : isNew
+              ? 'A goal is easiest to start while it still feels like news. The first step should be almost embarrassingly small.'
+              : `Nothing has moved in ${stalled} days, which usually means the next step is too big rather than that you are.`,
           effortMinutes: 10,
           pressure: 'whisper',
           addresses: [obsId],

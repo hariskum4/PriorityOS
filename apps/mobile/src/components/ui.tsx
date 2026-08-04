@@ -35,6 +35,11 @@ export function Button({
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      // On web a Pressable without a role renders as a bare <div> — a screen
+      // reader walked whole screens of this app and found nothing pressable.
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: !!disabled }}
       style={({ pressed }) => [
         s.btn,
         small && s.btnSmall,
@@ -74,7 +79,13 @@ export function Chip({ label, color, onPress, active }: {
   );
   if (!onPress) return inner;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: !!active }}
+      style={({ pressed }) => pressed && { opacity: 0.7 }}
+    >
       {inner}
     </Pressable>
   );
@@ -213,7 +224,13 @@ export function ErrorNote({ error, onRetry, retrying }: {
     <View style={s.errorNote}>
       <Text style={[type.faint, { color: colors.rose, flex: 1 }]}>{message}</Text>
       {onRetry ? (
-        <Pressable onPress={onRetry} disabled={retrying} hitSlop={8}>
+        <Pressable
+          onPress={onRetry}
+          disabled={retrying}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Try again"
+        >
           <Text style={[type.label, { color: colors.rose }]}>
             {retrying ? 'Trying…' : 'Try again'}
           </Text>

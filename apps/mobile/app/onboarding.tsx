@@ -478,6 +478,9 @@ export default function Onboarding() {
                 <Pressable
                   key={d}
                   onPress={() => toggle(ranking, setRanking, d)}
+                  accessibilityRole="button"
+                  accessibilityLabel={on ? `${DOMAIN_LABELS[d] ?? d}, ranked ${idx + 1}` : DOMAIN_LABELS[d] ?? d}
+                  accessibilityState={{ selected: on }}
                   style={({ pressed }) => [
                     s.chip,
                     on && { borderColor: c, backgroundColor: `${c}1F` },
@@ -745,7 +748,14 @@ function PickRow({ label, options, value, onPick, display }: {
         {options.map((o) => {
           const on = value === o;
           return (
-            <Pressable key={o} onPress={() => onPick(o)} style={[s.chip, on && s.chipOn]}>
+            <Pressable
+              key={o}
+              onPress={() => onPick(o)}
+              accessibilityRole="button"
+              accessibilityLabel={display?.[o] ?? o}
+              accessibilityState={{ selected: on }}
+              style={[s.chip, on && s.chipOn]}
+            >
               <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>{display?.[o] ?? o}</Text>
             </Pressable>
           );

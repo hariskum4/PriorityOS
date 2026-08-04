@@ -127,6 +127,9 @@ export default function People() {
    */
   const [logged, setLogged] = React.useState<Record<string, string>>({});
   const logContact = useMutation({
+    // Keyed so a tap made offline survives a force-quit: the default under
+    // this key (mutationDefaults.ts) replays it from the disk snapshot.
+    mutationKey: ['contact', 'log'],
     mutationFn: ({ id, kind }: { id: string; kind: string }) =>
       api(`/relationships/${id}/contact`, { method: 'POST', body: { kind } }),
     onSuccess: (_res, { id, kind }) => {

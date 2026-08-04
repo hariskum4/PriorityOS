@@ -8,7 +8,7 @@ import * as argon2 from 'argon2';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto, LoginDto } from './auth.dto';
-import { requireSecret } from '../common/env';
+import { requireSecret, ttlToMs } from '../common/env';
 import { ALL_DOMAINS } from '@priority/types';
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
@@ -100,7 +100,11 @@ export class AuthService {
       data: {
         userId,
         tokenHash: sha256(refreshToken),
-        expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000),
+        // Same TTL string as the JWT above, so the row and the token expire
+        // together no matter what the env var says.
+        expiresAt: new Date(
+          Date.now() + ttlToMs(process.env.JWT_REFRESH_TTL, 30 * 24 * 3600 * 1000),
+        ),
       },
     });
     return { accessToken, refreshToken };

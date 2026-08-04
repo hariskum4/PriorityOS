@@ -188,7 +188,12 @@ export default function Review() {
           <Card style={{ gap: space(3) }}>
             <EmptyState
               icon={<Ionicons name="telescope-outline" size={34} color={colors.amber} />}
-              headline="Sunday evening. A moment before the week begins again."
+              // The ritual is named for Sunday, but the screen is open every
+              // day — and "Sunday evening" read on a Tuesday made the app
+              // sound like it did not know what day it was.
+              headline={new Date().getDay() === 0
+                ? 'Sunday evening. A moment before the week begins again.'
+                : 'The Sunday Session — though any quiet moment counts.'}
               body="Six short steps: last week honestly, how each part of life feels, one insight, next week's few priorities, the one thing, and an intention."
             />
             <Button title="Begin the session" onPress={startSession} />

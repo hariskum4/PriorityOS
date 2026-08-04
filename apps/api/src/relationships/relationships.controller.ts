@@ -4,6 +4,9 @@ import {
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { RelationshipsService } from './relationships.service';
+import {
+  CreateRelationshipDto, LogContactDto, UpdateRelationshipDto,
+} from './relationships.dto';
 
 @UseGuards(JwtGuard)
 @Controller('relationships')
@@ -16,7 +19,7 @@ export class RelationshipsController {
   }
 
   @Post()
-  create(@CurrentUser() u: JwtUser, @Body() body: any) {
+  create(@CurrentUser() u: JwtUser, @Body() body: CreateRelationshipDto) {
     return this.rels.create(u.userId, body);
   }
 
@@ -27,7 +30,7 @@ export class RelationshipsController {
   }
 
   @Patch(':id')
-  update(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
+  update(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: UpdateRelationshipDto) {
     return this.rels.update(u.userId, id, body);
   }
 
@@ -40,7 +43,7 @@ export class RelationshipsController {
   logContact(
     @CurrentUser() u: JwtUser,
     @Param('id') id: string,
-    @Body() body: { kind: 'call' | 'visit' | 'message' | 'activity'; note?: string },
+    @Body() body: LogContactDto,
   ) {
     return this.rels.logContact(u.userId, id, body.kind, body.note);
   }

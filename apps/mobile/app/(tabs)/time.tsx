@@ -159,6 +159,11 @@ function Section({
     <View style={{ gap: open ? space(3) : 0 }}>
       <Pressable
         onPress={() => setOpen((v) => !v)}
+        // Eight of these rows are the whole Time tab, and as bare divs a
+        // screen reader found none of them.
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        accessibilityState={{ expanded: open }}
         style={({ pressed }) => [s.sectionHead, pressed && { opacity: 0.6 }]}
       >
         <Ionicons name={icon} size={14} color={open ? colors.amber : colors.textDim} />
@@ -2347,7 +2352,10 @@ export default function TimeReality() {
       <Section
         icon="trending-up-outline"
         title="Money and craft"
-        preview={`~${money.corpusStartingNow.toLocaleString()} · ${minutes} min/day`}
+        // "by 60" carries the unit the bare number lacked: collapsed, this row
+        // used to read "~2,323,391" of nothing in particular. The figure is in
+        // whatever currency the person types below — same as the body copy.
+        preview={`~${money.corpusStartingNow.toLocaleString()} by ${age + moreYears} · ${minutes} min/day`}
       >
       <Card style={{ gap: space(3) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

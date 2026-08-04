@@ -5,6 +5,31 @@ import { InsightsService } from '../insights/insights.service';
 import { AiService } from '../ai/ai.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
+import { ALL_DOMAINS } from '@priority/types';
+
+/** The names people and integrations use for domains, mapped to the slugs the rows use. */
+const DOMAIN_ALIASES: Record<string, string> = {
+  finances: 'finance', money: 'finance',
+  friendships: 'friends', friendship: 'friends', friend: 'friends',
+  personal_growth: 'growth', learning: 'growth',
+  spirituality: 'reflection', inner_life: 'reflection', mindfulness: 'reflection',
+  recreation: 'experiences', fun: 'experiences', travel: 'experiences',
+  community: 'impact', giving_back: 'impact', environment: 'impact', volunteering: 'impact',
+  creative: 'purpose', creative_work: 'purpose', work: 'career', job: 'career',
+  parents: 'family', kids: 'children', child: 'children', spouse: 'partner',
+};
+
+export function normalizeDomains(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const canonical = new Set<string>(ALL_DOMAINS);
+  const out: string[] = [];
+  for (const raw of value) {
+    const key = String(raw).trim().toLowerCase().replace(/[\s/-]+/g, '_');
+    const slug = canonical.has(key) ? key : DOMAIN_ALIASES[key];
+    if (slug && !out.includes(slug)) out.push(slug);
+  }
+  return out;
+}
 
 @Injectable()
 export class OnboardingService {
@@ -48,9 +73,16 @@ export class OnboardingService {
       answers.find((a) => a.section === section && a.key === key)?.value as any;
 
     // 1. Domain ranks + flags
-    const ranked: string[] = get('values', 'priorityRanking') ?? [];
-    const neglected: string[] = get('values', 'neglectedDomains') ?? [];
-    const regrets: string[] = get('values', 'regretRisks') ?? [];
+    //
+    // Matching was exact-string against the canonical slugs, so a caller
+    // saying "finances" or "friendships" — perfectly reasonable names for the
+    // same domains — had those ranks silently dropped: the reveal echoed the
+    // list back while the rows underneath kept priorityRank NULL. Normalise
+    // the common variants; a name that still doesn't resolve is skipped, but
+    // it no longer takes its neighbours' semantics down with it.
+    const ranked: string[] = normalizeDomains(get('values', 'priorityRanking'));
+    const neglected: string[] = normalizeDomains(get('values', 'neglectedDomains'));
+    const regrets: string[] = normalizeDomains(get('values', 'regretRisks'));
     for (const domain of await this.prisma.lifeDomain.findMany({ where: { userId } })) {
       const rank = ranked.indexOf(domain.domainType);
       await this.prisma.lifeDomain.update({
@@ -159,7 +191,14 @@ export class OnboardingService {
         topPriorities: top3,
         driftWarning: neglected.length
           ? `You flagged ${neglected[0]} as drifting — that's the gap that compounds quietly. It gets first attention.`
-          : 'Nothing is drifting into the danger zone yet — rare, and worth protecting.',
+          /**
+           * Day one has no drift DATA — which is not the same as no drift.
+           * The old fallback ("nothing is drifting — rare, and worth
+           * protecting") congratulated a person the app had never watched,
+           * two lines under bars showing say-90/do-0, and it said the same
+           * thing to someone who had answered nothing at all.
+           */
+          : 'Drift shows up in how real weeks get spent, and Priority has not watched one of yours yet. A few ordinary days will show where it lives.',
         firstWeekFocus: top3.map((d) => `One meaningful action in ${d}`),
       },
     );

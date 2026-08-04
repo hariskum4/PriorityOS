@@ -112,22 +112,25 @@ function Reflect() {
           .some((v: string) => v.toLowerCase().includes(needle)))
     : loaded;
 
+  // The body travels as mutation VARIABLES, not closed-over state: paused
+  // offline, this write is snapshotted to disk as key + variables and finished
+  // on the next launch by the default registered in mutationDefaults.ts —
+  // which cannot see this component.
+  const entryBody = () => ({
+    whatMattered: whatMattered || null,
+    whatIAvoided: whatIAvoided || null,
+    gratitude: gratitude || null,
+    gladNotPostponed: gladNotPostponed || null,
+    mood,
+    // The schema calls this the field that feeds attention scoring, and
+    // nothing had ever set it — so writing in your journal counted for
+    // nothing in the model of where your attention actually goes.
+    domainTags: tags,
+  });
   const save = useMutation({
-    mutationFn: () =>
-      api<any>('/journal', {
-        method: 'POST',
-        body: {
-          whatMattered: whatMattered || null,
-          whatIAvoided: whatIAvoided || null,
-          gratitude: gratitude || null,
-          gladNotPostponed: gladNotPostponed || null,
-          mood,
-          // The schema calls this the field that feeds attention scoring, and
-          // nothing had ever set it — so writing in your journal counted for
-          // nothing in the model of where your attention actually goes.
-          domainTags: tags,
-        },
-      }),
+    mutationKey: ['journal', 'create'],
+    mutationFn: (body: ReturnType<typeof entryBody>) =>
+      api<any>('/journal', { method: 'POST', body }),
     onSuccess: (res) => {
       setWhatMattered(''); setWhatIAvoided(''); setGratitude('');
       setGladNotPostponed(''); setMood(null); setTags([]); setMore(false);
@@ -251,7 +254,7 @@ function Reflect() {
           </Pressable>
         )}
 
-        <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
+        <ErrorNote error={save.error} onRetry={() => save.mutate(entryBody())} retrying={save.isPending} />
         {saved ? (
           <View style={s.savedRow}>
             <Ionicons name="checkmark-circle" size={18} color={colors.green} />
@@ -260,7 +263,7 @@ function Reflect() {
         ) : (
           <Button
             title={save.isPending ? 'Saving…' : 'Save entry'}
-            onPress={() => save.mutate()}
+            onPress={() => save.mutate(entryBody())}
             disabled={empty || save.isPending}
           />
         )}
@@ -406,26 +409,27 @@ function Memories() {
     invalidateLifeRecord(qc);
   };
 
+  // Variables, not closure: this is the "memory on a plane" write, and it can
+  // only survive a force-quit if everything it needs rides in the snapshot.
+  const momentBody = () => ({
+    title: title.trim(),
+    memoryType,
+    peoplePresent: personIds.map(nameOf).filter(Boolean),
+    // One person named is an unambiguous link; several is a gathering,
+    // and the row can only point at one.
+    relationshipId: personIds.length === 1 ? personIds[0] : draft?.relationshipId,
+    countKey: countKey || undefined,
+    reflection: reflection.trim() || undefined,
+    missionId: draft?.missionId,
+    domainType: draft?.domainType,
+    // Noon UTC, so a date never lands on the previous day in a western
+    // timezone once it comes back as a timestamp.
+    occurredAt: occurredOn ? `${occurredOn}T12:00:00.000Z` : undefined,
+  });
   const save = useMutation({
-    mutationFn: () =>
-      api<any>('/memories', {
-        method: 'POST',
-        body: {
-          title: title.trim(),
-          memoryType,
-          peoplePresent: personIds.map(nameOf).filter(Boolean),
-          // One person named is an unambiguous link; several is a gathering,
-          // and the row can only point at one.
-          relationshipId: personIds.length === 1 ? personIds[0] : draft?.relationshipId,
-          countKey: countKey || undefined,
-          reflection: reflection.trim() || undefined,
-          missionId: draft?.missionId,
-          domainType: draft?.domainType,
-          // Noon UTC, so a date never lands on the previous day in a western
-          // timezone once it comes back as a timestamp.
-          occurredAt: occurredOn ? `${occurredOn}T12:00:00.000Z` : undefined,
-        },
-      }),
+    mutationKey: ['memory', 'create'],
+    mutationFn: (body: ReturnType<typeof momentBody>) =>
+      api<any>('/memories', { method: 'POST', body }),
     onSuccess: () => {
       setTitle(''); setReflection(''); setPersonIds([]); setCountKey(''); setOccurredOn('');
       clear();
@@ -536,7 +540,7 @@ function Memories() {
           value={reflection}
           onChangeText={setReflection}
         />
-        <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
+        <ErrorNote error={save.error} onRetry={() => save.mutate(momentBody())} retrying={save.isPending} />
         {justSaved ? (
           <View style={s.savedRow}>
             <Ionicons name="checkmark-circle" size={18} color={colors.green} />
@@ -545,7 +549,7 @@ function Memories() {
         ) : (
           <Button
             title={save.isPending ? 'Keeping…' : 'Keep this moment'}
-            onPress={() => save.mutate()}
+            onPress={() => save.mutate(momentBody())}
             disabled={!title.trim() || !dateValid || save.isPending}
           />
         )}

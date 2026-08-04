@@ -56,14 +56,25 @@ export class JobsService {
   /** Relationship drift nudges — at most one per relationship per week. */
   @Cron('0 10 * * *')
   async driftNudges() {
-    const rels = await this.prisma.relationship.findMany({
-      where: { priorityScore: { gte: 70 }, wantsMoreTime: true },
-      include: { user: { select: { id: true, onboardingCompleted: true } } },
+    /**
+     * Re-score BEFORE selecting, not after.
+     *
+     * The score rises as days-since-contact grows, but only a recalc makes it
+     * rise. Selecting on the stored score first meant a person drifting from
+     * 55 toward urgent was never re-scored — the cron only refreshed rows
+     * already past the gate, so the gate could only ever be crossed by hand.
+     */
+    const candidates = await this.prisma.relationship.findMany({
+      where: { wantsMoreTime: true, user: { onboardingCompleted: true } },
+      select: { id: true },
     });
+    const rels: NonNullable<Awaited<ReturnType<RelationshipsService['recalcPriority']>>>[] = [];
+    for (const c of candidates) {
+      const fresh = await this.relationships.recalcPriority(c.id);
+      if (fresh && Number(fresh.priorityScore) >= 70) rels.push(fresh);
+    }
     const week = weekKey();
     for (const rel of rels) {
-      if (!rel.user.onboardingCompleted) continue;
-      await this.relationships.recalcPriority(rel.id);
       // Memory-grounded "reach out with this" line (6-day refresh window,
       // deterministic fallback) \u2014 a gift to open with, not a guilt ping.
       const nudge = await this.relationships.ensureReachOutLine(rel.id);

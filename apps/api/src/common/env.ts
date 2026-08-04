@@ -68,3 +68,20 @@ export function corsOrigins(): string[] | boolean {
 
 /** Bodies are prose and small JSON. Anything larger is a mistake or an attack. */
 export const BODY_LIMIT = process.env.BODY_LIMIT ?? '256kb';
+
+/**
+ * A jsonwebtoken-style TTL ('30d', '12h', '900s', bare seconds) as
+ * milliseconds. The refresh token's DB row and its JWT `exp` must agree, and
+ * they can only agree if both are derived from the same string — the row used
+ * to hardcode 30 days while the JWT read the env var, so changing the TTL
+ * changed only one of the two clocks.
+ */
+export function ttlToMs(ttl: string | undefined, fallbackMs: number): number {
+  if (!ttl) return fallbackMs;
+  const m = /^(\d+)\s*(ms|s|m|h|d)?$/.exec(ttl.trim());
+  if (!m) return fallbackMs;
+  const n = Number(m[1]);
+  const unit = m[2] ?? 's'; // jsonwebtoken treats a bare number as seconds
+  const factor = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[unit]!;
+  return n * factor;
+}

@@ -108,6 +108,28 @@ describe('risk', () => {
   });
 });
 
+describe('a goal made this morning is a birth, not a stall', () => {
+  it('day zero reads as new — never "has not moved in 0 days"', () => {
+    const out = goalEngine.run(ctx({
+      goals: [goal({ createdAt: NOW, progressAt: [] })],
+    }));
+    const obs = out.observations.find((o) => o.id === 'goal:g1')!;
+    expect(obs.statement).toMatch(/new — it has no first step yet/);
+    expect(obs.statement).not.toMatch(/0 days/);
+    const p = out.proposals.find((x) => x.id.endsWith(':shrink'))!;
+    expect(p.because).toMatch(/easiest to start/i);
+    expect(p.because).not.toMatch(/0 days/);
+  });
+
+  it('a genuinely stalled goal still hears the stall', () => {
+    const out = goalEngine.run(ctx({
+      goals: [goal({ createdAt: daysAgo(9), progressAt: [] })],
+    }));
+    const obs = out.observations.find((o) => o.id === 'goal:g1')!;
+    expect(obs.statement).toMatch(/has not moved in 9 days/);
+  });
+});
+
 describe('the three moves when momentum drops', () => {
   it('move 1 — shrinks the step, and uses their own stated purpose', () => {
     const out = goalEngine.run(ctx({

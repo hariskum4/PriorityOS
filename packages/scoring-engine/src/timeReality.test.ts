@@ -197,9 +197,87 @@ describe('unknown stored values never become NaN', () => {
     expect(normalizeHealthStatus('poor')).toBe('declining');
     expect(normalizeHealthStatus('excellent')).toBe('good');
     expect(normalizeHealthStatus('  SERIOUS ')).toBe('serious');
+    // The words people actually type about a parent. "aging" used to fall
+    // through to 'good' — quietly LOWERING the urgency of exactly the person
+    // the user flagged as worrying them. These are known words, not guesses,
+    // so the unknown-defaults-to-good rule above is untouched.
+    expect(normalizeHealthStatus('aging')).toBe('declining');
+    expect(normalizeHealthStatus('Ageing')).toBe('declining');
+    expect(normalizeHealthStatus('elderly')).toBe('declining');
+    expect(normalizeHealthStatus('sick')).toBe('declining');
+    expect(normalizeHealthStatus('cancer')).toBe('serious');
+    expect(normalizeHealthStatus('hospitalized')).toBe('serious');
     expect(normalizeLocationType('same_home')).toBe('same_city');
     expect(normalizeLocationType('different_country')).toBe('abroad');
     expect(normalizeLocationType('overseas')).toBe('abroad');
     expect(normalizeLocationType(undefined)).toBe('different_city');
+  });
+});
+
+/**
+ * The uplift is the agency half of this engine — invariant 3. A card that
+ * offers it has to be able to trust two things: that it is genuinely more, and
+ * that the pace it names is the pace the arithmetic used.
+ */
+describe('what one change actually adds', () => {
+  it('adding visits never lowers the count', () => {
+    // The onboarding reveal showed "~150 visits ahead" and, beneath it,
+    // "add just 2 visits a year and it becomes 140" — because it recomputed
+    // the uplift over a flat ten years while the estimate spanned the
+    // quality-year window. The engine's own pair can never invert.
+    for (let age = 30; age <= 90; age++) {
+      for (const pace of [1, 2, 4, 6, 12, 24, 52]) {
+        const r = estimateTimeReality({
+          ...base, personAge: age, currentVisitsPerYear: pace,
+          desiredVisitsPerYear: undefined,
+        });
+        expect(r.improvedTrajectory).toBeGreaterThanOrEqual(r.currentTrajectory);
+        expect(r.additionalPossible).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  it('the reveal case: a parent of 60, seen monthly, gains rather than loses', () => {
+    const r = estimateTimeReality({
+      ...base, personAge: 60, currentVisitsPerYear: 12,
+      desiredVisitsPerYear: undefined, personLabel: 'Papa',
+    });
+    expect(r.currentTrajectory).toBe(150);
+    expect(r.improvedTrajectory).toBe(180);   // not 140
+    expect(r.visitsAddedPerYear).toBe(2);
+  });
+
+  it('names two a year when two a year are possible', () => {
+    const r = estimateTimeReality({ ...base, desiredVisitsPerYear: undefined });
+    expect(r.visitsAddedPerYear).toBe(2);
+  });
+
+  it('names nothing when the ceiling is already reached', () => {
+    // Abroad caps meaningful visits at 4 a year before the working week is
+    // even considered. Someone already at that ceiling cannot add two, and
+    // promising them they can is a reproach dressed as encouragement.
+    const r = estimateTimeReality({
+      ...base, personLocationType: 'abroad', currentVisitsPerYear: 6,
+      desiredVisitsPerYear: undefined,
+    });
+    expect(r.visitsAddedPerYear).toBe(0);
+    expect(r.improvedTrajectory).toBe(r.currentTrajectory);
+  });
+
+  it('the pace it names is the pace it used', () => {
+    // Whatever the cap does to the ask, the sentence and the number agree.
+    for (const loc of ['same_city', 'different_city', 'abroad'] as const) {
+      for (const pace of [1, 4, 12, 40]) {
+        const r = estimateTimeReality({
+          ...base, personLocationType: loc, currentVisitsPerYear: pace,
+          desiredVisitsPerYear: undefined,
+        });
+        if (r.visitsAddedPerYear === 0) {
+          expect(r.improvedTrajectory).toBe(r.currentTrajectory);
+        } else {
+          expect(r.improvedTrajectory).toBeGreaterThan(r.currentTrajectory);
+        }
+      }
+    }
   });
 });

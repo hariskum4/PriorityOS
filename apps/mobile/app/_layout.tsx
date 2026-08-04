@@ -10,6 +10,9 @@ import { queryClient } from '@/services/queryClient';
 import { storage } from '@/services/storage';
 import { restoreCache, startPersisting } from '@/services/cache';
 import { watchNetwork } from '@/services/network';
+// Side effects only: registers the resumable capture writes. Must load before
+// restoreCache runs, or hydrated paused mutations find no function to run.
+import '@/services/mutationDefaults';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { colors, isLight } from '@/theme';
 

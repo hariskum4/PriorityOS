@@ -24,7 +24,8 @@
  */
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { QueryClient } from '@tanstack/react-query';
+import { dehydrate, hydrate } from '@tanstack/react-query';
+import type { DehydratedState, QueryClient } from '@tanstack/react-query';
 
 const VERSION = 2;
 const KEY = `priority-query-cache-v${VERSION}`;
@@ -46,6 +47,15 @@ interface Snapshot {
    */
   ownerId: string | null;
   entries: Array<{ key: unknown[]; data: unknown; updatedAt: number }>;
+  /**
+   * Writes that were paused mid-flight when the process died — a journal
+   * entry composed on a plane, a call logged in a lift. Only the mutation
+   * key and its variables are stored; the function to finish the job is
+   * looked up from `setMutationDefaults` at hydration. Absent in snapshots
+   * written before this field existed, which is fine: their writes were
+   * already lost the old way.
+   */
+  mutations?: DehydratedState['mutations'];
 }
 
 /** The web build has localStorage; AsyncStorage there pulls in a shim we don't need. */
@@ -101,6 +111,16 @@ export async function restoreCache(
       queryClient.setQueryData(entry.key, entry.data, { updatedAt: entry.updatedAt });
       restored++;
     }
+    /**
+     * Put interrupted writes back in flight. Hydration re-creates each paused
+     * mutation from its stored key + variables (the defaults registered in
+     * mutationDefaults.ts supply the function), and the resume call retries
+     * them — or re-pauses them, if the device is still offline.
+     */
+    if (snapshot.mutations?.length) {
+      hydrate(queryClient, { queries: [], mutations: snapshot.mutations });
+      void queryClient.resumePausedMutations().catch(() => {});
+    }
     return restored;
   } catch {
     // A corrupt cache is not worth a crash on launch. Drop it and go online.
@@ -138,15 +158,26 @@ export function startPersisting(
           updatedAt: q.state.dataUpdatedAt,
         }));
 
+      // Only paused mutations are worth keeping: a running one either
+      // finishes (nothing to save) or fails into the paused state (saved on
+      // the next tick of this subscription).
+      const mutations = dehydrate(queryClient, {
+        shouldDehydrateQuery: () => false,
+        shouldDehydrateMutation: (m) => m.state.isPaused,
+      }).mutations;
+
       /**
        * An empty snapshot never replaces a populated one. Open the app with no
        * connection, every query fails, and a naive save writes that emptiness
        * over the last good copy — so the first offline launch destroys the
-       * thing that makes the second one work.
+       * thing that makes the second one work. A paused write is the one
+       * exception: saving it is the entire point of persisting at all.
        */
-      if (!entries.length) return;
+      if (!entries.length && !mutations.length) return;
 
-      const snapshot: Snapshot = { version: VERSION, savedAt: Date.now(), ownerId, entries };
+      const snapshot: Snapshot = {
+        version: VERSION, savedAt: Date.now(), ownerId, entries, mutations,
+      };
       await store.set(KEY, JSON.stringify(snapshot));
     } catch {
       // A full disk must never take down the app. Losing the cache costs a
@@ -154,10 +185,18 @@ export function startPersisting(
     }
   };
 
-  return queryClient.getQueryCache().subscribe(() => {
+  const schedule = () => {
     if (timer) return;
     timer = setTimeout(write, WRITE_DELAY_MS);
-  });
+  };
+  // Both caches: a write pausing offline is exactly the state change the
+  // snapshot exists to capture, and it arrives via the mutation cache.
+  const unsubQueries = queryClient.getQueryCache().subscribe(schedule);
+  const unsubMutations = queryClient.getMutationCache().subscribe(schedule);
+  return () => {
+    unsubQueries();
+    unsubMutations();
+  };
 }
 
 /** Called on sign-out: someone else's life must not be sitting in this cache. */

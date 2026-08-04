@@ -31,10 +31,26 @@ const WRITABLE_FIELDS = [
  * indexes tables with them. Normalising on the way in means a word the engine
  * has never seen cannot sit in the database waiting to become NaN.
  */
+/**
+ * "harish" typed on a phone keyboard becomes "Harish" everywhere his name is
+ * ever rendered — the People list, "Walk with Harish", "Time with Harish?".
+ * Only fully-lowercase input is touched: "McKenna", "de Souza" and every
+ * other deliberate casing pass through exactly as written, because a fix for
+ * autocorrect must never argue with someone about their own mother's name.
+ */
+function displayName(raw: string): string {
+  const name = raw.trim();
+  if (name !== name.toLowerCase()) return name;
+  return name.replace(/(^|[\s\-'])\p{L}/gu, (ch) => ch.toUpperCase());
+}
+
 function normalizeWritable(data: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of WRITABLE_FIELDS) {
     if (data[key] !== undefined) out[key] = data[key];
+  }
+  if (typeof out.name === 'string' && out.name.trim()) {
+    out.name = displayName(out.name);
   }
   if (out.healthStatus != null && out.healthStatus !== '') {
     out.healthStatus = normalizeHealthStatus(String(out.healthStatus));
@@ -140,10 +156,20 @@ export class RelationshipsService {
           notes: data.notes,
         }).filter(([, v]) => v !== undefined && v !== null && v !== ''),
       );
-      return this.prisma.relationship.update({ where: { id: existing.id }, data: patch });
+      await this.prisma.relationship.update({ where: { id: existing.id }, data: patch });
+      return this.recalcPriority(existing.id);
     }
 
-    return this.prisma.relationship.create({
+    /**
+     * Score at birth, not at first contact.
+     *
+     * Everything downstream selects BY this score — the drift cron takes
+     * rows at 70+, reach-out lines at 60+, the People list orders by it. A
+     * row created at the default 0 sat below every one of those gates, so
+     * the person added during onboarding — the app's whole reason to nudge —
+     * could never be nudged until a contact was logged by hand.
+     */
+    const created = await this.prisma.relationship.create({
       data: {
         userId,
         name,
@@ -161,14 +187,18 @@ export class RelationshipsService {
         notes: data.notes ?? null,
       },
     });
+    return this.recalcPriority(created.id);
   }
 
   async update(userId: string, id: string, data: any) {
     await this.assertOwned(userId, id);
-    return this.prisma.relationship.update({
+    // Closeness, cadence and wantsMoreTime are all inputs to the score, so an
+    // edit re-scores unconditionally — cheaper than diffing which field moved.
+    await this.prisma.relationship.update({
       where: { id },
       data: normalizeWritable(data ?? {}),
     });
+    return this.recalcPriority(id);
   }
 
   async remove(userId: string, id: string) {
@@ -200,19 +230,20 @@ export class RelationshipsService {
     });
     const patch: Record<string, Date> = { lastContactAt: now };
     if (kind === 'visit') patch.lastVisitAt = now;
-    const rel = await this.prisma.relationship.update({
+    await this.prisma.relationship.update({
       where: { id },
       data: patch,
     });
-    await this.recalcPriority(rel.id);
-    return rel;
+    // Hand back the re-scored row: the one-tap log is exactly the moment the
+    // urgency number changes, and the screen that made the tap shows it.
+    return this.recalcPriority(id);
   }
 
   async recalcPriority(relationshipId: string) {
     const rel = await this.prisma.relationship.findUnique({
       where: { id: relationshipId },
     });
-    if (!rel) return;
+    if (!rel) return null;
     const days =
       rel.lastContactAt === null
         ? null
@@ -224,7 +255,7 @@ export class RelationshipsService {
       daysSinceLastContact: days,
       age: rel.age,
     });
-    await this.prisma.relationship.update({
+    return this.prisma.relationship.update({
       where: { id: relationshipId },
       data: { priorityScore: score },
     });

@@ -45,6 +45,18 @@ export interface TimeRealityResult {
   /** Visits if the user moves to their desired (capacity-capped) pace. */
   improvedTrajectory: number;
   additionalPossible: number;
+  /**
+   * Visits a year the improved trajectory actually assumes — which is not
+   * always the two it was asked for.
+   *
+   * `desiredPace` is capped by what the location and the working week can
+   * really hold, so someone whose parent lives abroad and who already visits at
+   * that ceiling gains nothing from "two more a year". A caller offering that
+   * sentence needs to know when it has become untrue, and the only honest
+   * source is the pace the arithmetic used. Zero means the ceiling was already
+   * reached: say nothing rather than promise a change that cannot happen.
+   */
+  visitsAddedPerYear: number;
   /** Realistic ceiling given location + work constraints. */
   maxPossible: number;
   /** Display-safe string, e.g. "~95". */
@@ -104,7 +116,15 @@ const HEALTH_ALIASES: Record<string, HealthStatus> = {
   good: 'good', excellent: 'good', great: 'good', well: 'good', healthy: 'good', fine: 'good',
   declining: 'declining', fair: 'declining', ok: 'declining', okay: 'declining',
   poor: 'declining', frail: 'declining', unwell: 'declining',
+  // The words people actually type about a parent. "aging" once normalised to
+  // 'good' — the default for unknowns — which quietly LOWERED the urgency of
+  // exactly the person the user was worried about.
+  aging: 'declining', ageing: 'declining', elderly: 'declining', old: 'declining',
+  sick: 'declining', ill: 'declining', unhealthy: 'declining', weak: 'declining',
+  recovering: 'declining', fragile: 'declining',
   serious: 'serious', critical: 'serious', severe: 'serious', terminal: 'serious',
+  cancer: 'serious', hospice: 'serious', bedridden: 'serious', hospitalised: 'serious',
+  hospitalized: 'serious',
 };
 
 const LOCATION_ALIASES: Record<string, LocationType> = {
@@ -221,6 +241,7 @@ export function estimateTimeReality(input: TimeRealityInput): TimeRealityResult 
     currentTrajectory,
     improvedTrajectory,
     additionalPossible: Math.max(improvedTrajectory - currentTrajectory, 0),
+    visitsAddedPerYear: Math.max(Math.round(desiredPace - currentPace), 0),
     maxPossible,
     display: `~${currentTrajectory}`,
     framingText: framingFor(currentTrajectory, input.personLabel),

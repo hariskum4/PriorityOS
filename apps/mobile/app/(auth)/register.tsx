@@ -38,6 +38,7 @@ export default function Register() {
   };
 
   return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
     <View style={s.wrap}>
       <Text style={type.display}>Start with what matters</Text>
       <View style={{ gap: space(3), marginTop: space(6) }}>
@@ -57,9 +58,15 @@ export default function Register() {
         )}
       </View>
     </View>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  wrap: { flex: 1, justifyContent: 'center', padding: space(6), backgroundColor: colors.bg },
+  // Same shape as the login screen — full-bleed background, capped column.
+  // Without the cap a desktop browser stretched these fields edge to edge.
+  wrap: {
+    flex: 1, justifyContent: 'center', padding: space(6),
+    maxWidth: 440, width: '100%', alignSelf: 'center',
+  },
 });

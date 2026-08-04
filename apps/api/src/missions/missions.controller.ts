@@ -4,6 +4,7 @@ import {
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { MissionsService } from './missions.service';
+import { CreateMissionDto } from './missions.dto';
 
 @UseGuards(JwtGuard)
 @Controller('missions')
@@ -16,7 +17,7 @@ export class MissionsController {
   }
 
   @Post()
-  create(@CurrentUser() u: JwtUser, @Body() body: any) {
+  create(@CurrentUser() u: JwtUser, @Body() body: CreateMissionDto) {
     return this.missions.create(u.userId, body);
   }
 

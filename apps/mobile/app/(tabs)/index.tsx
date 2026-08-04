@@ -36,6 +36,22 @@ const CADENCE_DAYS: Record<string, number> = {
   daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
 };
 
+/**
+ * What to call the moment the hero card claims.
+ *
+ * The card said "Now" at every hour, so at ten to one in the morning the
+ * screen whose own greeting reads "Still awake" was instructing someone to
+ * call their mother — NOW. The proposal is right (call her today); the frame
+ * was wrong. Late at night the same card points at tomorrow morning instead.
+ * Same hour source as the greeting, so the two can never disagree.
+ */
+function nowWord(): string {
+  const h = new Date().getHours();
+  if (h >= 22) return 'Tomorrow';
+  if (h < 7) return 'First thing';
+  return 'Now';
+}
+
 function relativeDays(iso: string | Date): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
   if (days <= 0) return 'today';
@@ -202,12 +218,16 @@ function ProposalCard({ proposal, onAccept, onDismiss }: {
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 13, alignItems: 'center' }}>
         <Pressable
           onPress={onAccept}
+          accessibilityRole="button"
+          accessibilityLabel={`I'll do it: ${proposal.action}`}
           style={({ pressed }) => [s.pBtn, { backgroundColor: color }, pressed && { opacity: 0.85 }]}
         >
           <Text style={{ color: obs.onBrass, fontWeight: '700', fontSize: 13.5 }}>I'll do it</Text>
         </Pressable>
         <Pressable
           onPress={() => onDismiss(false)}
+          accessibilityRole="button"
+          accessibilityLabel={`Not this: ${proposal.action}`}
           style={({ pressed }) => [s.pBtnGhost, pressed && { opacity: 0.6 }]}
         >
           <Text style={{ color: obs.inkDim, fontWeight: '600', fontSize: 13.5 }}>Not this</Text>
@@ -1080,6 +1100,9 @@ export default function Today() {
                 <Pressable
                   disabled={complete.isPending || snooze.isPending}
                   onPress={() => complete.mutate(m)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Done: ${m.title}`}
+                  accessibilityState={{ disabled: complete.isPending || snooze.isPending }}
                   style={({ pressed }) => [
                     s.btn, s.btnGo,
                     (complete.isPending || snooze.isPending) && { opacity: 0.55 },
@@ -1091,6 +1114,9 @@ export default function Today() {
                 <Pressable
                   disabled={complete.isPending || snooze.isPending}
                   onPress={() => snooze.mutate(m.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Not today: ${m.title}`}
+                  accessibilityState={{ disabled: complete.isPending || snooze.isPending }}
                   style={({ pressed }) => [
                     s.btn, s.btnGhost,
                     (complete.isPending || snooze.isPending) && { opacity: 0.55 },
@@ -1141,7 +1167,7 @@ export default function Today() {
               <View style={s.nowLbl}>
                 <PulseDot color={heroProposal.domain ? obsDomain(heroProposal.domain) : obs.brass} />
                 <Tick color={heroProposal.domain ? obsDomain(heroProposal.domain) : obs.brass}>
-                  Now · {heroProposal.effortMinutes} min · {heroProposal.engine}
+                  {nowWord()} · {heroProposal.effortMinutes} min · {heroProposal.engine}
                 </Tick>
               </View>
               <Text style={[obsType.said, { marginTop: 12 }]}>{heroProposal.action}</Text>
@@ -1150,6 +1176,9 @@ export default function Today() {
                 <Pressable
                   disabled={acceptProposal.isPending || dismissProposal.isPending}
                   onPress={() => acceptProposal.mutate(heroProposal)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`I'll do it: ${heroProposal.action}`}
+                  accessibilityState={{ disabled: acceptProposal.isPending || dismissProposal.isPending }}
                   style={({ pressed }) => [
                     s.btn, s.btnGo,
                     (acceptProposal.isPending || dismissProposal.isPending) && { opacity: 0.55 },
@@ -1161,6 +1190,9 @@ export default function Today() {
                 <Pressable
                   disabled={acceptProposal.isPending || dismissProposal.isPending}
                   onPress={() => dismissProposal.mutate({ p: heroProposal })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Not this: ${heroProposal.action}`}
+                  accessibilityState={{ disabled: acceptProposal.isPending || dismissProposal.isPending }}
                   style={({ pressed }) => [
                     s.btn, s.btnGhost,
                     (acceptProposal.isPending || dismissProposal.isPending) && { opacity: 0.55 },

@@ -18,6 +18,15 @@
         "cd /Users/harishkumar/Downloads/priority/apps/mobile && exec npx expo start --web --port 8081"
       ],
       "port": 8081
+    },
+    {
+      "name": "priority-mobile-web-alt",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/harishkumar/Downloads/priority/apps/mobile && exec npx expo start --web --port 8082"
+      ],
+      "port": 8082
     }
   ]
 }

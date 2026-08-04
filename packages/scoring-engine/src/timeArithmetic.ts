@@ -19,7 +19,6 @@
  * agency counterpart attached, soft rounding.
  */
 
-import { softRound } from './timeReality';
 import { yearsToHorizon } from './lifeWindows';
 
 // ---------------------------------------------------------------------------
@@ -47,7 +46,10 @@ export function lifeInWeeks(age: number): LifeInWeeks {
     yearsAhead,
     framingText:
       `The famous count is four thousand weeks — Priority plans on a longer, kinder horizon. ` +
-      `You have ~${softRound(weeksAhead).toLocaleString()} ahead — enough to build almost anything, if they're spent on purpose.`,
+      // The exact figure, not softRound: the grid caption two lines above this
+      // says "~3,914 ahead", and two estimates of the same thing disagreeing
+      // on one screen reads as a bug, not as humility.
+      `You have ~${weeksAhead.toLocaleString()} ahead — enough to build almost anything, if they're spent on purpose.`,
   };
 }
 

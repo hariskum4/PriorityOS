@@ -4,6 +4,7 @@ import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { AiService } from '../ai/ai.service';
+import { RelationshipsService } from '../relationships/relationships.service';
 import { MISSION_CRAFT } from '@priority/ai-prompts';
 import {
   rankMissions,
@@ -23,6 +24,7 @@ export class MissionsService {
     private game: GamificationService,
     private analytics: AnalyticsService,
     private ai: AiService,
+    private relationships: RelationshipsService,
   ) {}
 
   list(userId: string, status?: string) {
@@ -54,6 +56,25 @@ export class MissionsService {
       },
     });
     if (existing) return existing;
+    /**
+     * A link is a claim about whose life this row joins. Completing a
+     * relationship mission writes a ContactLog onto that relationship, so a
+     * foreign id here would let one account append to another account's
+     * contact history. Same shape for goals: a foreign goalId would mark a
+     * stranger's goal as stepped-on.
+     */
+    if (data.relationshipId) {
+      const rel = await this.prisma.relationship.findFirst({
+        where: { id: data.relationshipId, userId }, select: { id: true },
+      });
+      if (!rel) throw new NotFoundException('Relationship not found');
+    }
+    if (data.goalId) {
+      const goal = await this.prisma.goal.findFirst({
+        where: { id: data.goalId, userId }, select: { id: true },
+      });
+      if (!goal) throw new NotFoundException('Goal not found');
+    }
     return this.prisma.mission.create({
       data: {
         userId,
@@ -80,10 +101,22 @@ export class MissionsService {
 
   async complete(userId: string, id: string) {
     const mission = await this.assertOwned(userId, id);
-    const updated = await this.prisma.mission.update({
-      where: { id },
+    /**
+     * updateMany's count is the completion lock. Two taps land as two
+     * requests; both read "pending", but exactly one flips the row. Without
+     * this, the loser re-awarded XP, logged a second contact, and asked the
+     * engine for another next-mission — six taps in one second once produced
+     * six of everything.
+     */
+    const { count } = await this.prisma.mission.updateMany({
+      where: { id, status: { not: 'completed' } },
       data: { status: 'completed', completedAt: new Date() },
     });
+    const updated = await this.prisma.mission.findUniqueOrThrow({ where: { id } });
+    if (count === 0) {
+      // Already completed — idempotent: same shape, nothing awarded twice.
+      return { mission: updated, xp: null, next: null };
+    }
     // Relationship missions also count as contact — no double data entry.
     if (mission.relationshipId) {
       await this.prisma.contactLog.create({
@@ -97,6 +130,9 @@ export class MissionsService {
         where: { id: mission.relationshipId },
         data: { lastContactAt: new Date() },
       });
+      // The contact just changed the urgency arithmetic; leaving the stored
+      // score stale kept the People list shouting about a person just seen.
+      await this.relationships.recalcPriority(mission.relationshipId);
     }
     const xpEvent = mission.relationshipId
       ? 'relationship_mission_completed'

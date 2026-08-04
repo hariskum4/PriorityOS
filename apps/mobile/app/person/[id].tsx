@@ -59,8 +59,11 @@ export default function PersonDetail() {
   };
 
   const logContact = useMutation({
-    mutationFn: (kind: string) =>
-      api(`/relationships/${id}/contact`, { method: 'POST', body: { kind } }),
+    // Keyed for offline resume — and the id rides in the variables, because a
+    // replay after relaunch has no route params to close over.
+    mutationKey: ['contact', 'log'],
+    mutationFn: ({ id: relId, kind }: { id: string; kind: string }) =>
+      api(`/relationships/${relId}/contact`, { method: 'POST', body: { kind } }),
     onSuccess: invalidate,
   });
 
@@ -142,7 +145,7 @@ export default function PersonDetail() {
               <Pressable
                 key={kind}
                 disabled={logContact.isPending}
-                onPress={() => logContact.mutate(kind)}
+                onPress={() => logContact.mutate({ id: String(id), kind })}
                 style={({ pressed }) => [
                   s.tapChip,
                   logContact.isPending && { opacity: 0.5 },
