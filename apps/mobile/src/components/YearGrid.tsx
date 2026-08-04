@@ -334,6 +334,37 @@ export function YearGrid({
    */
   const [focus, setFocus] = useState<string | null>(null);
 
+  /**
+   * Whether this year has been coming for long enough to say so.
+   *
+   * Loading here is deliberately silent, and that is right for the two
+   * hundred milliseconds it usually takes — a spinner in a box about to
+   * fill with days is one more thing moving on a screen about a settled
+   * past. It stops being right at thirty seconds. A server that has been
+   * idle takes that long to wake, and for the whole of it this card sits
+   * on "Reading that year…" and an empty rectangle, which is indistinguishable
+   * from broken. Silence is a claim that nothing is wrong; past a few
+   * seconds it stops being a claim anyone believes.
+   *
+   * The threshold is the point where a person starts wondering rather than
+   * waiting. Below it, saying anything would be noise about a request that
+   * is about to land.
+   */
+  const SLOW_AFTER_MS = 8_000;
+  const [slow, setSlow] = useState(false);
+  const waiting = !data && !offline && !failed;
+  React.useEffect(() => {
+    if (!waiting) {
+      /* Reset on arrival AND on the step to another year, so a slow 2009
+         cannot make an instant 2010 apologise for itself. */
+      setSlow(false);
+      return;
+    }
+    setSlow(false);
+    const t = setTimeout(() => setSlow(true), SLOW_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [waiting, year]);
+
   const [gridWidth, setGridWidth] = useState(0);
 
   /**
@@ -524,7 +555,11 @@ export function YearGrid({
                says so once, in the body — a subheading reading "Reading that
                year…" above "That year would not load" is the app arguing with
                itself. */
-            offline || failed ? null : <Text style={type.faint}>Reading that year…</Text>
+            offline || failed ? null : (
+              <Text style={type.faint}>
+                {slow ? 'Still waiting on the server…' : 'Reading that year…'}
+              </Text>
+            )
           ) : focus ? (
             <Text style={type.faint}>
               {mode === 'month'
@@ -551,6 +586,10 @@ export function YearGrid({
         * it. Loading is deliberately silent: the heading above already says
         * "Reading that year…", and a spinner in a box that is about to be full
         * of days is one more thing moving on a screen about a settled past.
+        *
+        * Silent, but not indefinitely. Past `SLOW_AFTER_MS` the empty box
+        * says what is actually happening, because by then the reader has
+        * stopped waiting and started wondering whether it is broken.
         */}
       {!data ? (
         <View style={{ marginTop: space(4), gap: space(3) }}>
@@ -563,6 +602,20 @@ export function YearGrid({
               </Text>
               {onRetry ? <Button title="Try again" small kind="ghost" onPress={onRetry} /> : null}
             </>
+          ) : slow ? (
+            /* The honest version of a long wait: what is happening, that it
+               is still happening, and that nothing has been lost. No spinner
+               — a moving thing would only make the wait louder, not shorter.
+               "Try again" is offered because a request this old is sometimes
+               genuinely stuck, and a second tap costs nothing. */
+            <View style={{ height: 84, gap: space(3) }}>
+              <Text style={type.faint}>
+                The server takes a moment to wake if it has been idle. Nothing is
+                lost — the days are recorded, and this will fill in as soon as it
+                answers.
+              </Text>
+              {onRetry ? <Button title="Try again" small kind="ghost" onPress={onRetry} /> : null}
+            </View>
           ) : (
             <View style={{ height: 84 }} />
           )}
