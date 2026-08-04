@@ -37,3 +37,11 @@ services:
         value: nvidia/nemotron-3-super-120b-a12b:free
       - key: AI_API_KEY
         sync: false
+      # Password-reset emails. Without a key the API still answers /auth/forgot-password
+      # but only logs an error instead of sending — set one before real users need it.
+      # Free key: https://resend.com (100 emails/day). MAIL_FROM must be a verified
+      # sender or the resend.dev default.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        value: Priority <onboarding@resend.dev>
