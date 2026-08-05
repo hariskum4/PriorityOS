@@ -131,6 +131,17 @@ export interface LeverSignal {
  */
 export function classifyLever(title: string): LeverKey | null {
   const t = title.toLowerCase();
+  /**
+   * A made bed is a tidy room, not a night's sleep.
+   *
+   * "Make the bed" is one of the commonest things people track, and the bare
+   * `bed` below was reading it as the sleep lever — so somebody who had
+   * straightened a duvet was credited with two years of healthspan, told
+   * their sleep was handled, and never offered a bedtime again. Checked
+   * before the others because it is a phrase, not a keyword, and the keyword
+   * would win.
+   */
+  if (/\bmakes?\s+(?:the\s+|my\s+)?bed\b/.test(t)) return null;
   if (/\b(strength|gym|lift|weights?|resistance|push[- ]?ups?|squats?|pull[- ]?ups?)\b/.test(t)) return 'strength';
   if (/\b(walk|walking|run|running|jog|jogging|cycle|cycling|bike|swim|swimming|cardio|zone[- ]?2|steps|treadmill)\b/.test(t)) return 'cardio';
   if (/\b(sleep|bed|bedtime|lights out|wind down|screens? off)\b/.test(t)) return 'sleep';

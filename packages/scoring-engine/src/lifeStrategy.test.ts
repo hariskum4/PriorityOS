@@ -163,8 +163,13 @@ describe('weekly allocation', () => {
           { domainType: 'health', perWeek: 3, minutes: 40 },
         ], held);
         const health = a.allotments.find((x) => x.domainType === 'health')!;
-        // Only "Lights out at the same hour" is left: 7 x 5min = ~0.5h.
-        expect(health.reachableHours).toBe(2.5);
+        /* 2h held, plus what health still has to give: lights out, stretch,
+           water, vitamins, upkeep and make the bed at 0.58h each, and cook at
+           2.25h — 6.17h, rounded to the half hour. It was 2.5 when the only
+           thing left was lights out; the daily upkeep entries are what moved
+           it, and the point of the test is unchanged — retired titles still
+           do not count toward what is reachable. */
+        expect(health.reachableHours).toBe(8);
       });
 
       it('does not offer room for a lever already being kept under another name', () => {
@@ -808,6 +813,24 @@ describe('reading a habit as a lever', () => {
     expect(classifyLever('Sunday call with parents')).toBeNull();
     expect(classifyLever('Read for 20 minutes')).toBeNull();
     expect(classifyLever('Journal at night')).toBeNull();
+  });
+
+  /**
+   * A made bed is a tidy room, not a night's sleep.
+   *
+   * "Make the bed" is among the commonest things people track, and the bare
+   * `bed` keyword read it as the sleep lever — crediting two years of
+   * healthspan to somebody who had straightened a duvet, and telling them
+   * their sleep was handled. The real bedtime phrasings still have to work.
+   */
+  it('does not read making a bed as sleeping in one', () => {
+    expect(classifyLever('Make the bed')).toBeNull();
+    expect(classifyLever('make my bed every morning')).toBeNull();
+    expect(classifyLever('Makes the bed')).toBeNull();
+
+    expect(classifyLever('In bed by 11')).toBe('sleep');
+    expect(classifyLever('Early to bed')).toBe('sleep');
+    expect(classifyLever('Bedtime routine')).toBe('sleep');
   });
 });
 

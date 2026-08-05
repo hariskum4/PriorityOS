@@ -189,10 +189,13 @@ export default function Catalog() {
         </Pressable>
 
         <Text style={type.display}>The catalog</Text>
+        {/* Not "three to a part of a life" any more — health holds nine.
+            The count below says the true number without the copy having to
+            be edited again the next time the catalog grows. */}
         <Text style={type.dim}>
-          Every standing rhythm this app knows how to hold, three to a part of
-          a life. Nothing here is assigned — a rhythm starts when you start it,
-          and three a week is plenty to begin with.
+          Every standing rhythm this app knows how to hold, by part of a life.
+          Nothing here is assigned — a rhythm starts when you start it, and
+          three a week is plenty to begin with.
         </Text>
         <Text style={type.faint}>
           {total} rhythms across {domains.length} parts of a life

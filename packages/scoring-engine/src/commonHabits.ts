@@ -26,6 +26,16 @@
  *   healthspan twins, so nothing here can shadow an entry somebody was
  *   actually offered.
  *
+ *   **Nine of these are offers now.** See `PROMOTED`. The catalog's own
+ *   thirty-six are weekly and substantial — an hour on the project, an
+ *   unhurried hour with them — and it turned out to have nothing at all in
+ *   the register people actually start with: water, vitamins, a made bed,
+ *   flossing. The app understood every one of those and would never once
+ *   suggest one. They are defined here, where their wording already was, and
+ *   spread into their domains by `rhythms.ts`; the patterns below still read
+ *   the phrasings ("yoga", "hydrate", "gratitude") that mean the same thing,
+ *   and now resolve to the same catalog identity rather than a parallel one.
+ *
  *   **Abstinence is not an activity.** "No sugar", "quit smoking", "less
  *   scrolling" are kept all day and satisfied by nothing happening. They get
  *   `allday` and stay off the clock; see `TimeOfDay`.
@@ -71,8 +81,80 @@ const norm = (s: string) => {
 };
 
 /**
+ * The nine the catalog was missing, and now offers.
+ *
+ * Domain-prefixed keys, unlike everything else in this file, because that is
+ * what they are: `rhythms.ts` spreads them into `health`, `reflection` and
+ * `growth`, and its own test insists a key names the domain it sits in. One
+ * definition rather than two — a copy in each file would be the drift this
+ * codebase keeps paying for, and it would show up as a catalog that cannot
+ * tell somebody who writes "yoga" that it already knows what that is.
+ *
+ * Appended to their domains, never inserted. The first entry in a domain is
+ * what the day card offers, and health leading with "drink water" instead of
+ * "move three times a week" would be the app quietly lowering its opinion of
+ * what a week is for.
+ */
+export const PROMOTED = {
+  stretch: {
+    key: 'health.stretch', title: 'Stretch', perWeek: 3, minutes: 20,
+    when: 'morning', needs: ['canMove'],
+    because: 'Range kept now is the moving-freely part of every later year.',
+  },
+  vitamins: {
+    key: 'health.vitamins', title: 'Vitamins', perWeek: 7, minutes: 5,
+    when: 'morning',
+    because: 'The habits that keep you well are mostly this small.',
+  },
+  upkeep: {
+    key: 'health.upkeep', title: 'Upkeep', perWeek: 7, minutes: 5,
+    when: 'evening',
+    /* Was "the whole cost of keeping it" — keeping *what*? The noun lived in
+       a title that says only "Upkeep", which is the dangling-subject bug the
+       rhythm catalog exists to prevent, arriving by the side door. */
+    because: 'Teeth and skin are cheap to keep and expensive to fix.',
+  },
+  makebed: {
+    key: 'health.makebed', title: 'Make the bed', perWeek: 7, minutes: 5,
+    when: 'morning',
+    because: 'The first kept promise of a day makes the second one likelier.',
+  },
+  cook: {
+    key: 'health.cook', title: 'Cook', perWeek: 3, minutes: 45,
+    when: 'evening',
+    because: 'What you eat is decided by what is already made.',
+  },
+  water: {
+    key: 'health.water', title: 'Drink water', perWeek: 7, minutes: 5,
+    when: 'allday',
+    because: 'Kept in sips across a day, not in an appointment.',
+  },
+  prayer: {
+    key: 'reflection.prayer', title: 'Prayer', perWeek: 7, minutes: 10,
+    when: 'any', needs: ['isPrivate'],
+    because: 'A practice kept daily is the spine a day organizes itself around.',
+  },
+  journal: {
+    key: 'reflection.journal', title: 'Journal', perWeek: 7, minutes: 10,
+    when: 'evening', needs: ['isPrivate'],
+    /* Not "you find out what you think by writing it" — that is already the
+       reason on "One honest page a week", in this same domain, and two
+       entries giving the same reason reads as a catalog padding itself. The
+       daily one is for the record; the weekly one is for the thinking. */
+    because: 'Ten minutes a night is the only record of this year you will keep.',
+  },
+  read: {
+    key: 'growth.read', title: 'Read', perWeek: 7, minutes: 30,
+    when: 'evening',
+    because: 'Twenty pages a night is a shelf a year, and it compounds.',
+  },
+} satisfies Record<string, Rhythm>;
+
+/**
  * The table. Keys are prefixed `common.` so nothing mistakes these for
  * catalog entries — they are readings of somebody else's words, not offers.
+ * The exceptions point at `PROMOTED`, whose keys name a domain because those
+ * nine are offered.
  *
  * Durations are typical, deliberately modest, and exist to stop the
  * thirty-minute default from lying; the reader can correct any of them on
@@ -105,14 +187,7 @@ const COMMON: Recognized[] = [
       because: 'The cheapest reset there is — moving and thinking.',
     },
   },
-  {
-    test: /^(?:yoga|stretch(?:ing)?|mobility)\b/,
-    rhythm: {
-      key: 'common.stretch', title: 'Stretch', perWeek: 3, minutes: 20,
-      when: 'morning', needs: ['canMove'],
-      because: 'Range kept now is the moving-freely part of every later year.',
-    },
-  },
+  { test: /^(?:yoga|stretch(?:ing)?|mobility)\b/, rhythm: PROMOTED.stretch },
 
   // ---- the quiet practices ------------------------------------------------
   {
@@ -123,22 +198,8 @@ const COMMON: Recognized[] = [
       because: 'A mind gets no maintenance window unless somebody makes one.',
     },
   },
-  {
-    test: /^(?:pray(?:er|ing)?\b|namaz|salah|rosary|devotion)/,
-    rhythm: {
-      key: 'common.prayer', title: 'Prayer', perWeek: 7, minutes: 10,
-      when: 'any', needs: ['isPrivate'],
-      because: 'A practice kept daily is the spine a day organizes itself around.',
-    },
-  },
-  {
-    test: /^(?:journal|gratitude|diary)/,
-    rhythm: {
-      key: 'common.journal', title: 'Journal', perWeek: 7, minutes: 10,
-      when: 'evening', needs: ['isPrivate'],
-      because: 'You find out what you think by writing it, not before.',
-    },
-  },
+  { test: /^(?:pray(?:er|ing)?\b|namaz|salah|rosary|devotion)/, rhythm: PROMOTED.prayer },
+  { test: /^(?:journal|gratitude|diary)/, rhythm: PROMOTED.journal },
   /* Before the generic read entry, because the array is checked in order
      and first match wins — "read to the kids" contains a book, but the
      habit is the child, and the generic pattern would call it thirty
@@ -151,14 +212,7 @@ const COMMON: Recognized[] = [
       because: 'What they remember is the thing that was theirs.',
     },
   },
-  {
-    test: /^read(?:ing)?\b/,
-    rhythm: {
-      key: 'common.read', title: 'Read', perWeek: 7, minutes: 30,
-      when: 'evening',
-      because: 'Twenty pages a night is a shelf a year, and it compounds.',
-    },
-  },
+  { test: /^read(?:ing)?\b/, rhythm: PROMOTED.read },
   {
     test: /^(?:study(?:ing)?\b|learn(?:ing)?\b|practi[cs]e\b|duolingo|language)/,
     rhythm: {
@@ -252,38 +306,10 @@ const COMMON: Recognized[] = [
   },
 
   // ---- small daily upkeep -------------------------------------------------
-  {
-    test: /^(?:take\s+)?(?:vitamins?|supplements?|meds?|medication|pills?)\b/,
-    rhythm: {
-      key: 'common.vitamins', title: 'Vitamins', perWeek: 7, minutes: 5,
-      when: 'morning',
-      because: 'The habits that keep you well are mostly this small.',
-    },
-  },
-  {
-    test: /^(?:skincare|skin\s+care|floss(?:ing)?)\b/,
-    rhythm: {
-      key: 'common.upkeep', title: 'Upkeep', perWeek: 7, minutes: 5,
-      when: 'evening',
-      because: 'Five minutes a night is the whole cost of keeping it.',
-    },
-  },
-  {
-    test: /^make\s+(?:the\s+|my\s+)?bed\b/,
-    rhythm: {
-      key: 'common.makebed', title: 'Make the bed', perWeek: 7, minutes: 5,
-      when: 'morning',
-      because: 'The first kept promise of a day makes the second one likelier.',
-    },
-  },
-  {
-    test: /^(?:cook(?:ing)?\b|meal\s+prep)/,
-    rhythm: {
-      key: 'common.cook', title: 'Cook', perWeek: 3, minutes: 45,
-      when: 'evening',
-      because: 'What you eat is decided by what is already made.',
-    },
-  },
+  { test: /^(?:take\s+)?(?:vitamins?|supplements?|meds?|medication|pills?)\b/, rhythm: PROMOTED.vitamins },
+  { test: /^(?:skincare|skin\s+care|floss(?:ing)?)\b/, rhythm: PROMOTED.upkeep },
+  { test: /^make\s+(?:the\s+|my\s+)?bed\b/, rhythm: PROMOTED.makebed },
+  { test: /^(?:cook(?:ing)?\b|meal\s+prep)/, rhythm: PROMOTED.cook },
 
   // ---- money --------------------------------------------------------------
   {
@@ -327,11 +353,7 @@ const COMMON: Recognized[] = [
   // of the day and not as a general abstinence.
   {
     test: /^(?:drink(?:ing)?\s+(?:more\s+)?water|hydrate|hydration|water\s+intake|\d+\s*(?:glasses|litres|liters|l)\s+of\s+water)/,
-    rhythm: {
-      key: 'common.water', title: 'Drink water', perWeek: 7, minutes: 5,
-      when: 'allday',
-      because: 'Kept in sips across a day, not in an appointment.',
-    },
+    rhythm: PROMOTED.water,
   },
   {
     /* "cut" only with "down/back/out", or it eats "cut the grass"; "skip"

@@ -35,7 +35,7 @@
 
 import type { Setting } from './setting';
 import { classifyLever, leverTwinKey, type LeverKey } from './lifeStrategy';
-import { recognizeHabit } from './commonHabits';
+import { recognizeHabit, PROMOTED } from './commonHabits';
 
 /**
  * Where in a day this kind of thing belongs.
@@ -122,7 +122,18 @@ export interface Rhythm {
 }
 
 /**
- * Three per domain, small to standing.
+ * Three per domain, small to standing — and, in three domains, the daily
+ * ones that follow them.
+ *
+ * The original three were all weekly and substantial, which turned out to be
+ * a whole register missing rather than a shorter list: the app knew perfectly
+ * well what drinking water, flossing and making the bed were, and had no way
+ * to suggest a single one of them. Those nine live in `commonHabits.ts`,
+ * beside the phrasings that mean the same thing, and are spread in below.
+ *
+ * Order is load-bearing. `rhythmFor` offers the first one still available, so
+ * the promoted entries are appended and never inserted — a domain must not
+ * start asking for five minutes when it used to ask for forty.
  *
  * Titles are matched case-insensitively against existing habits, retired ones
  * included, so they have to stay stable — editing one re-offers it to everyone
@@ -168,6 +179,13 @@ const RHYTHMS: Record<string, Rhythm[]> = {
       perWeek: 7, minutes: 5, when: 'bedtime',
       because: 'Sleep is the lever that moves every other one, and the cheapest to pull.',
     },
+    /* The small daily upkeep, after the three that decide most of it. */
+    PROMOTED.stretch,
+    PROMOTED.water,
+    PROMOTED.vitamins,
+    PROMOTED.upkeep,
+    PROMOTED.makebed,
+    PROMOTED.cook,
   ],
   finance: [
     {
@@ -288,6 +306,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
       perWeek: 1, minutes: 20, when: 'any', needs: ['hasScreen'],
       because: 'You do not know it until you have had to say it out loud.',
     },
+    PROMOTED.read,
   ],
   purpose: [
     {
@@ -348,6 +367,8 @@ const RHYTHMS: Record<string, Rhythm[]> = {
       perWeek: 1, minutes: 60, when: 'morning', prefersWeekend: true, needs: ['isPrivate'],
       because: 'An hour belonging to no one else is the rarest thing in a full life.',
     },
+    PROMOTED.prayer,
+    PROMOTED.journal,
   ],
   impact: [
     {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { recognizeHabit } from './commonHabits';
-import { rhythmForHabit } from './rhythms';
+import { rhythmForHabit, rhythmByKey } from './rhythms';
 import { isPlaceable, isBoundary } from './rhythmPlan';
 
 /**
@@ -24,28 +24,28 @@ describe('recognizing the habits people write for themselves', () => {
     ['10k steps', 'common.walk'],
     ['Walk the dog', 'common.walk'],
     ['go for a walk', 'common.walk'],
-    ['Yoga', 'common.stretch'],
-    ['Stretching', 'common.stretch'],
+    ['Yoga', 'health.stretch'],
+    ['Stretching', 'health.stretch'],
     ['Meditate 10 minutes', 'common.meditate'],
     ['daily meditation', 'common.meditate'],
     ['Mindfulness practice', 'common.meditate'],
-    ['Prayer', 'common.prayer'],
-    ['pray every morning', 'common.prayer'],
-    ['Journal', 'common.journal'],
-    ['Gratitude list', 'common.journal'],
-    ['Read 20 minutes', 'common.read'],
-    ['Reading before bed', 'common.read'],
+    ['Prayer', 'reflection.prayer'],
+    ['pray every morning', 'reflection.prayer'],
+    ['Journal', 'reflection.journal'],
+    ['Gratitude list', 'reflection.journal'],
+    ['Read 20 minutes', 'growth.read'],
+    ['Reading before bed', 'growth.read'],
     ['Study Spanish', 'common.study'],
     ['Duolingo', 'common.study'],
     ['Learn guitar', 'common.study'],
     ['Call mum', 'common.callhome'],
     ['Call my parents', 'common.callhome'],
-    ['Take vitamins', 'common.vitamins'],
-    ['meds', 'common.vitamins'],
-    ['Skincare routine', 'common.upkeep'],
-    ['Floss', 'common.upkeep'],
-    ['Make the bed', 'common.makebed'],
-    ['Meal prep Sundays', 'common.cook'],
+    ['Take vitamins', 'health.vitamins'],
+    ['meds', 'health.vitamins'],
+    ['Skincare routine', 'health.upkeep'],
+    ['Floss', 'health.upkeep'],
+    ['Make the bed', 'health.makebed'],
+    ['Meal prep Sundays', 'health.cook'],
     ['Track my spending', 'common.money'],
     ['Budgeting', 'common.money'],
     // The wider life — the domains the trackers never measure.
@@ -77,7 +77,7 @@ describe('recognizing the habits people write for themselves', () => {
    */
   it('reads to the kids before it reads', () => {
     expect(recognizeHabit('Read to the kids')?.key).toBe('common.readkids');
-    expect(recognizeHabit('Read 20 minutes')?.key).toBe('common.read');
+    expect(recognizeHabit('Read 20 minutes')?.key).toBe('growth.read');
   });
 
   it('a call to a friend is not a call home, and neither is a date', () => {
@@ -174,9 +174,13 @@ describe('recognizing the habits people write for themselves', () => {
       const r = recognizeHabit(title)!;
       expect(r.minutes).toBeGreaterThan(0);
       expect(r.because).toBeTruthy();
-      expect(r.key.startsWith('common.')).toBe(true);
       expect(r.perWeek).toBeGreaterThanOrEqual(1);
       expect(r.perWeek).toBeLessThanOrEqual(7);
+      /* A reading keeps its `common.` prefix. A promoted one names the domain
+         it was spread into, and that entry has to actually be there — a key
+         pointing at nothing is exactly how "Journal" would stop marking the
+         catalog's Journal as held. */
+      if (!r.key.startsWith('common.')) expect(rhythmByKey(r.key)).not.toBeNull();
     }
   });
 
