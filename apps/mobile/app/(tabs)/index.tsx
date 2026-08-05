@@ -29,7 +29,7 @@ import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
 import { useNow } from '@/hooks/useNow';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
-import { rhythmFor } from '@priority/scoring-engine';
+import { rhythmFor, anchorFor } from '@priority/scoring-engine';
 
 /** Days each desired cadence represents — for the "people waiting" glance. */
 const CADENCE_DAYS: Record<string, number> = {
@@ -341,6 +341,14 @@ export default function Today() {
   const { data: me } = useQuery({
     queryKey: ['me'],
     queryFn: () => api<any>('/me'),
+    staleTime: 10 * 60_000,
+  });
+  /* Quiet hours, which are where waking and stopping actually live. Read
+     only so a new rhythm can be handed an if-then pinned to this person's
+     day rather than to a generic one. */
+  const { data: prefs } = useQuery({
+    queryKey: ['preferences'],
+    queryFn: () => api<any>('/me/preferences'),
     staleTime: 10 * 60_000,
   });
   /**
@@ -874,6 +882,21 @@ export default function Today() {
     && startedHere.includes(rhythmHere.rhythm.title);
 
   /**
+   * The if-then plan for the rhythm on offer, pinned to hours this person
+   * actually keeps. Null far more often than not, and silence is the right
+   * answer then — see `anchor.ts`.
+   */
+  const rhythmAnchor = rhythmHere?.kind === 'offer'
+    ? anchorFor(rhythmHere.rhythm, {
+      wakeHour: prefs?.quietHoursEnd,
+      workStartHour: me?.workStartHour,
+      workEndHour: me?.workEndHour,
+      sleepHour: prefs?.quietHoursStart,
+      isWorkday: !(me?.workDays?.length) || me.workDays.includes(now.weekday),
+    })
+    : null;
+
+  /**
    * The lens.
    *
    * Tapping a star does not just retune the read-out — it narrows the whole
@@ -1390,9 +1413,27 @@ export default function Today() {
                   </View>
                 ))
               ) : startedHere.includes(rhythmHere.rhythm.title) ? (
-                <Text style={[s.heldMore, { color: obs.brass }]}>
-                  Added — {rhythmHere.rhythm.perWeek} a week, starting now.
-                </Text>
+                <>
+                  <Text style={[s.heldMore, { color: obs.brass }]}>
+                    Added — {rhythmHere.rhythm.perWeek} a week, starting now.
+                  </Text>
+                  {/**
+                    * The plan, at the one moment it does anything.
+                    *
+                    * A when-where-how plan made before the moment arrives is
+                    * the largest cheap effect in the behaviour-change
+                    * literature — about d = 0.65 across ninety-four studies —
+                    * and the app had every part of it except the sentence.
+                    * It is said here, once, as somebody agrees to the rhythm,
+                    * because that is when a plan is worth making. Never as a
+                    * reminder later, which is where advice turns into
+                    * nagging. Absent whenever it cannot be said honestly:
+                    * see `anchorFor`.
+                    */}
+                  {rhythmAnchor ? (
+                    <Text style={[s.heldMore, { color: obs.ink }]}>{rhythmAnchor.sentence}</Text>
+                  ) : null}
+                </>
               ) : (
                 <>
                   <Pressable

@@ -119,6 +119,19 @@ export interface Rhythm {
    * never needed it, and the warning it produces would stop meaning anything.
    */
   sharp?: boolean;
+  /**
+   * The action, phrased to follow "After X, …" — see `anchor.ts`.
+   *
+   * Lower case, no full stop, no frequency. Titles are written to read alone
+   * on a card, so gluing one to an anchor produces "After work, Move three
+   * times a week" — which nobody would say out loud. This is the same thing
+   * said as a plan.
+   *
+   * Optional on purpose, and absent on most. A rhythm with no good if-then
+   * gets no anchor rather than an awkward one; the effect being borrowed here
+   * comes from a plan somebody could actually picture keeping.
+   */
+  anchorTemplate?: string;
 }
 
 /**
@@ -149,6 +162,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     },
     {
       key: 'career.deep',
+      anchorTemplate: 'block the first two hours before anything else opens',
       title: 'One block nobody is allowed to interrupt',
       perWeek: 2, minutes: 90, when: 'work', needs: ['hasScreen'], sharp: true,
       because: 'Careers are built in the hours nobody interrupts, and those hours have to be taken.',
@@ -163,18 +177,21 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   health: [
     {
       key: 'health.move',
+      anchorTemplate: 'put your shoes on before you sit down',
       title: 'Move three times a week',
       perWeek: 3, minutes: 40, when: 'morning', needs: ['canMove'],
       because: 'Nothing else on this list survives a body you stopped maintaining.',
     },
     {
       key: 'health.strength',
+      anchorTemplate: 'do the session before the day fills up',
       title: 'One strength session a week',
       perWeek: 1, minutes: 45, when: 'morning', needs: ['canMove'],
       because: 'Strength is most of what decides how the last twenty years feel.',
     },
     {
       key: 'health.sleep',
+      anchorTemplate: 'put the phone on the far side of the room',
       title: 'Lights out at the same hour',
       perWeek: 7, minutes: 5, when: 'bedtime',
       because: 'Sleep is the lever that moves every other one, and the cheapest to pull.',
@@ -208,6 +225,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   finance: [
     {
       key: 'finance.review',
+      anchorTemplate: 'open the accounts for fifteen minutes',
       title: 'Fifteen minutes on the money, weekly',
       perWeek: 1, minutes: 15, when: 'evening', needs: ['hasScreen', 'isPrivate'],
       because: 'Money goes wrong quietly. Fifteen minutes a week is enough to hear it.',
@@ -228,6 +246,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   family: [
     {
       key: 'family.call',
+      anchorTemplate: 'call home',
       title: 'Call home, the same day every week',
       perWeek: 1, minutes: 20, when: 'evening', needs: ['canSpeakFreely'],
       because: 'Family drifts on no particular day, which is why it needs a particular day.',
@@ -248,6 +267,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   partner: [
     {
       key: 'partner.evening',
+      anchorTemplate: 'put both phones in the other room',
       title: 'One evening a week with phones away',
       perWeek: 1, minutes: 120, when: 'evening', needs: ['canMove'],
       because: 'Partnership is not maintained by living in the same house.',
@@ -268,6 +288,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   children: [
     {
       key: 'children.hour',
+      anchorTemplate: 'give them the hour before anything else asks for it',
       title: 'One undivided hour a week',
       perWeek: 1, minutes: 60, when: 'evening', prefersWeekend: true, needs: ['canMove'],
       because: 'Children measure attention by whether the phone is in the room.',
@@ -288,6 +309,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   friends: [
     {
       key: 'friends.message',
+      anchorTemplate: 'message whoever came to mind',
       title: 'Message one friend a week, whoever',
       perWeek: 1, minutes: 10, when: 'any',
       because: 'Friendships end from nothing happening, not from anything happening.',
@@ -308,6 +330,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   growth: [
     {
       key: 'growth.daily',
+      anchorTemplate: 'open the book before opening anything else',
       title: 'Thirty minutes of learning, daily',
       perWeek: 7, minutes: 30, when: 'morning', needs: ['hasScreen'], sharp: true,
       because: 'Half an hour a day is a new field in three years and nothing at all in one week.',
@@ -329,6 +352,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   purpose: [
     {
       key: 'purpose.hour',
+      anchorTemplate: 'give the project its hour',
       title: 'A standing hour on the project',
       perWeek: 1, minutes: 60, when: 'morning', needs: ['hasScreen'], sharp: true,
       because: 'Creative work does not wait for a free weekend. It waits for a fixed hour.',
@@ -376,6 +400,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
      */
     {
       key: 'experiences.outside',
+      anchorTemplate: 'get out to something green',
       title: 'Two hours somewhere green, weekly',
       perWeek: 1, minutes: 120, when: 'any', prefersWeekend: true, needs: ['canMove'],
       because: 'Two hours a week outdoors is the whole dose, and it can be one walk.',
@@ -384,6 +409,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   reflection: [
     {
       key: 'reflection.quiet',
+      anchorTemplate: 'sit for five minutes before the day starts talking',
       title: 'Five quiet minutes, daily',
       perWeek: 7, minutes: 5, when: 'morning', needs: ['isPrivate'],
       because: 'A mind gets no maintenance window unless somebody makes one.',
@@ -406,6 +432,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   impact: [
     {
       key: 'impact.hour',
+      anchorTemplate: 'give the hour you set aside',
       title: 'An hour a week for someone who needs it',
       perWeek: 1, minutes: 60, when: 'any', prefersWeekend: true, needs: ['canMove'],
       because: 'The help that lands is the help that is regular.',
