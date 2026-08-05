@@ -27,7 +27,7 @@ import {
   DomainType, LifeDomain, DOMAIN_TO_LIFE, LIFE_TO_DOMAIN, domainForRelationType,
 } from '@priority/types';
 import {
-  estimateTimeReality, lifeWindows, weeklyAllocation,
+  estimateTimeReality, lifeWindows, weeklyAllocation, countryFromTimezone,
   type HealthStatus, type LocationType,
 } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
@@ -332,7 +332,9 @@ export class LifeOsService {
           userAge: age ?? undefined,
           userWorkHoursPerWeek: user.workHoursPerWeek ?? undefined,
           currentVisitsPerYear: 1,
-          region: user.country ?? undefined,
+          /* Accounts older than the registration stamp have no country row;
+             their device timezone still names one where it can. */
+          region: user.country ?? countryFromTimezone(user.timezone) ?? undefined,
         }).qualityYears
         : null;
       return {

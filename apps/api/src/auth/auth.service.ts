@@ -11,6 +11,7 @@ import { RegisterDto, LoginDto } from './auth.dto';
 import { MailService } from './mail.service';
 import { requireSecret, ttlToMs } from '../common/env';
 import { ALL_DOMAINS } from '@priority/types';
+import { countryFromTimezone } from '@priority/scoring-engine';
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
 
@@ -37,6 +38,10 @@ export class AuthService {
         passwordHash: await argon2.hash(dto.password),
         fullName: dto.fullName,
         timezone: dto.timezone,
+        /* A fact the device already told us, read properly for once. It seeds
+           the life-expectancy region and the AI's sense of place; the You tab
+           can correct it, and an unrecognised zone stays honestly null. */
+        country: countryFromTimezone(dto.timezone),
         preferences: { create: {} },
         gamification: { create: {} },
         // Pre-create the 10 life domains so scoring always has rows to update.

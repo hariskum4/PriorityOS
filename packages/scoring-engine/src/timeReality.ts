@@ -91,11 +91,31 @@ export interface TimeRealityResult {
   assumptions: string[];
 }
 
+/**
+ * At-birth expectancy by country, WHO-order figures rounded to whole years.
+ *
+ * Four countries for a long time, with everyone else silently handed the
+ * default — tolerable while nothing ever knew a user's country, and not once
+ * `countryFromTimezone` started supplying one: a mapping that can say "Japan"
+ * is only worth having if Japan then means 84 and not 75. Still a floor, not
+ * a forecast — the conditional-survival rule below lifts everyone who has
+ * already lived past the average, whatever their row here says.
+ */
 const LIFE_EXPECTANCY: Record<string, number> = {
   IN: 70, INDIA: 70,
   US: 79, USA: 79, 'UNITED STATES': 79,
   UK: 81, GB: 81, 'UNITED KINGDOM': 81,
   AU: 83, AUSTRALIA: 83,
+  JP: 84, SG: 83, KR: 83, HK: 85, TW: 80, CN: 78,
+  CA: 82, NZ: 82, IE: 82,
+  FR: 82, DE: 81, ES: 83, IT: 83, NL: 81, SE: 83, NO: 83, DK: 81,
+  CH: 84, AT: 81, BE: 81, PT: 81, FI: 81, GR: 80, PL: 78, CZ: 79,
+  AE: 78, SA: 76, QA: 80, IL: 82, TR: 77,
+  PK: 66, BD: 72, LK: 76, NP: 68,
+  TH: 76, MY: 74, VN: 74, PH: 69, ID: 68,
+  BR: 75, MX: 75, AR: 76, CL: 79, CO: 77, PE: 76,
+  EG: 70, NG: 63, KE: 66, ZA: 66, GH: 64, ET: 65, MA: 74,
+  RU: 73, UA: 71,
 };
 const DEFAULT_LIFE_EXPECTANCY = 75;
 

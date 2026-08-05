@@ -6,7 +6,7 @@ import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { useAuth } from '@/store/auth';
-import { Button, Card, Chip, Input, Label, XpBar } from '@/components/ui';
+import { Button, Card, Chip, ErrorNote, Input, Label, XpBar } from '@/components/ui';
 import {
   colors, type, space, levelProgress, themeMode, setThemeMode, isLight,
 } from '@/theme';
@@ -125,6 +125,24 @@ export default function You() {
   const unread = (notifications ?? []).filter((n) => !n.readAt);
   const { refreshing, onRefresh } = useRefresh();
 
+  /**
+   * The three facts the engines read that until now nothing let anyone
+   * correct: profession and city feed every generated suggestion's
+   * vocabulary, and country picks the life-expectancy table under the
+   * Time tab's numbers. Country especially needs a door — it is derived
+   * from the device timezone at signup, and a derivation someone cannot
+   * fix is a guess wearing a fact's clothes.
+   */
+  const saveProfile = useMutation({
+    mutationFn: (patch: Record<string, string | null>) =>
+      api('/me', { method: 'PATCH', body: patch }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me'] });
+      // Country moves the expectancy table; every time number is stale.
+      invalidateLifeRecord(qc);
+    },
+  });
+
   return (
     <ScrollView
         style={{ flex: 1, backgroundColor: colors.bg }}
@@ -215,6 +233,36 @@ export default function You() {
             </Pressable>
           ))
         )}
+      </Card>
+
+      <Card style={{ gap: space(3) }}>
+        <Label>Who you are</Label>
+        <Text style={type.faint}>
+          Suggestions borrow your words — what you do shapes what a realistic
+          week looks like, and country tunes the arithmetic under Time.
+        </Text>
+        <ProfileField
+          label="What you do"
+          placeholder="e.g. ICU nurse, teacher, founder"
+          value={me?.profession}
+          disabled={saveProfile.isPending}
+          onCommit={(v) => saveProfile.mutate({ profession: v })}
+        />
+        <ProfileField
+          label="City"
+          placeholder="e.g. Chennai"
+          value={me?.city}
+          disabled={saveProfile.isPending}
+          onCommit={(v) => saveProfile.mutate({ city: v })}
+        />
+        <ProfileField
+          label="Country"
+          placeholder="e.g. IN, JP, US"
+          value={me?.country}
+          disabled={saveProfile.isPending}
+          onCommit={(v) => saveProfile.mutate({ country: v ? v.toUpperCase() : v })}
+        />
+        <ErrorNote error={saveProfile.error} onRetry={() => saveProfile.reset()} />
       </Card>
 
       <Card style={{ gap: space(3) }}>
@@ -348,6 +396,50 @@ export default function You() {
         Priority learns from behavior, not data entry. Your data stays yours.
       </Text>
     </ScrollView>
+  );
+}
+
+/**
+ * One profile fact, editable in place.
+ *
+ * Commits on blur, only when the value actually changed, and an emptied
+ * field commits null rather than an empty string — the AI reads these
+ * columns as "their words", and "" is not a word anyone said. The draft
+ * belongs to the field while focused so a background refetch cannot
+ * overwrite mid-typing.
+ */
+function ProfileField({ label, placeholder, value, onCommit, disabled }: {
+  label: string;
+  placeholder: string;
+  value?: string | null;
+  onCommit: (v: string | null) => void;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = value ?? '';
+  const commit = () => {
+    if (draft === null) return;
+    const trimmed = draft.trim();
+    setDraft(null);
+    if (trimmed !== shown) onCommit(trimmed || null);
+  };
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(3) }}>
+      <Text style={[type.dim, { width: 92 }]}>{label}</Text>
+      <Input
+        value={draft ?? shown}
+        onChangeText={setDraft}
+        onFocus={() => setDraft(shown)}
+        onBlur={commit}
+        onSubmitEditing={commit}
+        editable={!disabled}
+        placeholder={placeholder}
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel={label}
+        style={{ flex: 1, paddingVertical: 9 }}
+      />
+    </View>
   );
 }
 

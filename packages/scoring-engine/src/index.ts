@@ -15,6 +15,7 @@
 export * from './opportunity';
 export * from './streaks';
 export * from './timeReality';
+export * from './timezoneCountry';
 export * from './timeWindows';
 export * from './safety';
 export * from './tinySteps';

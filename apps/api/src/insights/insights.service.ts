@@ -6,6 +6,7 @@ import {
   estimateTimeReality,
   estimateChildhoodWindows,
   cadenceToPerYear,
+  countryFromTimezone,
   Cadence,
   HealthStatus,
   LocationType,
@@ -90,7 +91,12 @@ export class InsightsService {
                   : undefined,
                 userWorkHoursPerWeek: user?.workHoursPerWeek ?? undefined,
                 currentVisitsPerYear: visitsPerYear,
-                region: user?.country ?? (user?.timezone?.startsWith('Asia/') ? 'IN' : undefined),
+                /* The old fallback was `startsWith('Asia/') → 'IN'`, which
+                   handed India's expectancy table to Tokyo, Singapore and
+                   Seoul — a nine-year error inside this headline number.
+                   The timezone still speaks, but through a real mapping
+                   that says nothing rather than guessing. */
+                region: user?.country ?? countryFromTimezone(user?.timezone) ?? undefined,
               });
               return {
                 kind: 'visits_remaining' as const,

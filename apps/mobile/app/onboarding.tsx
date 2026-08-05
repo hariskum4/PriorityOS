@@ -132,6 +132,16 @@ export default function Onboarding() {
   const [userAge, setUserAge] = useState('');
   const [workType, setWorkType] = useState('');
   const [workHours, setWorkHours] = useState('');
+  /**
+   * Two facts four AI services already read and no screen ever wrote.
+   *
+   * The grounding rules tell the model to use "their profession, their
+   * studies" — against a column that was null for every account ever made.
+   * Full lane only, both optional: the fast lane's promise is ninety
+   * seconds, and a blank here costs nothing it wasn't already costing.
+   */
+  const [profession, setProfession] = useState('');
+  const [city, setCity] = useState('');
   const [marital, setMarital] = useState('');
   const [children, setChildren] = useState<string>('0');
   const [awayFromParents, setAwayFromParents] = useState<string>('');
@@ -315,6 +325,10 @@ export default function Onboarding() {
             ? new Date(new Date().getFullYear() - parseInt(userAge, 10), 6, 1).toISOString()
             : undefined,
           workType: workType || undefined,
+          /* Optional and trimmed — an untouched field must not write an
+             empty string over a column the AI reads as "their words". */
+          profession: profession.trim() || undefined,
+          city: city.trim() || undefined,
           // Not working means 0, not "unspecified" — leaving this undefined
           // let the Time tab's ?? 45 fallback quietly assume a 45h work
           // week for retired/non-working users, wrecking their free-time math.
@@ -532,6 +546,33 @@ export default function Onboarding() {
                 value={workHours}
                 onPick={setWorkHours}
               />
+            )}
+            {/* The vocabulary question. Everything generated downstream is
+                told to speak in "their profession, their studies" — words
+                that were null for every account, because nothing ever asked.
+                Full lane only, and skippable: the fast lane's promise is
+                ninety seconds, and silence here costs only what it already
+                cost. */}
+            {lane !== 'fast' && (
+              <View style={{ gap: space(2) }}>
+                <Label>What you do, and where (optional)</Label>
+                <Text style={type.faint}>
+                  So suggestions speak your language — a nurse's week and a
+                  founder's week need different advice.
+                </Text>
+                <View style={{ flexDirection: 'row', gap: space(3) }}>
+                  <View style={{ flex: 3 }}>
+                    <Input
+                      placeholder="e.g. ICU nurse, teacher, founder"
+                      value={profession}
+                      onChangeText={setProfession}
+                    />
+                  </View>
+                  <View style={{ flex: 2 }}>
+                    <Input placeholder="City" value={city} onChangeText={setCity} />
+                  </View>
+                </View>
+              </View>
             )}
             {plan.askMarital && (
               <PickRow
