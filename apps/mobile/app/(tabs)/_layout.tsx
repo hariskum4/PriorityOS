@@ -4,6 +4,7 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { OfflineBar } from '@/components/OfflineBar';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { useDayRollover } from '@/hooks/useNow';
 import { colors } from '@/theme';
 
 const icon = (name: keyof typeof Ionicons.glyphMap, focusedName: keyof typeof Ionicons.glyphMap) =>
@@ -22,6 +23,18 @@ export default function TabsLayout() {
    */
   const { width } = useWindowDimensions();
   const showLabels = width >= 360;
+
+  /**
+   * When the date turns under an open app, refetch.
+   *
+   * Everything the server sent was answered for the day it was asked on —
+   * which missions are today's, which rhythms have been kept, where the
+   * streak stands. Past midnight that is not stale by a minute, it is about
+   * yesterday, and redrawing it under today's heading is worse than not
+   * redrawing it at all. It lives here rather than on a screen because the
+   * day belongs to the app, not to whichever tab is in front at the time.
+   */
+  useDayRollover();
 
   return (
     // The bar sits above the whole tab stack rather than inside each screen:

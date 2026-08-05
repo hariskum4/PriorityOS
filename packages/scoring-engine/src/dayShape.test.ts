@@ -1015,3 +1015,72 @@ describe('what happens at the edge of a day rather than inside it', () => {
     expect(asleep.note).toBeUndefined();
   });
 });
+
+/**
+ * The defect this block exists for, reported from a real screen: the settings
+ * panel read "Work starts 10am / Work ends 3pm / Sleep starts 12pm", and the
+ * day drawn underneath read "Work 10 am–12 pm" — above a provenance line
+ * still saying "the hours you gave: work 10 am–3 pm". Three hours of somebody's
+ * working afternoon were clipped away by the waking window and never mentioned.
+ */
+describe('when the quiet hours swallow the working day', () => {
+  const noonSleeper = {
+    workStartHour: 10,
+    workEndHour: 15,
+    commuteMinutes: 15,
+    workType: 'onsite',
+    sleepHour: 12,
+    wakeHour: 8,
+  };
+
+  it('draws the whole working day rather than the part that fits', () => {
+    const work = dayShape(noonSleeper).blocks.find((b) => b.kind === 'work')!;
+    expect(work.startMinutes).toBe(10 * 60);
+    expect(work.endMinutes).toBe(15 * 60);
+  });
+
+  it('never contradicts its own provenance line', () => {
+    const s = dayShape(noonSleeper);
+    const work = s.blocks.find((b) => b.kind === 'work')!;
+    expect(s.assumptions.join(' ')).toContain(formatSpan(work.startMinutes, work.endMinutes));
+  });
+
+  it('says so, quoting both answers back', () => {
+    const s = dayShape(noonSleeper);
+    expect(s.conflict?.kind).toBe('sleep-covers-work');
+    expect(s.conflict?.text).toContain('10 am–3 pm');
+    expect(s.conflict?.text).toContain('12 pm');
+    expect(s.conflict?.text).toContain('8 am');
+  });
+
+  it('keeps the commute home inside the waking day too', () => {
+    const asleep = dayShape(noonSleeper).blocks.find((b) => b.kind === 'sleep')!;
+    expect(asleep.startMinutes).toBeGreaterThanOrEqual(15 * 60 + 15);
+  });
+
+  it('leaves an ordinary day alone', () => {
+    const s = dayShape(nineToFive);
+    expect(s.conflict).toBeNull();
+    const work = s.blocks.find((b) => b.kind === 'work')!;
+    expect(work.startMinutes).toBe(9 * 60);
+    expect(work.endMinutes).toBe(17 * 60);
+  });
+
+  /* A night shift against the house defaults collides by construction. The
+     shape still yields to the work, but it does not accuse somebody of
+     answers they never gave. */
+  it('stays silent when the sleeping hours were never stated', () => {
+    const s = dayShape({ workStartHour: 22, workEndHour: 6, workType: 'onsite' });
+    expect(s.conflict).toBeNull();
+    const work = s.blocks.find((b) => b.kind === 'work')!;
+    expect(work.endMinutes - work.startMinutes).toBe(8 * 60);
+  });
+
+  it('does not invent a conflict on a day off', () => {
+    expect(dayShape({ ...noonSleeper, dayType: 'off' }).conflict).toBeNull();
+  });
+
+  it('says nothing forbidden while saying it', () => {
+    expect(dayShape(noonSleeper).conflict!.text).not.toMatch(FORBIDDEN);
+  });
+});

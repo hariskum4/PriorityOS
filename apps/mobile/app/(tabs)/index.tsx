@@ -27,6 +27,7 @@ import { invalidateLifeRecord } from '@/services/invalidate';
 import { Input, DomainDot } from '@/components/ui';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
+import { useNow } from '@/hooks/useNow';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
 import { rhythmFor } from '@priority/scoring-engine';
 
@@ -44,8 +45,8 @@ const CADENCE_DAYS: Record<string, number> = {
  * was wrong. Late at night the same card points at tomorrow morning instead.
  * Same hour source as the greeting, so the two can never disagree.
  */
-function nowWord(): string {
-  const h = new Date().getHours();
+function nowWord(at: Date): string {
+  const h = at.getHours();
   if (h >= 22) return 'Tomorrow';
   if (h < 7) return 'First thing';
   return 'Now';
@@ -287,6 +288,16 @@ export default function Today() {
   const qc = useQueryClient();
   const router = useRouter();
   const setMemoryDraft = useMemoryDraft((st) => st.setDraft);
+  /**
+   * The clock this screen speaks from — the date line, the greeting, and the
+   * word on the hero card all turn on the hour.
+   *
+   * Without it they were fixed at whatever moment the screen last repainted:
+   * a Today tab left open overnight said "Still awake" at eight in the
+   * morning under yesterday's date, and went on saying it until something
+   * unrelated forced a render. See `useNow`.
+   */
+  const now = useNow();
 
   const {
     data, refetch, isRefetching, isLoading, isError,
@@ -774,7 +785,7 @@ export default function Today() {
   const score = reading.score;
 
   const gam = data.gamification;
-  const dateLine = new Date().toLocaleDateString(undefined, {
+  const dateLine = now.date.toLocaleDateString(undefined, {
     weekday: 'long', month: 'long', day: 'numeric',
   });
   const firstName = (me?.fullName ?? '').trim().split(/\s+/)[0] || '';
@@ -889,7 +900,7 @@ export default function Today() {
             <View style={{ flex: 1, gap: 6 }}>
               <Tick>{dateLine}</Tick>
               <Text style={obsType.display}>
-                {obsGreeting()}{firstName ? `, ${firstName}` : ''}.
+                {obsGreeting(now.date)}{firstName ? `, ${firstName}` : ''}.
               </Text>
               <Text style={obsType.dim}>Today matters. Here's what it's asking for.</Text>
             </View>
@@ -969,7 +980,12 @@ export default function Today() {
               <View style={s.nowLbl}>
                 <PulseDot color={nowColor} />
                 <Tick color={nowColor}>
-                  Now
+                  {/* Not the word "Now" nailed on. The same hour source as the
+                      greeting three lines above it, which is how a screen
+                      reading "Still awake" at half past midnight came to be
+                      telling somebody to do a thing NOW. `nowWord` was written
+                      for exactly this and this card never got it. */}
+                  {nowWord(now.date)}
                   {m.estimatedMinutes ? ` · ${m.estimatedMinutes} min` : ''}
                   {m.relationship?.name ? ` · with ${m.relationship.name}` : ''}
                 </Tick>
@@ -1066,7 +1082,7 @@ export default function Today() {
               <View style={s.nowLbl}>
                 <PulseDot color={heroProposal.domain ? obsDomain(heroProposal.domain) : obs.brass} />
                 <Tick color={heroProposal.domain ? obsDomain(heroProposal.domain) : obs.brass}>
-                  {nowWord()} · {heroProposal.effortMinutes} min · {heroProposal.engine}
+                  {nowWord(now.date)} · {heroProposal.effortMinutes} min · {heroProposal.engine}
                 </Tick>
               </View>
               <Text style={[obsType.said, { marginTop: 12 }]}>{heroProposal.action}</Text>

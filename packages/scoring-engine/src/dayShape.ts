@@ -215,6 +215,11 @@ export interface DayShape {
   dayType: DayType;
   framingText: string;
   assumptions: string[];
+  /**
+   * Two answers that cannot both be true, said plainly rather than resolved
+   * in silence. Null on the ordinary day where they agree.
+   */
+  conflict: { kind: 'sleep-covers-work'; text: string } | null;
 }
 
 const HOUR = 60;
@@ -419,9 +424,52 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       ? Math.max(stdCommute, TRAVEL_TRANSIT_MINUTES)
       : stdCommute;
 
-  const wake = clampHour(input.wakeHour, ASSUMED.wake) * HOUR;
-  let sleep = clampHour(input.sleepHour, ASSUMED.sleep) * HOUR;
-  if (sleep <= wake) sleep += DAY_MINUTES;
+  const statedWake = clampHour(input.wakeHour, ASSUMED.wake) * HOUR;
+  let statedSleep = clampHour(input.sleepHour, ASSUMED.sleep) * HOUR;
+  if (statedSleep <= statedWake) statedSleep += DAY_MINUTES;
+
+  /**
+   * The waking day has to contain the working one.
+   *
+   * Work hours and quiet hours are two answers to two questions asked on two
+   * different screens, and nothing ever checked that they agree. Somebody who
+   * says they work ten to three, and — by a typo, or by meaning midnight —
+   * that they sleep from twelve, has told the app both. It used to resolve
+   * that by clipping every fixed block to the waking window and saying
+   * nothing: "Work 10 am–12 pm", drawn three lines above "the hours you gave:
+   * work 10 am–3 pm". One card, two contradicting sentences, and an afternoon
+   * deleted from somebody's day without a word.
+   *
+   * Work wins. It is the harder fact of the two — a shift is somewhere you
+   * have to be, quiet hours are a preference — and the failure it prevents is
+   * the worse one. The disagreement is then reported rather than smoothed
+   * over, because only the reader knows which of the two answers is the wrong
+   * one, and they cannot correct what they were never shown.
+   */
+  let wake = statedWake;
+  let sleep = statedSleep;
+  let conflict: DayShape['conflict'] = null;
+  if (isWorkday) {
+    const dayStart = workStart - commute;
+    const dayEnd = workEnd + commute;
+    if (dayStart < wake || dayEnd > sleep) {
+      /* Only when they actually said so. The house defaults collide with a
+         night shift by construction, and blaming a reader for hours they
+         never gave is worse than the silence this replaces. */
+      if (input.sleepHour != null || input.wakeHour != null) {
+        conflict = {
+          kind: 'sleep-covers-work',
+          text: `You said ${careWork ? 'the household day' : 'work'} runs `
+            + `${formatSpan(workStart, workEnd)} and that you sleep from `
+            + `${formatClock(statedSleep % DAY_MINUTES)} to `
+            + `${formatClock(statedWake % DAY_MINUTES)}. Both cannot be true, so the `
+            + 'day below is drawn to the working hours — correct whichever one is wrong.',
+        };
+      }
+      wake = Math.min(wake, dayStart);
+      sleep = Math.max(sleep, dayEnd);
+    }
+  }
 
   // ---- the blocks that are not negotiable -------------------------------
   const fixed: DayBlock[] = [];
@@ -821,6 +869,6 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
 
   return {
     blocks, freeMinutes, placements, placedIn, committedMinutes,
-    placedBy, basis, dayType, framingText, assumptions,
+    placedBy, basis, dayType, framingText, assumptions, conflict,
   };
 }

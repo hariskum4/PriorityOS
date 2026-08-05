@@ -64,6 +64,7 @@ import { api } from '@/services/api';
 import { calendarSupported, readFreeGaps, type CalendarState } from '@/services/calendarFree';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
+import { useNow } from '@/hooks/useNow';
 import { Button, Card, Chip, DomainDot, ErrorNote, HourField, Input, Label } from '@/components/ui';
 import { YearGrid } from '@/components/YearGrid';
 import { colors, type, space, domainColor, alpha, liningNums } from '@/theme';
@@ -531,6 +532,17 @@ export default function TimeReality() {
    */
   const { width: screenWidth } = useWindowDimensions();
   const tightEditor = screenWidth < 360;
+  /**
+   * Now, kept current. Every hour, weekday and "today" on this screen reads
+   * from here rather than calling `new Date()` where it stands.
+   *
+   * This screen decides things from the clock — whether the seven o'clock
+   * block is still ahead of you, which day the week strip lights, what day a
+   * mission is being written for. A time read at render answers those with
+   * whenever the screen last happened to repaint, which on a screen left open
+   * is a number from hours ago. See `useNow` for the two bugs that made it.
+   */
+  const now = useNow();
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api<any>('/me') });
   const { data: dashboard } = useQuery({ queryKey: ['dashboard'], queryFn: () => api<any>('/dashboard') });
   const { data: prefs } = useQuery({
@@ -1524,7 +1536,7 @@ export default function TimeReality() {
    * for again.
    */
   const dueRhythms = useMemo(() => {
-    const today = new Date().getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    const today = now.weekday;
     return (habits ?? [])
       .filter((h: any) => h.isActive !== false)
       .map((h: any) => {
@@ -1558,7 +1570,7 @@ export default function TimeReality() {
         };
       })
       .filter((r: any): r is NonNullable<typeof r> => r != null);
-  }, [habits, habitHours, rhythmDays, rhythmHours]);
+  }, [habits, habitHours, rhythmDays, rhythmHours, now.weekday]);
 
   /**
    * The rhythms that mark where the day ends rather than filling part of it.
@@ -1571,7 +1583,7 @@ export default function TimeReality() {
    * at all. It goes on the sleep block, against the hour it is actually about.
    */
   const dayBoundaries = useMemo(() => {
-    const today = new Date().getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    const today = now.weekday;
     return (habits ?? [])
       .filter((h: any) => h.isActive !== false)
       .map((h: any) => {
@@ -1597,7 +1609,7 @@ export default function TimeReality() {
         };
       })
       .filter((b: any): b is NonNullable<typeof b> => b != null);
-  }, [habits, rhythmDays]);
+  }, [habits, rhythmDays, now.weekday]);
 
   /**
    * The same rhythms laid across a week rather than a day.
@@ -1607,17 +1619,13 @@ export default function TimeReality() {
    * is the only place the answer can be corrected. Ticks are shown so a
    * kept week reads as kept, never as four boxes and two failures.
    */
-  const todayWeekday = new Date().getDay();
+  const todayWeekday = now.weekday;
   /**
-   * Minutes past midnight, now. Read once per render rather than memoised:
-   * the day card is redrawn on every interaction with it anyway, and a
-   * stale clock here is the difference between "add to today" and "the
-   * morning has gone" — the one number on this screen that must not lag.
+   * Minutes past midnight, now — from the ticking clock, not from whenever
+   * this screen last repainted. It is the difference between "add to today"
+   * and "that hour has gone", so it is the one number here that must not lag.
    */
-  const nowMinutes = (() => {
-    const n = new Date();
-    return n.getHours() * 60 + n.getMinutes();
-  })();
+  const nowMinutes = now.minutes;
   const weekRows = useMemo(() => {
     const entries = (habits ?? [])
       .filter((h: any) => h.isActive !== false)
@@ -1965,7 +1973,7 @@ export default function TimeReality() {
    * honest place to ask. `done` reads the draft first so the chip answers
    * the finger, not the network.
    */
-  const todayKey = new Date().toDateString();
+  const todayKey = now.dayKey;
   const alldayRows = (habits ?? [])
     .filter((h: any) => h.isActive !== false && rhythmForHabit(h.title)?.when === 'allday')
     .map((h: any) => ({
@@ -2116,9 +2124,7 @@ export default function TimeReality() {
    */
   const freedWindows = (() => {
     if (!foundWindow) return [];
-    const now = new Date();
-    const start = now.getHours() * 60 + now.getMinutes();
-    return [{ startMinutes: start, endMinutes: start + foundWindow }];
+    return [{ startMinutes: now.minutes, endMinutes: now.minutes + foundWindow }];
   })();
 
   /**
@@ -2610,6 +2616,22 @@ export default function TimeReality() {
                     </Text>
                     <Button title="Done" small kind="ghost" onPress={() => setEditingDay(false)} />
                   </View>
+                ) : null}
+
+                {/* Two answers that cannot both be true, above the day rather
+                    than in the provenance list under it — a reader who meets
+                    the contradiction first can read the day as a consequence
+                    instead of as a mistake. It names both hours and asks for
+                    a correction; it does not guess which one was meant. */}
+                {shape.conflict ? (
+                  <Pressable
+                    onPress={() => setEditingDay(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${shape.conflict.text} Open the hours to fix it.`}
+                    style={s.conflictNote}
+                  >
+                    <Text style={[type.body, { color: colors.text }]}>{shape.conflict.text}</Text>
+                  </Pressable>
                 ) : null}
 
                 {/* The day as a column of blocks. Fixed things are quiet; the
@@ -4116,6 +4138,19 @@ const s = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 5,
   },
   heldChipOn: { borderColor: colors.green, backgroundColor: alpha(colors.green, 0.08) },
+  /**
+   * Two stated hours that disagree.
+   *
+   * Rose rather than brass: brass on this screen means "here is something to
+   * do", and this is not a proposal — it is the app admitting it was given
+   * two facts it cannot both draw. Quiet enough not to alarm, distinct enough
+   * not to be read as one more note about how the day was built.
+   */
+  conflictNote: {
+    gap: space(2), padding: space(3),
+    borderWidth: 1, borderColor: alpha(colors.rose, 0.35), borderRadius: 12,
+    backgroundColor: alpha(colors.rose, 0.06),
+  },
   /** The one surface on a block whose only meaning is "drag me". */
   grip: {
     width: 28, alignItems: 'center', justifyContent: 'center',

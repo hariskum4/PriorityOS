@@ -231,9 +231,15 @@ export function levelProgress(totalXp: number) {
   return { level, intoLevel: totalXp - base, neededForNext: next - base };
 }
 
-/** Time-of-day greeting in the Observatory's register — calm, never chirpy. */
-export function greeting(): string {
-  const h = new Date().getHours();
+/**
+ * Time-of-day greeting in the Observatory's register — calm, never chirpy.
+ *
+ * Takes the moment rather than reading the clock, so a caller that keeps time
+ * (`useNow`) gets a greeting that turns with the hour, and one that does not
+ * is at least visibly choosing when it was written.
+ */
+export function greeting(at: Date = new Date()): string {
+  const h = at.getHours();
   if (h < 5) return 'Still awake';
   if (h < 12) return 'Good morning';
   if (h < 17) return 'Good afternoon';
