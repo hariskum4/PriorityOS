@@ -25,8 +25,9 @@
  */
 
 import { lifeShape } from './lifeShape';
+import { WEEKDAY_NAMES } from './rhythmPlan';
 
-export type BlockKind = 'sleep' | 'commute' | 'work' | 'open' | 'suggested' | 'meal';
+export type BlockKind = 'sleep' | 'commute' | 'work' | 'open' | 'suggested' | 'meal' | 'booked';
 
 /**
  * Which kind of day this is — the one thing the shape cannot derive.
@@ -125,6 +126,27 @@ export interface DayShapeInput {
   wakeHour?: number | null;
   /** False for a rest day: no work, no commute, the whole day is open. */
   isWorkday?: boolean;
+  /**
+   * Which weekdays are working ones, 0 = Sunday. Absent or empty is unknown.
+   *
+   * Without it the shape draws a commute on a Sunday and asks to be corrected
+   * by hand every weekend — a chip that has to be tapped fifty-two times a
+   * year to say a thing that was true the first time.
+   */
+  workDays?: number[] | null;
+  /** The weekday being drawn, 0 = Sunday. Only meaningful beside `workDays`. */
+  weekday?: number | null;
+  /**
+   * The hours genuinely taken, read from the device calendar.
+   *
+   * The shape is a typical day on purpose and says so — but a typical day
+   * drawn over a real evening that is already booked is the card at its least
+   * useful, offering an hour somebody does not have. These are drawn as they
+   * are, never planned into, and the promise in `assumptions` changes to match
+   * the moment any arrive. Titles are not wanted and are never read: what is
+   * needed is the subtraction, not the reason for it.
+   */
+  busy?: Array<{ startMinutes: number; endMinutes: number }> | null;
   /** What kind of day today is. Defaults to `usual`. */
   dayType?: DayType | null;
   /**
@@ -236,6 +258,57 @@ const ASSUMED = { workStart: 9, workEnd: 17, commute: 0, sleep: 22, wake: 7 };
  * accused of wasting a life they are simply living.
  */
 const MIN_USEFUL_GAP = 20;
+
+/**
+ * The shortest remainder of a real booking still worth drawing.
+ *
+ * Subtracting the working day out of a meeting that straddles its edge leaves
+ * slivers. Five minutes of a booking hanging off the end of work is not a
+ * thing anybody plans around, and a row for it is noise on the one card that
+ * has to stay readable at a glance.
+ */
+const SHORTEST_BOOKING = 10;
+
+interface Span { startMinutes: number; endMinutes: number }
+
+/**
+ * Overlapping and touching spans become one.
+ *
+ * Real calendars double-book constantly: a standup inside a working session,
+ * three declined invitations stacked on the same hour. Drawn separately they
+ * invent gaps between them that nobody actually has.
+ */
+function mergeSpans(spans: Array<Span | null | undefined>): Span[] {
+  const sorted = spans
+    .filter((s): s is Span => !!s
+      && Number.isFinite(s.startMinutes) && Number.isFinite(s.endMinutes)
+      && s.endMinutes > s.startMinutes)
+    .sort((a, b) => a.startMinutes - b.startMinutes);
+
+  const out: Span[] = [];
+  for (const s of sorted) {
+    const last = out[out.length - 1];
+    if (last && s.startMinutes <= last.endMinutes) {
+      last.endMinutes = Math.max(last.endMinutes, s.endMinutes);
+    } else {
+      out.push({ startMinutes: s.startMinutes, endMinutes: s.endMinutes });
+    }
+  }
+  return out;
+}
+
+/**
+ * A run of time, said the way a person would say it.
+ *
+ * Whole and half hours once it is long enough to be talked about in hours;
+ * plain minutes below that, because "0.75h" is a number a spreadsheet uses
+ * about a life and "45 min" is what somebody has.
+ */
+export function formatRun(minutes: number): string {
+  if (minutes < 90) return `${Math.round(minutes)} min`;
+  const halves = Math.round(minutes / 30) / 2;
+  return `${Number.isInteger(halves) ? halves : `${Math.floor(halves)}½`}h`;
+}
 
 /**
  * The shortest run of time in which something with a person in it can happen.
@@ -407,7 +480,19 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
      be shown a working day at all. */
   const derivedHours = stated ? null : derivedWorkHours(input.workHoursPerWeek);
   const noWorkAtAll = derivedHours === 0;
-  const restDay = dayType === 'off' || input.isWorkday === false;
+  /**
+   * A weekend the app already knew about.
+   *
+   * The day-type chips are a correction to today and reset with it, which
+   * made "day off" a thing to tap every Saturday and every Sunday for as long
+   * as somebody used the app. The working week is a fact, not a correction;
+   * asked once it stops a commute being drawn into fifty-two weekends.
+   */
+  const week = (input.workDays ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  const offDuty = week.length > 0
+    && Number.isInteger(input.weekday)
+    && !week.includes(input.weekday as number);
+  const restDay = dayType === 'off' || input.isWorkday === false || offDuty;
   const isWorkday = !restDay && !noWorkAtAll;
 
   const workStart = clampHour(input.workStartHour, ASSUMED.workStart) * HOUR;
@@ -497,6 +582,28 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       });
     }
   }
+
+  /**
+   * The hours actually taken, laid over the hours a typical day takes.
+   *
+   * Only the parts nothing already claims. A standup at eleven inside a
+   * working day is not news — the hour was drawn as spoken for either way,
+   * and repeating it turns a readable column into a stack of overlapping
+   * rectangles. The evening rehearsal is the whole point of reading a
+   * calendar at all, and that is what survives this.
+   */
+  const bookedFrom = [...fixed];
+  const booked: DayBlock[] = mergeSpans(input.busy ?? [])
+    .flatMap((span) => bookedFrom.reduce<Span[]>((parts, claimed) => parts.flatMap((p) => {
+      if (claimed.endMinutes <= p.startMinutes || claimed.startMinutes >= p.endMinutes) return [p];
+      const left = claimed.startMinutes - p.startMinutes >= SHORTEST_BOOKING
+        ? [{ startMinutes: p.startMinutes, endMinutes: claimed.startMinutes }] : [];
+      const right = p.endMinutes - claimed.endMinutes >= SHORTEST_BOOKING
+        ? [{ startMinutes: claimed.endMinutes, endMinutes: p.endMinutes }] : [];
+      return [...left, ...right];
+    }), [span]))
+    .map((span) => ({ ...span, kind: 'booked' as const, label: 'Booked' }));
+  fixed.push(...booked);
 
   const inDay = (b: DayBlock) => b.endMinutes > wake && b.startMinutes < sleep;
 
@@ -702,6 +809,35 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   // remainder is drawn however small: a hole in the middle of a column of
   // times reads as a rendering fault, and the reader has no way to know that
   // the four minutes between two things were deliberately not mentioned.
+  /**
+   * What an empty stretch actually offers.
+   *
+   * "Yours" is the largest area of this card and used to carry the least:
+   * three rows with the same word on them, one of them forty minutes before
+   * work and one of them the whole evening. Length and position are what
+   * decide what can go in a stretch, both are already known here, and the
+   * reader should not have to subtract two clock times to find out.
+   *
+   * Position is given against the working day rather than the clock, because
+   * "after work" is where a person keeps their evening and "6 pm" is only
+   * where the hands are.
+   */
+  const openBlock = (startMinutes: number, endMinutes: number): DayBlock => {
+    const mins = endMinutes - startMinutes;
+    const length = formatRun(mins);
+    let note: string;
+    if (!isWorkday) {
+      note = `${length} clear`;
+    } else if (endMinutes <= workStart - commute) {
+      note = `${length} before the day starts`;
+    } else if (startMinutes >= workEnd + commute) {
+      note = `${length} after work`;
+    } else {
+      note = `${length} inside the working day`;
+    }
+    return { startMinutes, endMinutes, kind: 'open', label: 'Yours', note };
+  };
+
   const blocks: DayBlock[] = [...bounded];
   for (const p of placements) {
     blocks.push({
@@ -719,12 +855,12 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     let at = g.startMinutes;
     for (const p of inside) {
       if (p.startMinutes > at) {
-        blocks.push({ startMinutes: at, endMinutes: p.startMinutes, kind: 'open', label: 'Yours' });
+        blocks.push(openBlock(at, p.startMinutes));
       }
       at = p.endMinutes;
     }
     if (g.endMinutes > at) {
-      blocks.push({ startMinutes: at, endMinutes: g.endMinutes, kind: 'open', label: 'Yours' });
+      blocks.push(openBlock(at, g.endMinutes));
     }
   }
 
@@ -758,7 +894,9 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   const basis: DayShape['basis'] = stated ? 'stated' : 'assumed';
 
   const dayTypeNote: Record<DayType, string | null> = {
-    usual: null,
+    usual: offDuty
+      ? `${WEEKDAY_NAMES[input.weekday as 0]} is not one of your working days, so no work is drawn into it`
+      : null,
     remote: 'You marked today as working from home, so there is no commute in this',
     travel: 'You marked today as travelling, so more of it is spoken for than usual',
     off: 'You marked today as a day off, so no work is drawn into it',
@@ -784,7 +922,12 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     placements.some((p) => p.nudgedBy !== 0)
       ? 'You moved something here, so that is where it stays for today'
       : null,
-    'The shape of a typical working day, not a plan for today — nothing here knows about your meetings',
+    /* The promise changes the moment a calendar is read. Repeating "nothing
+       here knows about your meetings" over a day with the meetings drawn on
+       it is the card contradicting its own picture. */
+    booked.length
+      ? `Your calendar was read on this device — ${booked.length === 1 ? 'one hour' : `${booked.length} stretches`} already spoken for, drawn as ${booked.length === 1 ? 'it is' : 'they are'} and never planned into`
+      : 'The shape of a typical working day, not a plan for today — nothing here knows about your meetings',
     'Sleep comes from your quiet hours',
   ].filter((line): line is string => line != null);
 

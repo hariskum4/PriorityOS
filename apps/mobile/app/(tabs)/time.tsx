@@ -892,7 +892,10 @@ export default function TimeReality() {
    * current is abandoned by March.
    */
   const saveDay = useMutation({
-    mutationFn: (patch: Record<string, number>) =>
+    /* The working week is a list of weekdays, so the patch is no longer one
+       number per key — it was `Record<string, number>` back when the only
+       things on this card were an hour and a commute. */
+    mutationFn: (patch: Record<string, number | number[]>) =>
       api('/me', { method: 'PATCH', body: patch }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
   });
@@ -1220,6 +1223,27 @@ export default function TimeReality() {
   const [openBlock, setOpenBlock] = useState<string | null>(null);
 
   /**
+   * Which day the card is drawing. 0 is today, 1 is tomorrow.
+   *
+   * The card was today and only today, which stopped being tenable the moment
+   * a passed hour started sending things to tomorrow: the app moved something
+   * to a day it had no way of showing, and the reader had to take its word.
+   * One step forward is the whole of it — two days out is a planner, and this
+   * is a day card that can answer "so where did that go".
+   */
+  const [dayOffset, setDayOffset] = useState(0);
+  const showingToday = dayOffset === 0;
+  /** The weekday being drawn — which decides what is due and whether it is a workday. */
+  const viewWeekday = ((now.weekday + dayOffset) % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /** That day's date, for anything that needs more than a weekday. */
+  const viewDate = (() => {
+    const d = new Date(now.date);
+    d.setDate(d.getDate() + dayOffset);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  })();
+
+  /**
    * Putting an hour on the record.
    *
    * A Mission with the hour on it, not a calendar entry — the life grid holds
@@ -1536,7 +1560,7 @@ export default function TimeReality() {
    * for again.
    */
   const dueRhythms = useMemo(() => {
-    const today = now.weekday;
+    const today = viewWeekday;
     return (habits ?? [])
       .filter((h: any) => h.isActive !== false)
       .map((h: any) => {
@@ -1570,7 +1594,7 @@ export default function TimeReality() {
         };
       })
       .filter((r: any): r is NonNullable<typeof r> => r != null);
-  }, [habits, habitHours, rhythmDays, rhythmHours, now.weekday]);
+  }, [habits, habitHours, rhythmDays, rhythmHours, viewWeekday]);
 
   /**
    * The rhythms that mark where the day ends rather than filling part of it.
@@ -1583,7 +1607,7 @@ export default function TimeReality() {
    * at all. It goes on the sleep block, against the hour it is actually about.
    */
   const dayBoundaries = useMemo(() => {
-    const today = now.weekday;
+    const today = viewWeekday;
     return (habits ?? [])
       .filter((h: any) => h.isActive !== false)
       .map((h: any) => {
@@ -1609,7 +1633,7 @@ export default function TimeReality() {
         };
       })
       .filter((b: any): b is NonNullable<typeof b> => b != null);
-  }, [habits, rhythmDays, now.weekday]);
+  }, [habits, rhythmDays, viewWeekday]);
 
   /**
    * The same rhythms laid across a week rather than a day.
@@ -2123,7 +2147,9 @@ export default function TimeReality() {
    * than recomputing them.
    */
   const freedWindows = (() => {
-    if (!foundWindow) return [];
+    /* An hour that has just come free is an hour of *today*. Carving it out
+       of tomorrow would be the card inventing a cancellation. */
+    if (!foundWindow || !showingToday) return [];
     return [{ startMinutes: now.minutes, endMinutes: now.minutes + foundWindow }];
   })();
 
@@ -2210,13 +2236,45 @@ export default function TimeReality() {
     workType: me.workType,
     sleepHour: prefs?.quietHoursStart,
     wakeHour: prefs?.quietHoursEnd,
-    dayType,
+    /* Asked once, rather than corrected with a chip every Saturday. */
+    workDays: me.workDays,
+    weekday: viewWeekday,
+    /* The chips correct today and are cleared at midnight, so carrying
+       "travelling" onto tomorrow would be asserting something nobody said. */
+    dayType: showingToday ? dayType : 'usual',
     activeAt,
     suggestions: placeable,
     boundaries: dayBoundaries,
     nudges,
     freed: freedWindows,
+    /* Only ever the day that was read. A calendar answer belongs to one date,
+       and yesterday's bookings drawn on tomorrow would be a confident lie. */
+    busy: calendar?.status === 'ready' && calendar.dayKey === viewDate.toDateString()
+      ? calendar.busy
+      : null,
   });
+  /**
+   * Now, against a day that runs from waking to waking.
+   *
+   * The blocks keep counting past midnight — a card that wakes at seven ends
+   * at 1860, not at 1440 — and the temptation is to push a small-hours clock
+   * reading up into that range to match. It is wrong. At ten to one on a
+   * Thursday morning, the Thursday being drawn has not started: its seven
+   * o'clock is seven hours away, not seventeen hours behind. Normalising
+   * forward greyed out the entire day and put "you are here" at the bottom of
+   * a day nobody had lived yet.
+   *
+   * So the clock is taken as it reads, and the one case it cannot answer —
+   * a block drawn after midnight, during the hour before the card's own day
+   * begins — is left alone rather than guessed at. Erring towards "still
+   * ahead of you" costs a reader nothing; erring the other way hands them a
+   * morning marked missed before it happened.
+   */
+  const dayStartsAt = shape.blocks[0]?.startMinutes ?? 0;
+  const nowInDay = showingToday ? now.minutes : null;
+  /** The small hours: today is drawn, and none of it has happened yet. */
+  const dayNotStarted = nowInDay != null && nowInDay < dayStartsAt;
+
   const dayHoursKnown = me.workStartHour != null && me.workEndHour != null;
   /* Where the placed things came from, said once and quietly. A card that puts
      something in your evening which is not in the list directly above it owes
@@ -2499,29 +2557,116 @@ export default function TimeReality() {
                   </Pressable>
                 </View>
 
+                {/**
+                  * Which day is being looked at.
+                  *
+                  * One step, not a date picker. The card started sending
+                  * passed hours to tomorrow and had no way of showing tomorrow,
+                  * so the reader was asked to trust a day the app would not
+                  * draw. Two days out is a planner and a different promise;
+                  * this only has to answer "so where did that go".
+                  */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
+                  <Pressable
+                    onPress={() => setDayOffset(0)}
+                    disabled={showingToday}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show today"
+                    style={{ opacity: showingToday ? 0.25 : 1 }}
+                  >
+                    <Ionicons name="chevron-back" size={18} color={colors.textDim} />
+                  </Pressable>
+                  <Text style={[type.body, { fontWeight: '700', color: colors.amber }]}>
+                    {showingToday ? 'Today' : `Tomorrow · ${WEEKDAY_NAMES[viewWeekday]}`}
+                  </Text>
+                  <View style={{ flex: 1 }} />
+                  <Pressable
+                    onPress={() => setDayOffset(1)}
+                    disabled={!showingToday}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Show tomorrow"
+                    style={{ opacity: showingToday ? 1 : 0.25 }}
+                  >
+                    <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+                  </Pressable>
+                </View>
+
+                {/**
+                  * The day's real bookings, offered and never taken.
+                  *
+                  * Reading a calendar costs a permission dialog, so it stays a
+                  * tap rather than something that happens to you — but the
+                  * result now goes into the day itself instead of only sizing
+                  * a found hour, which is the difference between an app that
+                  * knows your evening is spoken for and one that offers it to
+                  * you anyway. Nothing leaves the device and nothing is ever
+                  * written back.
+                  */}
+                {calendarSupported && !(
+                  calendar?.status === 'ready' && calendar.dayKey === viewDate.toDateString()
+                ) ? (
+                  <Pressable
+                    onPress={async () => {
+                      const state = await readFreeGaps({
+                        workStartHour: me.workStartHour ?? 9,
+                        workEndHour: me.workEndHour ?? 17,
+                        date: viewDate,
+                      });
+                      setCalendar(state);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Read what is already booked ${showingToday ? 'today' : 'tomorrow'}`}
+                    style={({ pressed }) => [s.chip, { alignSelf: 'flex-start' }, pressed && { opacity: 0.6 }]}
+                  >
+                    <Text style={[type.body, { color: colors.amber }]}>
+                      What's already booked?
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {calendar?.status === 'denied' ? (
+                  <Text style={type.faint}>
+                    No calendar access — the day below is the shape of a typical one, as before.
+                  </Text>
+                ) : null}
+
                 {/* Today is different — one tap, no round trip, gone tomorrow.
                     The shape below is derived from facts asked once, which is
                     what keeps it from becoming a calendar to maintain; this is
                     the one thing it cannot derive, and the one day it draws an
                     evening at home for someone in an airport is the day it
-                    stops being worth reading. */}
-                <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-                  <Text style={[type.faint, { paddingTop: 7 }]}>Today:</Text>
-                  {DAY_TYPE_LABELS.map((d) => {
-                    const on = dayType === d.key;
-                    return (
-                      <Pressable
-                        key={d.key}
-                        onPress={() => chooseDayType(d.key)}
-                        style={[s.chip, on && s.chipOn]}
-                      >
-                        <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
-                          {d.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                    stops being worth reading.
+
+                    Only offered for today, because it is stored against today
+                    and cleared at midnight — a "travelling" chip on tomorrow
+                    would be an answer the app forgets before the day arrives. */}
+                {showingToday ? (
+                  <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                    <Text style={[type.faint, { paddingTop: 7 }]}>Today:</Text>
+                    {DAY_TYPE_LABELS.map((d) => {
+                      const on = dayType === d.key;
+                      return (
+                        <Pressable
+                          key={d.key}
+                          onPress={() => chooseDayType(d.key)}
+                          /* Four controls that redraw the entire day, and to
+                             anything but a sighted finger they were unlabelled
+                             divs — not announced as controls, and with no way
+                             to tell which of them was the one in force. */
+                          accessibilityRole="button"
+                          aria-selected={on}
+                          accessibilityLabel={`Today is ${d.label}${on ? ', selected' : ''}`}
+                          style={[s.chip, on && s.chipOn]}
+                        >
+                          <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                            {d.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
 
                 {/* Collapsed unless asked for, even before anything is set.
                     The shape is drawn from the week they already gave at
@@ -2557,6 +2702,47 @@ export default function TimeReality() {
                       disabled={saveDay.isPending}
                       onCommit={(h) => saveDay.mutate({ workEndHour: h })}
                     />
+                    {/**
+                      * Which days those hours apply to.
+                      *
+                      * Until this existed the card drew a commute into every
+                      * Saturday and left the reader to say otherwise with a
+                      * "day off" chip that reset at midnight — fifty-two
+                      * weekends a year of correcting a thing that was true the
+                      * first time. Untouched means unasked, and the shape
+                      * behaves exactly as it always did.
+                      */}
+                    <View style={{ gap: 6 }}>
+                      <Text style={type.dim}>Days you work:</Text>
+                      <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                        {WEEK_COLUMNS.map((d) => {
+                          const week: number[] = me.workDays ?? [];
+                          const on = week.includes(d);
+                          return (
+                            <Pressable
+                              key={d}
+                              disabled={saveDay.isPending}
+                              onPress={() => saveDay.mutate({
+                                workDays: on ? week.filter((x) => x !== d) : [...week, d],
+                              })}
+                              accessibilityRole="button"
+                              aria-selected={on}
+                              accessibilityLabel={`${WEEKDAY_NAMES[d]}${on ? ', a working day' : ', not a working day'}`}
+                              style={[s.dayChip, on && s.chipOn]}
+                            >
+                              <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                                {WEEKDAY_INITIALS[d]}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                      {!(me.workDays ?? []).length ? (
+                        <Text style={type.faint}>
+                          Not set — every day is drawn as a working one until you say otherwise.
+                        </Text>
+                      ) : null}
+                    </View>
                     {/* A duration estimate, not a clock time — six honest
                         buckets remain the right shape for it. Judged on the
                         work type alone, not the stored minutes: an office
@@ -2639,6 +2825,37 @@ export default function TimeReality() {
                 <View style={{ gap: 2 }}>
                   {shape.blocks.map((b: DayBlock, i: number) => {
                     const key = `${b.kind}-${b.startMinutes}-${i}`;
+                    /**
+                     * Where the reader actually is on their own day.
+                     *
+                     * The card drew a whole day with no mark on it, so working
+                     * out whether the seven o'clock row was four hours ago or
+                     * four hours away was arithmetic the reader had to do
+                     * against a clock the card never showed. One line, one
+                     * time, and the hours behind it set back — which is also
+                     * what makes the passed-hour rule visible instead of a
+                     * surprise waiting inside a block nobody has opened.
+                     */
+                    const past = nowInDay != null && !dayNotStarted && nowInDay >= b.endMinutes;
+                    /* Before the day begins the mark goes above all of it,
+                       which is the truth: it is quarter to one, and the
+                       morning below has not happened. */
+                    const nowHere = nowInDay != null && (dayNotStarted
+                      ? i === 0
+                      : nowInDay >= b.startMinutes && nowInDay < b.endMinutes);
+                    const marker = nowHere ? (
+                      <View
+                        style={s.nowLine}
+                        accessibilityRole="text"
+                        accessibilityLabel={`Now, ${formatClock(now.minutes)}`}
+                      >
+                        <View style={s.nowDot} />
+                        <View style={s.nowRule} />
+                        <Text style={[type.faint, { color: colors.amber }]}>
+                          {formatClock(now.minutes)}
+                        </Text>
+                      </View>
+                    ) : null;
                     /* By position rather than by clock. Both lists are built in
                        time order, so the nth placed block is the nth placement
                        by construction — where matching on `startMinutes` holds
@@ -2729,11 +2946,17 @@ export default function TimeReality() {
                       const askHeld = b.kind === 'sleep' && alldayRows.length > 0;
                       const faded = b.kind === 'sleep' && !b.note && !askHeld;
                       return (
+                        <React.Fragment key={key}>
+                        {marker}
                         <View
-                          key={key}
                           style={[
                             s.dayRow,
                             faded && { opacity: 0.45 },
+                            /* An hour that is over. Set back, never crossed
+                               out — the day behind you is not a list of
+                               failures, it is just the part that has been
+                               lived. */
+                            !faded && past && { opacity: 0.5 },
                             askHeld && { flexDirection: 'column', alignItems: 'stretch', gap: space(2) },
                           ]}
                         >
@@ -2775,6 +2998,7 @@ export default function TimeReality() {
                             </View>
                           ) : null}
                         </View>
+                        </React.Fragment>
                       );
                     }
 
@@ -2794,17 +3018,22 @@ export default function TimeReality() {
                      *
                      * A rhythm goes to the next day it actually runs; anything
                      * else goes to tomorrow.
+                     *
+                     * Nothing on a day still ahead has gone: `nowInDay` is null
+                     * there, and a number from today compared against tomorrow's
+                     * hours would call the whole morning missed before it began.
                      */
                     const gone = passedSlot({
                       startMinutes: p.startMinutes,
-                      nowMinutes: nowMinutes,
-                      today: todayWeekday as any,
+                      nowMinutes: nowInDay ?? -1,
+                      today: viewWeekday,
                       days: rhythmDaysFor(p.key),
                     });
 
                     return (
+                      <React.Fragment key={key}>
+                      {marker}
                       <DraggableBlock
-                        key={key}
                         block={b}
                         offset={p.nudgedBy}
                         onMove={(offset) => moveTo(p.key, offset, p.startMinutes - p.nudgedBy)}
@@ -2924,11 +3153,13 @@ export default function TimeReality() {
                                 title={
                                   done
                                     ? 'On your list'
-                                    : gone.passed
-                                      ? (gone.when === 'tomorrow'
-                                        ? 'Add to tomorrow'
-                                        : `Add to ${WEEKDAY_NAMES[gone.weekday]}`)
-                                      : 'Add to today'
+                                    : !showingToday
+                                      ? 'Add to tomorrow'
+                                      : gone.passed
+                                        ? (gone.when === 'tomorrow'
+                                          ? 'Add to tomorrow'
+                                          : `Add to ${WEEKDAY_NAMES[gone.weekday]}`)
+                                        : 'Add to today'
                                 }
                                 onPress={() => scheduleBlock.mutate({
                                   key: p.key,
@@ -2937,7 +3168,9 @@ export default function TimeReality() {
                                   domains: p.domains,
                                   startMinutes: p.startMinutes,
                                   minutes: mins,
-                                  daysAhead: gone.daysAhead,
+                                  /* The day being looked at, plus whatever the
+                                     passed-hour rule adds on top of it. */
+                                  daysAhead: dayOffset + gone.daysAhead,
                                 })}
                               />
                             </View>
@@ -2945,6 +3178,7 @@ export default function TimeReality() {
                         </View>
                         )}
                       </DraggableBlock>
+                      </React.Fragment>
                     );
                   })}
                 </View>
@@ -2987,6 +3221,10 @@ export default function TimeReality() {
                       if (state.status === 'ready' && state.best) {
                         setFoundMinutes(Math.min(state.best.minutes, 120));
                       }
+                      /* A found hour is about now, so the read is about today
+                         — put the card back on today rather than drawing
+                         today's bookings under tomorrow's heading. */
+                      setDayOffset(0);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Find it from my calendar"
@@ -4150,6 +4388,26 @@ const s = StyleSheet.create({
     gap: space(2), padding: space(3),
     borderWidth: 1, borderColor: alpha(colors.rose, 0.35), borderRadius: 12,
     backgroundColor: alpha(colors.rose, 0.06),
+  },
+  /**
+   * "You are here", on a day drawn as a column rather than a timeline.
+   *
+   * The rows are not to scale — a two-hour block and a twenty-minute one are
+   * the same height — so a line cannot be placed proportionally and has to sit
+   * between rows instead. Which is enough: what the reader needs is which side
+   * of now a row is on, and the exact hour is written on the line.
+   */
+  nowLine: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 5, paddingHorizontal: 2,
+  },
+  nowDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.amber },
+  nowRule: { flex: 1, height: 1, backgroundColor: alpha(colors.amber, 0.45) },
+  /** One weekday in the working-week row. Square, so seven fit a narrow phone. */
+  dayChip: {
+    minWidth: 40, alignItems: 'center',
+    borderWidth: 1, borderColor: colors.line, borderRadius: 12,
+    paddingVertical: 9, paddingHorizontal: 10,
   },
   /** The one surface on a block whose only meaning is "drag me". */
   grip: {

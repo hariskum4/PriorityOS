@@ -36,6 +36,13 @@ model User {
   workStartHour       Int?
   workEndHour         Int?
   commuteMinutes      Int?
+  /// Which weekdays are working ones, 0 = Sunday. Empty means never asked.
+  ///
+  /// The day card had a "day off" chip that reset every midnight, so a
+  /// weekend meant tapping it on Saturday and again on Sunday, fifty-two
+  /// times a year, to say a thing that was true the first time. A correction
+  /// that has to be repeated is a question that should have been asked.
+  workDays            Int[]     @default([])
   // A declared season: one part of life the person chose to concentrate on,
   // and the date it ends. `suggestSeason` picked one before this and nothing
   // read it; a focus without an end date is neglect with a nicer name, so the

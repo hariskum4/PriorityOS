@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { freeGaps, bestGap, type FreeGap } from '@priority/scoring-engine';
+import { freeGaps, bestGap, type FreeGap, type BusyBlock } from '@priority/scoring-engine';
 
 /**
  * Today's holes, read from the device calendar.
@@ -21,7 +21,22 @@ import { freeGaps, bestGap, type FreeGap } from '@priority/scoring-engine';
 export type CalendarState =
   | { status: 'unsupported' }
   | { status: 'denied' }
-  | { status: 'ready'; gaps: FreeGap[]; best: FreeGap | null };
+  | {
+    status: 'ready';
+    gaps: FreeGap[];
+    best: FreeGap | null;
+    /**
+     * The hours genuinely taken, for the day card to draw.
+     *
+     * These were computed here and thrown away — the read existed only to
+     * size a found hour, so the app knew about a booked evening and drew a
+     * free one three inches above. Titles are still discarded on the way in;
+     * this is the subtraction, not the reason for it.
+     */
+    busy: BusyBlock[];
+    /** Which day was read, so a card cannot show one day's bookings on another. */
+    dayKey: string;
+  };
 
 /** True only where a device calendar can exist at all. */
 export const calendarSupported = Platform.OS === 'ios' || Platform.OS === 'android';
@@ -40,6 +55,8 @@ export async function readFreeGaps(opts: {
   workEndHour: number;
   minMinutes?: number;
   now?: Date;
+  /** The day to read. Defaults to today. */
+  date?: Date;
 }): Promise<CalendarState> {
   if (!calendarSupported) return { status: 'unsupported' };
 
@@ -50,7 +67,11 @@ export async function readFreeGaps(opts: {
     if (status !== 'granted') return { status: 'denied' };
 
     const now = opts.now ?? new Date();
-    const dayStart = new Date(now);
+    /* The day being drawn, which is not always today — the card can look at
+       tomorrow, and reading today's bookings onto it would be worse than
+       reading none. Gaps are still measured against `now`, since only today
+       has minutes already gone. */
+    const dayStart = new Date(opts.date ?? now);
     dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(dayStart);
     dayEnd.setDate(dayEnd.getDate() + 1);
@@ -81,9 +102,9 @@ export async function readFreeGaps(opts: {
       fromMinutes: opts.workStartHour * 60,
       toMinutes: opts.workEndHour * 60,
       minMinutes: opts.minMinutes,
-      nowMinutes: minutesOf(now),
+      nowMinutes: dayStart.toDateString() === now.toDateString() ? minutesOf(now) : 0,
     });
-    return { status: 'ready', gaps, best: bestGap(gaps) };
+    return { status: 'ready', gaps, best: bestGap(gaps), busy, dayKey: dayStart.toDateString() };
   } catch {
     /* A calendar that will not open is not an error worth a screen. The
        manual sheet is right there and asks one question. */

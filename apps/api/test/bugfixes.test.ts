@@ -208,6 +208,33 @@ describe('requests that are wrong get told, not 500', () => {
   });
 });
 
+/**
+ * The day card used to draw a commute into every Saturday, correctable only
+ * by a chip that resets at midnight. The working week is a fact and is now
+ * stored as one — a set of weekdays, kept as a set.
+ */
+describe('the working week is asked once and stored as a set', () => {
+  it('sorts and de-duplicates, so an identical answer is not a change', async () => {
+    const users = new UsersService(prisma);
+    const r = await users.update(userId, { workDays: [5, 1, 3, 1] });
+    expect(r.workDays).toEqual([1, 3, 5]);
+  });
+
+  it('takes an empty week as a real answer, not as silence', async () => {
+    const users = new UsersService(prisma);
+    const r = await users.update(userId, { workDays: [] });
+    expect(r.workDays).toEqual([]);
+  });
+
+  it('refuses anything that is not a weekday, before Prisma sees it', () => {
+    const users = new UsersService(prisma);
+    for (const bad of [[7], [-1], [1.5], ['monday']]) {
+      expect(() => users.update(userId, { workDays: bad })).toThrow(/0 \(Sunday\) to 6/);
+    }
+    expect(() => users.update(userId, { workDays: 'weekdays' })).toThrow(/must be an array/);
+  });
+});
+
 describe('a name typed lowercase renders as a name', () => {
   it('title-cases fully-lowercase input', async () => {
     const rel = await people.create(userId, { name: 'harish kumar', relationType: 'friend' });

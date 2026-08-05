@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dayShape, formatClock, formatSpan } from './dayShape';
+import { dayShape, formatClock, formatSpan, formatRun } from './dayShape';
 
 const FORBIDDEN = /death|dying|lifespan|running out|too late|wasted|lazy|should have/i;
 
@@ -1082,5 +1082,169 @@ describe('when the quiet hours swallow the working day', () => {
 
   it('says nothing forbidden while saying it', () => {
     expect(dayShape(noonSleeper).conflict!.text).not.toMatch(FORBIDDEN);
+  });
+});
+
+describe('a run of time, said the way a person would say it', () => {
+  it('keeps short things in minutes', () => {
+    expect(formatRun(20)).toBe('20 min');
+    expect(formatRun(45)).toBe('45 min');
+    expect(formatRun(89)).toBe('89 min');
+  });
+
+  it('moves to hours and halves once it is worth talking about in hours', () => {
+    expect(formatRun(90)).toBe('1½h');
+    expect(formatRun(120)).toBe('2h');
+    expect(formatRun(150)).toBe('2½h');
+    expect(formatRun(240)).toBe('4h');
+  });
+});
+
+/**
+ * "Yours" was the largest area of the card and the least informative: three
+ * rows carrying the same word, one of them forty minutes before work and one
+ * of them the entire evening.
+ */
+describe('the free stretches say what they are', () => {
+  it('names the length and where it sits', () => {
+    const notes = dayShape(nineToFive).blocks
+      .filter((b) => b.kind === 'open').map((b) => b.note);
+    expect(notes.some((n) => /before the day starts/.test(n ?? ''))).toBe(true);
+    expect(notes.some((n) => /after work/.test(n ?? ''))).toBe(true);
+  });
+
+  it('measures the stretch, not the whole evening', () => {
+    const evening = dayShape({ ...nineToFive, suggestions: [] }).blocks
+      .filter((b) => b.kind === 'open')
+      .find((b) => /after work/.test(b.note ?? ''))!;
+    expect(evening.note).toBe(
+      `${formatRun(evening.endMinutes - evening.startMinutes)} after work`,
+    );
+  });
+
+  it('does not talk about work on a day there is none', () => {
+    const notes = dayShape({ ...nineToFive, dayType: 'off' }).blocks
+      .filter((b) => b.kind === 'open').map((b) => b.note ?? '');
+    expect(notes.length).toBeGreaterThan(0);
+    expect(notes.every((n) => /clear$/.test(n))).toBe(true);
+  });
+
+  it('says nothing forbidden', () => {
+    for (const b of dayShape(nineToFive).blocks) {
+      expect(b.note ?? '').not.toMatch(FORBIDDEN);
+    }
+  });
+});
+
+/**
+ * The device calendar was already being read and thrown away — it sized a
+ * freed hour and never touched the day. A typical day drawn over a real
+ * evening that is already booked is the card at its least useful.
+ */
+describe('the hours a calendar says are already taken', () => {
+  const withEvening = {
+    ...nineToFive,
+    busy: [{ startMinutes: 19 * 60, endMinutes: 20 * 60 + 30 }],
+  };
+
+  it('draws them', () => {
+    const b = dayShape(withEvening).blocks.find((x) => x.kind === 'booked')!;
+    expect(b.startMinutes).toBe(19 * 60);
+    expect(b.endMinutes).toBe(20 * 60 + 30);
+    expect(b.label).toBe('Booked');
+  });
+
+  it('never plans into them', () => {
+    const s = dayShape({ ...withEvening, suggestion: walkWithMum });
+    for (const p of s.placements) {
+      expect(p.startMinutes >= 20 * 60 + 30 || p.endMinutes <= 19 * 60).toBe(true);
+    }
+  });
+
+  it('does not repeat an hour the working day already claims', () => {
+    const s = dayShape({ ...nineToFive, busy: [{ startMinutes: 11 * 60, endMinutes: 12 * 60 }] });
+    expect(s.blocks.some((b) => b.kind === 'booked')).toBe(false);
+  });
+
+  it('keeps only the part of a straddling meeting that is news', () => {
+    const s = dayShape({ ...nineToFive, busy: [{ startMinutes: 16 * 60, endMinutes: 19 * 60 }] });
+    const b = s.blocks.find((x) => x.kind === 'booked')!;
+    // Work ends at 5pm and the commute home runs to 6pm; only 6–7 is new.
+    expect(b.startMinutes).toBe(18 * 60);
+    expect(b.endMinutes).toBe(19 * 60);
+  });
+
+  it('merges a double-booked hour rather than inventing a gap in it', () => {
+    const s = dayShape({
+      ...nineToFive,
+      busy: [
+        { startMinutes: 19 * 60, endMinutes: 20 * 60 },
+        { startMinutes: 19 * 60 + 30, endMinutes: 21 * 60 },
+      ],
+    });
+    const booked = s.blocks.filter((b) => b.kind === 'booked');
+    expect(booked).toHaveLength(1);
+    expect(booked[0].endMinutes).toBe(21 * 60);
+  });
+
+  it('ignores nonsense rather than drawing it', () => {
+    const s = dayShape({
+      ...nineToFive,
+      busy: [
+        { startMinutes: 20 * 60, endMinutes: 20 * 60 },
+        { startMinutes: 21 * 60, endMinutes: 20 * 60 },
+        null as any,
+      ],
+    });
+    expect(s.blocks.some((b) => b.kind === 'booked')).toBe(false);
+  });
+
+  it('stops promising it knows nothing about your meetings', () => {
+    const said = dayShape(withEvening).assumptions.join(' ');
+    expect(said).not.toMatch(/nothing here knows about your meetings/);
+    expect(said).toMatch(/calendar was read on this device/);
+  });
+
+  it('still promises it on a day nothing was read', () => {
+    expect(dayShape(nineToFive).assumptions.join(' '))
+      .toMatch(/nothing here knows about your meetings/);
+  });
+});
+
+/**
+ * The day-type chips are a correction to today and reset with it, which made
+ * "day off" something to tap every Saturday and every Sunday, forever.
+ */
+describe('the week somebody actually works', () => {
+  const monToFri = { ...nineToFive, workDays: [1, 2, 3, 4, 5] };
+
+  it('draws no work on a day off the list', () => {
+    const s = dayShape({ ...monToFri, weekday: 0 });
+    expect(s.blocks.some((b) => b.kind === 'work')).toBe(false);
+    expect(s.blocks.some((b) => b.kind === 'commute')).toBe(false);
+  });
+
+  it('draws it on a day that is on the list', () => {
+    const s = dayShape({ ...monToFri, weekday: 3 });
+    expect(s.blocks.some((b) => b.kind === 'work')).toBe(true);
+  });
+
+  it('says which day it is talking about', () => {
+    expect(dayShape({ ...monToFri, weekday: 6 }).assumptions.join(' '))
+      .toContain('Saturday is not one of your working days');
+  });
+
+  it('changes nothing when the week was never given', () => {
+    const s = dayShape({ ...nineToFive, weekday: 0 });
+    expect(s.blocks.some((b) => b.kind === 'work')).toBe(true);
+  });
+
+  it('changes nothing when the weekday is unknown', () => {
+    expect(dayShape(monToFri).blocks.some((b) => b.kind === 'work')).toBe(true);
+  });
+
+  it('ignores days that are not days', () => {
+    const s = dayShape({ ...nineToFive, workDays: [9, -1, 1.5] as any, weekday: 0 });
+    expect(s.blocks.some((b) => b.kind === 'work')).toBe(true);
   });
 });

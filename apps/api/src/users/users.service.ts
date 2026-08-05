@@ -15,7 +15,7 @@ const PUBLIC_USER_FIELDS = {
   id: true, email: true, fullName: true, dob: true, timezone: true,
   city: true, country: true, profession: true, workType: true,
   workHoursPerWeek: true, screenHoursPerDay: true,
-  workStartHour: true, workEndHour: true, commuteMinutes: true,
+  workStartHour: true, workEndHour: true, commuteMinutes: true, workDays: true,
   maritalStatus: true, childrenCount: true,
   livesAwayFromParents: true, parentsInLife: true, onboardingCompleted: true,
   motivationStyle: true, createdAt: true,
@@ -37,7 +37,7 @@ export class UsersService {
       'fullName', 'dob', 'timezone', 'city', 'country', 'profession',
       'workType', 'workHoursPerWeek', 'screenHoursPerDay', 'maritalStatus',
       'childrenCount', 'livesAwayFromParents', 'parentsInLife', 'motivationStyle',
-      'workStartHour', 'workEndHour', 'commuteMinutes',
+      'workStartHour', 'workEndHour', 'commuteMinutes', 'workDays',
     ];
     const patch = Object.fromEntries(
       Object.entries(data).filter(([k]) => allowed.includes(k)),
@@ -76,6 +76,25 @@ export class UsersService {
     if (patch.parentsInLife !== undefined && patch.parentsInLife !== null
         && typeof patch.parentsInLife !== 'boolean') {
       throw new BadRequestException('parentsInLife must be true, false, or null');
+    }
+    /**
+     * The working week, as a set of weekdays.
+     *
+     * Sorted and de-duplicated on the way in, because it is read as a set and
+     * stored as an array — two clients disagreeing about order would make an
+     * identical answer look like a change. An empty array is a real answer
+     * ("none of them") and stays distinct from the column never being set,
+     * which is what every account older than it holds.
+     */
+    if (patch.workDays !== undefined) {
+      if (!Array.isArray(patch.workDays)) {
+        throw new BadRequestException('workDays must be an array of weekdays');
+      }
+      const days = patch.workDays.map(Number);
+      if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+        throw new BadRequestException('workDays must be whole numbers from 0 (Sunday) to 6');
+      }
+      patch.workDays = [...new Set(days)].sort((a, b) => a - b);
     }
     /* An hour of the day, not a duration — 0 is midnight and is valid. */
     for (const key of ['workStartHour', 'workEndHour']) {
