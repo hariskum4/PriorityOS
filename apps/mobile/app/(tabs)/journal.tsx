@@ -460,6 +460,17 @@ function Memories() {
     if (draft) {
       setTitle(draft.title);
       if (draft.relationshipId) setPersonIds([draft.relationshipId]);
+      /**
+       * A new moment gets a form, not the last one's receipt.
+       *
+       * "Kept. This is what the numbers were for." is a confirmation with a
+       * two-and-a-half second life, and it lives on a screen the tabs keep
+       * mounted. Finish one mission, keep its moment, finish another and tap
+       * "Save it" inside that window, and the second moment was greeted by
+       * the first one's thank-you — the app appearing to have already saved
+       * something the reader had not written yet.
+       */
+      setJustSaved(false);
     }
   }, [draft]);
 

@@ -2153,6 +2153,56 @@ export default function TimeReality() {
     return [{ startMinutes: now.minutes, endMinutes: now.minutes + foundWindow }];
   })();
 
+
+  const shape = dayShape({
+    workStartHour: me.workStartHour,
+    workEndHour: me.workEndHour,
+    /* Already answered at onboarding. Asking again for something the profile
+       holds is how a "three questions, once" card becomes a form. */
+    workHoursPerWeek: me.workHoursPerWeek,
+    commuteMinutes: me.commuteMinutes,
+    workType: me.workType,
+    sleepHour: prefs?.quietHoursStart,
+    wakeHour: prefs?.quietHoursEnd,
+    /* Asked once, rather than corrected with a chip every Saturday. */
+    workDays: me.workDays,
+    weekday: viewWeekday,
+    /* The chips correct today and are cleared at midnight, so carrying
+       "travelling" onto tomorrow would be asserting something nobody said. */
+    dayType: showingToday ? dayType : 'usual',
+    activeAt,
+    suggestions: placeable,
+    boundaries: dayBoundaries,
+    nudges,
+    freed: freedWindows,
+    /* Only ever the day that was read. A calendar answer belongs to one date,
+       and yesterday's bookings drawn on tomorrow would be a confident lie. */
+    busy: calendar?.status === 'ready' && calendar.dayKey === viewDate.toDateString()
+      ? calendar.busy
+      : null,
+  });
+  /**
+   * Now, against a day that runs from waking to waking.
+   *
+   * The blocks keep counting past midnight — a card that wakes at seven ends
+   * at 1860, not at 1440 — and the temptation is to push a small-hours clock
+   * reading up into that range to match. It is wrong. At ten to one on a
+   * Thursday morning, the Thursday being drawn has not started: its seven
+   * o'clock is seven hours away, not seventeen hours behind. Normalising
+   * forward greyed out the entire day and put "you are here" at the bottom of
+   * a day nobody had lived yet.
+   *
+   * So the clock is taken as it reads, and the one case it cannot answer —
+   * a block drawn after midnight, during the hour before the card's own day
+   * begins — is left alone rather than guessed at. Erring towards "still
+   * ahead of you" costs a reader nothing; erring the other way hands them a
+   * morning marked missed before it happened.
+   */
+  const dayStartsAt = shape.blocks[0]?.startMinutes ?? 0;
+  const nowInDay = showingToday ? now.minutes : null;
+  /** The small hours: today is drawn, and none of it has happened yet. */
+  const dayNotStarted = nowInDay != null && nowInDay < dayStartsAt;
+
   /**
    * Everything that could fill it, from all three sources the app has.
    *
@@ -2214,7 +2264,41 @@ export default function TimeReality() {
         };
       });
 
+    /**
+     * Nothing the day has already claimed.
+     *
+     * This deduped against itself and against nothing else, so an hour that
+     * came free was answered with the three things pencilled into the day
+     * card directly below it — "thirty minutes of learning", "read about
+     * money", the family trip — every one of them already spoken for. An
+     * app that offers you back the plan you already have has not found you
+     * anything; it has repeated itself and called it a suggestion.
+     *
+     * A found hour is worth having precisely because it is *extra*, so what
+     * belongs here is what the day could not fit, what the week still owes,
+     * and what nobody has agreed to yet.
+     *
+     * Measured against what the day actually *drew*, not against everything
+     * it considered. The two differ constantly — a day has room for one or
+     * two things and the ranker hands it a dozen — and the ones that did not
+     * fit are the best answer this card has. Excluding them as well emptied
+     * the sheet and replaced a wrong suggestion with no suggestion, which is
+     * not obviously the better failure.
+     *
+     * This is why the whole block sits below `shape` rather than above it.
+     */
+    const claimed = new Set<string>([
+      ...shape.placements.map((p) => norm(p.action)),
+      ...scheduled,
+      ...[...onTheList],
+    ]);
+    const claimedKeys = new Set<string>([
+      ...shape.placements.map((p) => p.key),
+      ...scheduled,
+    ]);
+
     return [...fromRhythms, ...fromStacks, ...fromProposals]
+      .filter((c) => !claimed.has(norm(c.action)) && !claimedKeys.has(c.key))
       .filter((c, i, all) => all.findIndex((o) => o.action === c.action) === i);
   })();
 
@@ -2225,55 +2309,6 @@ export default function TimeReality() {
       candidates: foundCandidates,
     })
     : null;
-
-  const shape = dayShape({
-    workStartHour: me.workStartHour,
-    workEndHour: me.workEndHour,
-    /* Already answered at onboarding. Asking again for something the profile
-       holds is how a "three questions, once" card becomes a form. */
-    workHoursPerWeek: me.workHoursPerWeek,
-    commuteMinutes: me.commuteMinutes,
-    workType: me.workType,
-    sleepHour: prefs?.quietHoursStart,
-    wakeHour: prefs?.quietHoursEnd,
-    /* Asked once, rather than corrected with a chip every Saturday. */
-    workDays: me.workDays,
-    weekday: viewWeekday,
-    /* The chips correct today and are cleared at midnight, so carrying
-       "travelling" onto tomorrow would be asserting something nobody said. */
-    dayType: showingToday ? dayType : 'usual',
-    activeAt,
-    suggestions: placeable,
-    boundaries: dayBoundaries,
-    nudges,
-    freed: freedWindows,
-    /* Only ever the day that was read. A calendar answer belongs to one date,
-       and yesterday's bookings drawn on tomorrow would be a confident lie. */
-    busy: calendar?.status === 'ready' && calendar.dayKey === viewDate.toDateString()
-      ? calendar.busy
-      : null,
-  });
-  /**
-   * Now, against a day that runs from waking to waking.
-   *
-   * The blocks keep counting past midnight — a card that wakes at seven ends
-   * at 1860, not at 1440 — and the temptation is to push a small-hours clock
-   * reading up into that range to match. It is wrong. At ten to one on a
-   * Thursday morning, the Thursday being drawn has not started: its seven
-   * o'clock is seven hours away, not seventeen hours behind. Normalising
-   * forward greyed out the entire day and put "you are here" at the bottom of
-   * a day nobody had lived yet.
-   *
-   * So the clock is taken as it reads, and the one case it cannot answer —
-   * a block drawn after midnight, during the hour before the card's own day
-   * begins — is left alone rather than guessed at. Erring towards "still
-   * ahead of you" costs a reader nothing; erring the other way hands them a
-   * morning marked missed before it happened.
-   */
-  const dayStartsAt = shape.blocks[0]?.startMinutes ?? 0;
-  const nowInDay = showingToday ? now.minutes : null;
-  /** The small hours: today is drawn, and none of it has happened yet. */
-  const dayNotStarted = nowInDay != null && nowInDay < dayStartsAt;
 
   const dayHoursKnown = me.workStartHour != null && me.workEndHour != null;
   /* Where the placed things came from, said once and quietly. A card that puts
@@ -3295,27 +3330,76 @@ export default function TimeReality() {
                       })}
                     </View>
 
+                    {/**
+                      * Three things offered, and each one takeable.
+                      *
+                      * There was a single "Put it in my day" under all three,
+                      * which answered a question nobody had asked — the
+                      * reader has already decided *which* of them they want,
+                      * and the one control could not hear it. A list of
+                      * options with one button is a list pretending to be a
+                      * choice.
+                      *
+                      * The row is the control now. Taking one writes it to
+                      * the hour that just came free and leaves the other two
+                      * standing, because a found hour that fits one of them
+                      * may well fit another.
+                      */}
                     {found?.primary ? (
                       <View style={{ gap: space(2) }}>
-                        <View style={s.priorityRow}>
-                          <DomainDot domain={found.primary.domain} size={10} />
-                          <View style={{ flex: 1, gap: 2 }}>
-                            <Text style={[type.heading, { color: colors.amber }]}>
-                              {found.primary.action}
-                            </Text>
-                            {!!found.primary.because && (
-                              <Text style={type.faint}>{found.primary.because}</Text>
-                            )}
-                          </View>
-                          <Text style={type.faint}>{found.primary.minutes}m</Text>
-                        </View>
-                        {found.alternates.map((alt) => (
-                          <View key={alt.key} style={[s.priorityRow, { opacity: 0.75 }]}>
-                            <DomainDot domain={alt.domain} size={8} />
-                            <Text style={[type.body, { flex: 1 }]} numberOfLines={1}>{alt.action}</Text>
-                            <Text style={type.faint}>{alt.minutes}m</Text>
-                          </View>
-                        ))}
+                        {[found.primary, ...found.alternates].map((opt, i) => {
+                          const taken = scheduled.includes(opt.key) || onTheList.has(norm(opt.action));
+                          return (
+                            <Pressable
+                              key={opt.key}
+                              disabled={taken || scheduleBlock.isPending}
+                              onPress={() => {
+                                /* The hour is genuinely free now, so the day
+                                   below should show it as free — and hold
+                                   the thing that was just put into it. */
+                                setFoundWindow(foundMinutes);
+                                scheduleBlock.mutate({
+                                  key: opt.key,
+                                  action: opt.action,
+                                  reason: opt.because,
+                                  domains: [opt.domain],
+                                  startMinutes: now.minutes,
+                                  minutes: opt.minutes,
+                                });
+                              }}
+                              accessibilityRole="button"
+                              aria-selected={taken}
+                              accessibilityLabel={taken
+                                ? `${opt.action} — already in your day`
+                                : `Put ${opt.action} in my day, ${opt.minutes} minutes`}
+                              style={({ pressed }) => [
+                                s.priorityRow,
+                                s.foundOption,
+                                i > 0 && !taken && { opacity: 0.75 },
+                                taken && s.chipOn,
+                                pressed && { opacity: 0.6 },
+                              ]}
+                            >
+                              <DomainDot domain={opt.domain} size={i === 0 ? 10 : 8} />
+                              <View style={{ flex: 1, gap: 2 }}>
+                                <Text
+                                  style={i === 0
+                                    ? [type.heading, { color: colors.amber }]
+                                    : type.body}
+                                  numberOfLines={2}
+                                >
+                                  {opt.action}
+                                </Text>
+                                {i === 0 && !!opt.because && (
+                                  <Text style={type.faint}>{opt.because}</Text>
+                                )}
+                              </View>
+                              <Text style={[type.faint, taken && { color: colors.amber }]}>
+                                {taken ? 'in your day' : `${opt.minutes}m`}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
                       </View>
                     ) : (
                       <Text style={type.serif}>{found?.restNote}</Text>
@@ -3331,25 +3415,27 @@ export default function TimeReality() {
                       </Text>
                     )}
 
-                    {/* A toggle, not a one-way door: a window put into the
-                        day by mistake has to come back out, and the meeting
-                        that was cancelled is sometimes un-cancelled. */}
-                    <Pressable
-                      onPress={() => setFoundWindow(foundWindow ? null : foundMinutes)}
-                      accessibilityRole="button"
-                      accessibilityLabel={foundWindow ? 'Take it back out of my day' : 'Put it in my day'}
-                      aria-selected={!!foundWindow}
-                      style={({ pressed }) => [
-                        s.chip,
-                        { alignSelf: 'flex-start' },
-                        !!foundWindow && s.chipOn,
-                        pressed && { opacity: 0.6 },
-                      ]}
-                    >
-                      <Text style={[type.body, { color: colors.amber }]}>
-                        {foundWindow ? 'In your day below — tap to undo' : 'Put it in my day'}
-                      </Text>
-                    </Pressable>
+                    {/* The window itself, separately from what goes in it.
+                        Not a one-way door: an hour marked free by mistake has
+                        to come back out, and a cancelled meeting is sometimes
+                        un-cancelled. Only worth offering once the hour is
+                        actually drawn — before that the rows above are the
+                        way in, and two buttons meaning almost the same thing
+                        is how the single ambiguous one got here. */}
+                    {foundWindow ? (
+                      <Pressable
+                        onPress={() => setFoundWindow(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Take the free hour back out of my day"
+                        style={({ pressed }) => [
+                          s.chip, { alignSelf: 'flex-start' }, pressed && { opacity: 0.6 },
+                        ]}
+                      >
+                        <Text style={type.faint}>
+                          That hour is drawn in your day — tap to take it out
+                        </Text>
+                      </Pressable>
+                    ) : null}
                   </>
                 )}
               </Card>
@@ -4403,6 +4489,11 @@ const s = StyleSheet.create({
   },
   nowDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.amber },
   nowRule: { flex: 1, height: 1, backgroundColor: alpha(colors.amber, 0.45) },
+  /** One takeable option in the found-hour sheet — a row that is a control. */
+  foundOption: {
+    borderWidth: 1, borderColor: colors.line, borderRadius: 12,
+    paddingVertical: space(2), paddingHorizontal: space(3),
+  },
   /** One weekday in the working-week row. Square, so seven fit a narrow phone. */
   dayChip: {
     minWidth: 40, alignItems: 'center',

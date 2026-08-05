@@ -467,6 +467,30 @@ export default function Today() {
   const [justCompleted, setJustCompleted] = useState<any | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
 
+  /**
+   * The banner stops talking once it has nothing left to say.
+   *
+   * It stayed up after the engine put the next mission on screen, so the top
+   * of the day read "Done — that counted · Kept" directly above a card asking
+   * for something else entirely — a closing note for one task hanging over
+   * the opening of another.
+   *
+   * But it is two things at once: an acknowledgement, and an offer to keep
+   * the moment. Clearing it the instant the next mission arrives also took
+   * the offer away, and the next mission lands within about a second — so a
+   * first attempt at this fix removed the only route to the archive before
+   * anybody could reach it. Only the finished half goes: once the moment is
+   * kept (or waved away), the banner is pure residue and the new card owns
+   * the top of the screen. While the offer is still open it stays, because
+   * an unanswered question is not clutter.
+   */
+  const nextMissionId = data?.todayMission?.id;
+  const keptThisOne = justCompleted ? keptMoments.includes(justCompleted.id) : false;
+  useEffect(() => {
+    if (!justCompleted || !nextMissionId || !keptThisOne) return;
+    if (nextMissionId !== justCompleted.id) setJustCompleted(null);
+  }, [nextMissionId, justCompleted, keptThisOne]);
+
   const hasAnswer = (key: string) =>
     (obAnswers ?? []).some((a: any) => {
       if (a.key !== key) return false;
