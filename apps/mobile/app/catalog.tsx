@@ -18,10 +18,30 @@
  * source, so this screen cannot drift from what the day card believes —
  * which is the failure mode this codebase keeps paying for and does not
  * need a new copy of.
+ *
+ * A library you can see the shelves of.
+ *
+ * Twelve domains laid out at once, three rhythms each, every one carrying a
+ * title, a cadence, a reason and a button, came to about four thousand
+ * pixels — and the shape of the thing, the twelve parts of a life, was the
+ * one piece a reader could never see. Scrolling past two domains to reach
+ * the third is not browsing. So the domains collapse: closed, the whole
+ * catalog is a page of twelve names, which is exactly the "what could a
+ * well-tended week look like across my whole life" question this screen was
+ * built to answer. Open one and it is the card it always was.
+ *
+ * Closed is the default for all twelve, including the ones already being
+ * kept, because a header that says "1 in your week" answers the question
+ * without costing three hundred pixels. Several may be open at once; a
+ * reader comparing partner against children should not have one shut in
+ * their face for opening the other.
  */
 
 import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import {
+  View, Text, ScrollView, Pressable, StyleSheet, Animated, Platform,
+  useWindowDimensions,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -66,9 +86,44 @@ function whenLabel(r: Rhythm): string | null {
   return null;
 }
 
+/**
+ * A domain's rhythms, arriving rather than appearing.
+ *
+ * Only the opening is animated — the body unmounts on close, so there is
+ * nothing left to fade out, and a list that snapped open under a finger read
+ * as a layout bug rather than as a drawer. Short and small on purpose: this
+ * is a disclosure, not an entrance.
+ */
+function Reveal({ children }: { children: React.ReactNode }) {
+  const v = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    Animated.timing(v, {
+      toValue: 1, duration: 170, useNativeDriver: Platform.OS !== 'web',
+    }).start();
+  }, [v]);
+  return (
+    <Animated.View
+      style={{
+        gap: space(3),
+        opacity: v,
+        transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [-6, 0] }) }],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
 export default function Catalog() {
   const router = useRouter();
   const qc = useQueryClient();
+  /* "Family / Parents" is already two words wide in the letterspaced label,
+     and "3 in your week" beside it pushed both onto second lines on a small
+     phone — a header that is taller than the row it summarises. Below 360 the
+     count keeps the tick and drops the sentence; the screen reader gets the
+     sentence either way from the header's own label. */
+  const { width: screenWidth } = useWindowDimensions();
+  const tightHead = screenWidth < 360;
 
   const { data: habits } = useQuery({
     queryKey: ['habits'],
@@ -107,6 +162,23 @@ export default function Catalog() {
 
   const domains = rhythmDomains();
 
+  /**
+   * Which domains are open. Closed is not a lack of an answer here — it is
+   * the answer for all twelve until somebody asks, which is why this starts
+   * empty rather than holding the first domain or the ones being kept.
+   */
+  const [open, setOpen] = React.useState<Record<string, boolean>>({});
+  const toggle = (d: string) => setOpen((p) => ({ ...p, [d]: !p[d] }));
+
+  const isHeld = (key: string) => heldKeys.has(key) || begun.includes(key);
+  const heldIn = (d: string) => rhythmsFor(d).filter((r) => isHeld(r.key)).length;
+
+  /* Said once, at the top, so "why only three?" has an answer before it is
+     asked — and so the twelve closed rows below read as a whole catalog
+     rather than as a screen that failed to load. */
+  const total = domains.reduce((n, d) => n + rhythmsFor(d).length, 0);
+  const heldTotal = domains.reduce((n, d) => n + heldIn(d), 0);
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -118,23 +190,64 @@ export default function Catalog() {
 
         <Text style={type.display}>The catalog</Text>
         <Text style={type.dim}>
-          Every standing rhythm this app knows how to hold, by part of a life.
-          Nothing here is assigned — a rhythm starts when you start it, and
-          three a week is plenty to begin with.
+          Every standing rhythm this app knows how to hold, three to a part of
+          a life. Nothing here is assigned — a rhythm starts when you start it,
+          and three a week is plenty to begin with.
+        </Text>
+        <Text style={type.faint}>
+          {total} rhythms across {domains.length} parts of a life
+          {heldTotal ? ` · ${heldTotal} already in your week` : ''}
         </Text>
 
         {domains.map((d) => {
           const list = rhythmsFor(d);
           if (!list.length) return null;
           const c = domainColor(d);
+          const shown = open[d];
+          const kept = heldIn(d);
+          const name = DOMAIN_LABELS[d] ?? d;
           return (
-            <Card key={d} style={{ gap: space(3) }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Card key={d} style={{ gap: space(3), paddingVertical: 14 }}>
+              {/* The whole row is the target, not the chevron. A twelve-row
+                  index gets tapped at speed, and a 16px glyph at the far
+                  edge is the wrong thing to ask a thumb to find. */}
+              <Pressable
+                onPress={() => toggle(d)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: !!shown }}
+                accessibilityLabel={
+                  shown
+                    ? `${name} — close`
+                    : `${name}, ${list.length} rhythms${kept ? `, ${kept} in your week` : ''} — open`
+                }
+                style={({ pressed }) => [s.head, pressed && { opacity: 0.6 }]}
+              >
                 <DomainDot domain={d} size={10} />
-                <Label>{DOMAIN_LABELS[d] ?? d}</Label>
-              </View>
+                <Label>{name}</Label>
+                <View style={{ flex: 1 }} />
+                {/* Only when there is something to say. Twelve rows each
+                    reading "3 rhythms" is noise repeated twelve times; a
+                    green count is the one fact worth carrying while shut. */}
+                {kept ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    {tightHead ? (
+                      <Ionicons name="checkmark-circle" size={13} color={colors.green} />
+                    ) : null}
+                    <Text style={[type.faint, { color: colors.green }]} numberOfLines={1}>
+                      {tightHead ? kept : `${kept} in your week`}
+                    </Text>
+                  </View>
+                ) : null}
+                <Ionicons
+                  name={shown ? 'chevron-up' : 'chevron-down'}
+                  size={16}
+                  color={colors.textDim}
+                />
+              </Pressable>
+              {shown ? (
+              <Reveal>
               {list.map((r) => {
-                const held = heldKeys.has(r.key) || begun.includes(r.key);
+                const held = isHeld(r.key);
                 const hint = whenLabel(r);
                 return (
                   <View key={r.key} style={s.row}>
@@ -172,6 +285,8 @@ export default function Catalog() {
                   </View>
                 );
               })}
+              </Reveal>
+              ) : null}
             </Card>
           );
         })}
@@ -191,6 +306,13 @@ const s = StyleSheet.create({
     paddingBottom: space(10), maxWidth: 560, width: '100%', alignSelf: 'center',
   },
   back: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: -6 },
+  /* Padded back out to the card's own inset and up to a thumb's worth of
+     height, so the row a reader taps is the row they can see. */
+  head: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    minHeight: 24, marginVertical: -4, paddingVertical: 4,
+    marginHorizontal: -18, paddingHorizontal: 18,
+  },
   row: {
     gap: 6, borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.line, paddingTop: space(3),
