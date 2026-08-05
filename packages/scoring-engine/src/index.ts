@@ -37,6 +37,7 @@ export * from './setting';
 export * from './rhythms';
 export * from './rhythmPlan';
 export * from './commonHabits';
+export * from './evidence';
 export * from './reasons';
 export * from './foundTime';
 export * from './freeGaps';

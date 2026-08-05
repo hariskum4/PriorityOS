@@ -24,7 +24,13 @@ describe('recognizing the habits people write for themselves', () => {
     ['10k steps', 'common.walk'],
     ['Walk the dog', 'common.walk'],
     ['go for a walk', 'common.walk'],
-    ['Yoga', 'health.stretch'],
+    /* Yoga resolves to its own identity now, not to stretching. They
+       looked interchangeable until the catalog started printing
+       receipts: yoga's mood evidence is among the strongest in the
+       exercise literature and stretching's stops at range of motion,
+       so the old mapping handed one the other's credentials. */
+    ['Yoga', 'health.yoga'],
+    ['Stretching', 'health.stretch'],
     ['Stretching', 'health.stretch'],
     ['Meditate 10 minutes', 'common.meditate'],
     ['daily meditation', 'common.meditate'],

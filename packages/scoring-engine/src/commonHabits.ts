@@ -151,6 +151,30 @@ export const PROMOTED = {
 } satisfies Record<string, Rhythm>;
 
 /**
+ * Offered by the catalog *and* recognised by name — the same one-definition
+ * rule as `PROMOTED`, for an entry that is not a promoted daily.
+ *
+ * It lives here rather than in `rhythms.ts` because both files need it and
+ * the value only flows one way: `rhythms.ts` imports from this file, and
+ * this file takes only a type back. A second copy over there is exactly the
+ * drift this module was written to end.
+ *
+ * Yoga earns the separate identity. The word was already recognised and it
+ * resolved to stretching — which meant somebody who wrote "yoga" was filed
+ * under a rhythm whose evidence stops at range of motion, when yoga's own is
+ * among the strongest in the exercise-for-mood literature. Pointing a word at
+ * the wrong twin costs nothing until you start printing the receipts, and
+ * then it prints the wrong one.
+ */
+export const CATALOG = {
+  yoga: {
+    key: 'health.yoga', title: 'Yoga, twice a week', perWeek: 2, minutes: 40,
+    when: 'morning', needs: ['canMove'],
+    because: 'Strength, balance and a quiet head, from a mat and forty minutes.',
+  },
+} satisfies Record<string, Rhythm>;
+
+/**
  * The table. Keys are prefixed `common.` so nothing mistakes these for
  * catalog entries — they are readings of somebody else's words, not offers.
  * The exceptions point at `PROMOTED`, whose keys name a domain because those
@@ -187,7 +211,11 @@ const COMMON: Recognized[] = [
       because: 'The cheapest reset there is — moving and thinking.',
     },
   },
-  { test: /^(?:yoga|stretch(?:ing)?|mobility)\b/, rhythm: PROMOTED.stretch },
+  /* Yoga before stretching, because the array is checked in order and first
+     match wins — and because they are not the same thing however similar the
+     mat looks. */
+  { test: /^yoga\b/, rhythm: CATALOG.yoga },
+  { test: /^(?:stretch(?:ing)?|mobility)\b/, rhythm: PROMOTED.stretch },
 
   // ---- the quiet practices ------------------------------------------------
   {

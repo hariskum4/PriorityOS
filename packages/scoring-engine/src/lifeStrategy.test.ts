@@ -165,11 +165,12 @@ describe('weekly allocation', () => {
         const health = a.allotments.find((x) => x.domainType === 'health')!;
         /* 2h held, plus what health still has to give: lights out, stretch,
            water, vitamins, upkeep and make the bed at 0.58h each, and cook at
-           2.25h — 6.17h, rounded to the half hour. It was 2.5 when the only
-           thing left was lights out; the daily upkeep entries are what moved
-           it, and the point of the test is unchanged — retired titles still
-           do not count toward what is reachable. */
-        expect(health.reachableHours).toBe(8);
+           2.25h — 6.17h — plus yoga at 2×40min = 1.33h, rounded to the half
+           hour. It was 2.5 when the only thing left was lights out, then 8
+           when the daily upkeep arrived, and 9.5 now that the domain has a
+           yoga session to offer. The point of the test is unchanged through
+           all of it: retired titles do not count toward what is reachable. */
+        expect(health.reachableHours).toBe(9.5);
       });
 
       it('does not offer room for a lever already being kept under another name', () => {

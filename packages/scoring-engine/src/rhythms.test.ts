@@ -3,7 +3,7 @@ import {
   rhythmsFor, rhythmFor, rhythmByKey, rhythmDomains, availableRhythms,
   rhythmForHabit, REMOTE_CHILDREN_RHYTHMS, IN_PERSON_CHILDREN_TITLES,
 } from './rhythms';
-import { PROMOTED } from './commonHabits';
+import { PROMOTED, CATALOG } from './commonHabits';
 
 const ALL = rhythmDomains();
 
@@ -27,7 +27,11 @@ describe('the habits people already write, offered', () => {
 
   it('resolves the phrasings people use to the same catalog entry', () => {
     const same: Array<[string, string]> = [
-      ['Yoga', PROMOTED.stretch.key],
+      /* Yoga has its own identity now — see commonHabits. Stretching keeps
+         the one it always had, and the pair is here so the split cannot be
+         quietly undone. */
+      ['Yoga', CATALOG.yoga.key],
+      ['Stretching', PROMOTED.stretch.key],
       ['hydrate', PROMOTED.water.key],
       ['Gratitude list', PROMOTED.journal.key],
       ['Floss', PROMOTED.upkeep.key],
@@ -236,8 +240,10 @@ describe('a commitment already kept under another name', () => {
     expect(left).toContain('health.water');
     // "Make the bed" survives only because it is no longer read as sleep.
     expect(left).toContain('health.makebed');
-    // Appended, not inserted: the offer order the domain had is untouched.
-    expect(rhythmFor('health', taken)?.key).toBe('health.stretch');
+    /* Appended, not inserted: the three that decide most of health still
+       lead, and yoga sits directly after them — before the daily upkeep,
+       because it is a session and they are maintenance. */
+    expect(rhythmFor('health', taken)?.key).toBe('health.yoga');
   });
 
   it('does not suppress a rhythm that classifies as nothing', () => {

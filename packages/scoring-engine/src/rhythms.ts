@@ -35,7 +35,7 @@
 
 import type { Setting } from './setting';
 import { classifyLever, leverTwinKey, type LeverKey } from './lifeStrategy';
-import { recognizeHabit, PROMOTED } from './commonHabits';
+import { recognizeHabit, PROMOTED, CATALOG } from './commonHabits';
 
 /**
  * Where in a day this kind of thing belongs.
@@ -179,6 +179,24 @@ const RHYTHMS: Record<string, Rhythm[]> = {
       perWeek: 7, minutes: 5, when: 'bedtime',
       because: 'Sleep is the lever that moves every other one, and the cheapest to pull.',
     },
+    /**
+     * Appended after the three, never among them — order is load-bearing
+     * here and inserting would re-offer a different rhythm to everyone who
+     * already has one.
+     *
+     * Yoga was the strangest hole the evidence review found: the strongest
+     * single modality in the exercise-for-mood network meta (g ≈ −0.55, and
+     * the best tolerated of the lot), culturally native to the market this
+     * app is built for, and absent. Worse than absent, in fact — the catalog
+     * already *recognised* the word and resolved it to stretching, so
+     * somebody who typed "yoga" was quietly filed under a rhythm whose own
+     * evidence goes no further than range of motion.
+     *
+     * Defined in `commonHabits` beside `PROMOTED`, for the same reason those
+     * are: it has to be both offered here and recognised there, and one
+     * definition is the whole point of that file.
+     */
+    CATALOG.yoga,
     /* The small daily upkeep, after the three that decide most of it. */
     PROMOTED.stretch,
     PROMOTED.water,
@@ -346,6 +364,21 @@ const RHYTHMS: Record<string, Rhythm[]> = {
       title: 'One place near you, never visited',
       perWeek: 1, minutes: 120, when: 'any', prefersWeekend: true, needs: ['canMove'],
       because: 'Most of what you have not seen is within an hour of where you live.',
+    },
+    /**
+     * Appended, for the same reason as the yoga entry above.
+     *
+     * The nature threshold is the best effort-to-evidence ratio the review
+     * turned up: two hours a week, reachable in a single visit, and the
+     * association holds across nearly twenty thousand people. It is
+     * observational and the receipt says so — but the ask is so small that
+     * the grade barely matters. Two hours is one Sunday morning.
+     */
+    {
+      key: 'experiences.outside',
+      title: 'Two hours somewhere green, weekly',
+      perWeek: 1, minutes: 120, when: 'any', prefersWeekend: true, needs: ['canMove'],
+      because: 'Two hours a week outdoors is the whole dose, and it can be one walk.',
     },
   ],
   reflection: [

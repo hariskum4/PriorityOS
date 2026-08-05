@@ -88,6 +88,11 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Automate one monthly investment', label: 'Automate one investment', minutes: 25 },
     { title: 'Read one thing about money you have been avoiding', label: 'Read the thing you avoid', minutes: 40 },
     { title: 'Write the will, or the list of what is where', label: 'Write down what is where', minutes: 90 },
+    /* Appended. The one rung in this domain about spending rather than
+       keeping — money pointed at an experience with somebody, which is the
+       crossover the regret literature and the spending literature both land
+       on. Small effect, honestly sized in the receipt. */
+    { title: 'Spend a planned amount on an experience with someone', label: 'Spend it on someone', minutes: 30 },
   ],
   family: [
     { title: 'Call someone in your family today', label: 'Call someone today', minutes: 15 },
@@ -153,6 +158,16 @@ const LADDERS: Record<string, LadderRung[]> = {
     { title: 'Name the thing you have been avoiding thinking about', label: 'Name what you avoid', minutes: 20 },
     { title: 'Take a walk with no phone and no podcast', label: 'Walk with nothing on', minutes: 40 },
     { title: 'Write the letter you will not send', label: 'Write the unsent letter', minutes: 45 },
+    /* Appended. Behavioural activation is the active ingredient of a
+       first-line depression treatment, and the engine already had every
+       mechanic it needs — schedule one rewarding thing — with nowhere in
+       the catalog that said so. Written as a plan with a date on it,
+       because that is the half the trials measure. */
+    { title: 'Put one thing you used to enjoy back in the week', label: 'Put back one thing', minutes: 60 },
+    /* Gratitude, once, graded honestly small. It is here because it was
+       absent, not because it is a lever — and it is worded as a record of
+       a week rather than as anything to take when low. */
+    { title: 'Write down three specific good things from this week', label: 'Three good things', minutes: 10 },
     { title: 'Keep a weekly hour that belongs to no one else', label: 'An hour that is yours', minutes: 60, recurring: { perWeek: 1 } },
   ],
   impact: [
