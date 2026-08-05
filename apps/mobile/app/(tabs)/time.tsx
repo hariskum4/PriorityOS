@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, RefreshControl, StyleSheet,
-  Animated, PanResponder, type GestureResponderHandlers,
+  Animated, PanResponder, useWindowDimensions, type GestureResponderHandlers,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -64,7 +64,7 @@ import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { Button, Card, Chip, DomainDot, ErrorNote, Input, Label } from '@/components/ui';
 import { YearGrid } from '@/components/YearGrid';
-import { colors, type, space, domainColor, alpha } from '@/theme';
+import { colors, type, space, domainColor, alpha, liningNums } from '@/theme';
 
 /**
  * Time Reality — the user's own finite windows, computed live from their
@@ -133,6 +133,31 @@ const TIME_STEP = 15;
 
 /** How long a thing might take. A call is rarely the fifteen minutes it costs to start. */
 const LENGTHS = [15, 30, 45, 60, 90, 120];
+
+/**
+ * "1 hour", "1½ hours", "45 min" — a length said the way it is spoken.
+ *
+ * The six lengths used to be laid out as six chips, which asked somebody to
+ * read a menu to change one number. One number, stepped, needs to read as a
+ * quantity rather than as an option code: "1.5h" is a spreadsheet cell, "1½
+ * hours" is an hour and a half of a life.
+ */
+function formatLength(mins: number): string {
+  if (mins < 60) return `${mins} min`;
+  const h = mins / 60;
+  if (Number.isInteger(h)) return h === 1 ? '1 hour' : `${h} hours`;
+  return h === 1.5 ? '1½ hours' : `${h} hours`;
+}
+
+/** The step this length sits on, or the nearest one when it sits between two. */
+function lengthIndex(mins: number): number {
+  const exact = LENGTHS.indexOf(mins);
+  if (exact >= 0) return exact;
+  return LENGTHS.reduce(
+    (best, n, i) => (Math.abs(n - mins) < Math.abs(LENGTHS[best] - mins) ? i : best),
+    0,
+  );
+}
 
 /**
  * How far a finger has to travel to move something by an hour.
@@ -437,9 +462,70 @@ function Big({ value, unit, caption }: { value: string; unit: string; caption: s
   );
 }
 
+/**
+ * A number you can change without leaving the sentence it is in.
+ *
+ * Two arrows and the value between them, sized so the value is the thing you
+ * read and the arrows are the thing you reach for — the opposite weighting to
+ * a row of equal-sized chips, where the eye has to find the selected one before
+ * it can find the meaning. The ends go quiet rather than disappearing, because
+ * a control that changes shape at its limits moves the other one under the
+ * finger that was aiming at it.
+ */
+function Stepper({ value, onLess, onMore, lessLabel, moreLabel, atLess, atMore }: {
+  value: string;
+  onLess: () => void;
+  onMore: () => void;
+  lessLabel: string;
+  moreLabel: string;
+  atLess?: boolean;
+  atMore?: boolean;
+}) {
+  const arrow = (dir: 'back' | 'forward', onPress: () => void, label: string, spent?: boolean) => (
+    <Pressable
+      onPress={spent ? undefined : onPress}
+      disabled={spent}
+      hitSlop={10}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!spent }}
+      style={({ pressed }) => [
+        s.stepArrow,
+        spent && { opacity: 0.25 },
+        pressed && !spent && { backgroundColor: alpha(colors.amber, 0.16) },
+      ]}
+    >
+      <Ionicons
+        name={dir === 'back' ? 'chevron-back' : 'chevron-forward'}
+        size={15}
+        color={colors.amber}
+      />
+    </Pressable>
+  );
+  return (
+    <View style={s.stepper}>
+      {arrow('back', onLess, lessLabel, atLess)}
+      <Text style={s.stepValue} numberOfLines={1}>{value}</Text>
+      {arrow('forward', onMore, moreLabel, atMore)}
+    </View>
+  );
+}
+
 export default function TimeReality() {
   const qc = useQueryClient();
   const router = useRouter();
+  /**
+   * Whether the time and the length still fit on one line.
+   *
+   * The editor is written as a sentence — "7 am for 1 hour" — and the two
+   * pills plus the connector need about 285px of card. A 320px phone has
+   * roughly 245px inside the card, so the length wrapped onto its own row and
+   * left "for" dangling at the end of the first one, pointing at nothing.
+   * Below the threshold they stack on purpose and the connector is dropped;
+   * a deliberate column reads as a choice, a wrapped row reads as a bug.
+   */
+  const { width: screenWidth } = useWindowDimensions();
+  const tightEditor = screenWidth < 360;
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api<any>('/me') });
   const { data: dashboard } = useQuery({ queryKey: ['dashboard'], queryFn: () => api<any>('/dashboard') });
   const { data: prefs } = useQuery({
@@ -2436,19 +2522,54 @@ export default function TimeReality() {
                        said "Yours" or "Work", and which cut the bedtime note
                        off mid-sentence the moment one of them had something
                        to say. */
-                    const face = (
+                    /**
+                     * A proposal is not a diary line, and it stopped being laid
+                     * out like one.
+                     *
+                     * Both used to share a row: a fixed 96px of clock, then the
+                     * label, then dots, then a chevron — which leaves a phone
+                     * about 150px of column. "Walk somewhere new with the
+                     * family, phones away" came out five lines tall and read as
+                     * a wall. The facts of a day ("Work", "Yours") are short and
+                     * belong beside their hour; a proposal is a sentence and
+                     * gets the width of the card, with its hour above it as a
+                     * caption.
+                     */
+                    const suggested = b.kind === 'suggested';
+                    const face = suggested ? (
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={[type.faint, { letterSpacing: 0.6 }]}>
+                            {formatSpan(b.startMinutes, b.endMinutes)}
+                          </Text>
+                          {b.domains?.length ? (
+                            <View style={{ flexDirection: 'row', gap: 3 }}>
+                              {b.domains.slice(0, 3).map((d: string) => (
+                                <DomainDot key={d} domain={d} size={7} />
+                              ))}
+                            </View>
+                          ) : null}
+                          <View style={{ flex: 1 }} />
+                          {p ? (
+                            <Ionicons
+                              name={openBlock === p.key ? 'chevron-up' : 'chevron-down'}
+                              size={14}
+                              color={colors.textDim}
+                            />
+                          ) : null}
+                        </View>
+                        <Text style={[type.body, { color: colors.amber, fontWeight: '600' }]}>
+                          {b.label}
+                        </Text>
+                        {b.note ? <Text style={type.faint}>{b.note}</Text> : null}
+                      </View>
+                    ) : (
                       <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                         <Text style={[type.faint, s.dayTime]}>
                           {formatSpan(b.startMinutes, b.endMinutes)}
                         </Text>
                         <View style={{ flex: 1, gap: 2 }}>
-                          <Text
-                            style={[
-                              type.body,
-                              b.kind === 'suggested' && { color: colors.amber, fontWeight: '600' },
-                              (b.kind === 'open' || b.kind === 'sleep') && type.dim,
-                            ]}
-                          >
+                          <Text style={[type.body, (b.kind === 'open' || b.kind === 'sleep') && type.dim]}>
                             {b.label}
                           </Text>
                           {b.note ? <Text style={type.faint}>{b.note}</Text> : null}
@@ -2459,13 +2580,6 @@ export default function TimeReality() {
                               <DomainDot key={d} domain={d} size={7} />
                             ))}
                           </View>
-                        ) : null}
-                        {p ? (
-                          <Ionicons
-                            name={openBlock === p.key ? 'chevron-up' : 'chevron-down'}
-                            size={13}
-                            color={colors.textDim}
-                          />
                         ) : null}
                       </View>
                     );
@@ -2564,7 +2678,20 @@ export default function TimeReality() {
                             <View {...handlers} style={s.grip}>
                               <Ionicons name="reorder-two-outline" size={16} color={colors.textDim} />
                             </View>
-                            <Pressable style={{ flex: 1 }} onPress={() => setOpenBlock(open ? null : p.key)}>
+                            {/* The row that opens the editor reached assistive
+                                tech as an unnamed div — the chevron implied a
+                                control that was never announced as one. */}
+                            <Pressable
+                              style={{ flex: 1 }}
+                              onPress={() => setOpenBlock(open ? null : p.key)}
+                              accessibilityRole="button"
+                              accessibilityState={{ expanded: open }}
+                              accessibilityLabel={
+                                open
+                                  ? `${b.label} — close time options`
+                                  : `${b.label}, ${formatSpan(b.startMinutes, b.endMinutes)} — change the time`
+                              }
+                            >
                               {face}
                             </Pressable>
                           </View>
@@ -2574,56 +2701,62 @@ export default function TimeReality() {
                             </Text>
                           ) : null}
                           {open ? (
+                            /**
+                             * One sentence, and both of its numbers can be
+                             * changed where they are written.
+                             *
+                             * This was three stacked control groups — a labelled
+                             * stepper, six duration chips wrapping onto two
+                             * rows, and a button — about ten targets to set two
+                             * values, in a layout that read as a settings form
+                             * bolted under a calendar entry. It also taught two
+                             * ways to do one thing and had to say so in words
+                             * ("or drag it"), which is the tell that neither was
+                             * obvious.
+                             *
+                             * Now the values are the interface: the hour and the
+                             * length sit in the line that describes the plan, and
+                             * the arrows adjust the number they sit beside.
+                             * Dragging still works and is no longer explained —
+                             * the grip says it, and the preview confirms it.
+                             */
                             <View style={s.blockEdit}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
-                                <Text style={[type.faint, { width: 46 }]}>Starts</Text>
-                                <Pressable
-                                  onPress={() => moveTo(p.key, p.nudgedBy - TIME_STEP, p.startMinutes - p.nudgedBy)}
-                                  hitSlop={8}
-                                  style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
-                                >
-                                  <Ionicons name="chevron-back" size={13} color={colors.textDim} />
-                                </Pressable>
-                                <Text style={[type.body, { color: colors.amber, fontWeight: '700', minWidth: 74, textAlign: 'center' }]}>
-                                  {formatClock(p.startMinutes)}
-                                </Text>
-                                <Pressable
-                                  onPress={() => moveTo(p.key, p.nudgedBy + TIME_STEP, p.startMinutes - p.nudgedBy)}
-                                  hitSlop={8}
-                                  style={({ pressed }) => [s.nudge, pressed && { opacity: 0.6 }]}
-                                >
-                                  <Ionicons name="chevron-forward" size={13} color={colors.textDim} />
-                                </Pressable>
-                                <Text style={type.faint}>or drag it</Text>
-                              </View>
-                              {/* The engine sizes a proposal by what it costs to
-                                  *start* — fifteen minutes for a call, because
-                                  the barrier is picking up the phone and not the
-                                  talking. Nobody rings their father for a quarter
-                                  of an hour, and the day should hold what was
-                                  really claimed. */}
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2), flexWrap: 'wrap' }}>
-                                <Text style={[type.faint, { width: 46 }]}>Takes</Text>
-                                {LENGTHS.map((n) => {
-                                  const on = mins === n;
-                                  return (
-                                    <Pressable
-                                      key={n}
-                                      onPress={() => setDuration(p.key, n)}
-                                      style={[s.chip, on && s.chipOn]}
-                                    >
-                                      <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
-                                        {n < 60 ? `${n}m` : `${n / 60}h`}
-                                      </Text>
-                                    </Pressable>
-                                  );
-                                })}
+                              <View style={[s.editLine, tightEditor && s.editLineStacked]}>
+                                <Stepper
+                                  onLess={() => moveTo(p.key, p.nudgedBy - TIME_STEP, p.startMinutes - p.nudgedBy)}
+                                  onMore={() => moveTo(p.key, p.nudgedBy + TIME_STEP, p.startMinutes - p.nudgedBy)}
+                                  lessLabel="15 minutes earlier"
+                                  moreLabel="15 minutes later"
+                                  value={formatClock(p.startMinutes)}
+                                />
+                                {/* No connector word between the two pills.
+                                    "for" read nicely but it was the 32px that
+                                    tipped "7:15 am" and "1½ hours" onto two
+                                    rows on an ordinary 375px phone — a
+                                    conjunction that breaks the sentence it is
+                                    joining has argued itself out of the job. A
+                                    clock value beside a duration needs no help
+                                    being read as one then the other. */}
+                                {/* The engine sizes a proposal by what it costs
+                                    to *start* — fifteen minutes for a call,
+                                    because the barrier is picking up the phone
+                                    and not the talking. Nobody rings their
+                                    father for a quarter of an hour, and the day
+                                    should hold what was really claimed. */}
+                                <Stepper
+                                  onLess={() => setDuration(p.key, LENGTHS[Math.max(0, lengthIndex(mins) - 1)])}
+                                  onMore={() => setDuration(p.key, LENGTHS[Math.min(LENGTHS.length - 1, lengthIndex(mins) + 1)])}
+                                  lessLabel="Shorter"
+                                  moreLabel="Longer"
+                                  atLess={lengthIndex(mins) === 0}
+                                  atMore={lengthIndex(mins) === LENGTHS.length - 1}
+                                  value={formatLength(mins)}
+                                />
                               </View>
                               <Button
-                                small
                                 kind={done ? 'ghost' : 'primary'}
                                 disabled={done || scheduleBlock.isPending}
-                                title={done ? 'On your list' : 'Put it on the list'}
+                                title={done ? 'On your list' : 'Add to today'}
                                 onPress={() => scheduleBlock.mutate({
                                   key: p.key,
                                   action: p.action,
@@ -3841,10 +3974,37 @@ const s = StyleSheet.create({
     gap: space(3), paddingTop: space(3),
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line,
   },
-  nudge: {
-    width: 26, height: 26, borderRadius: 13,
+  /**
+   * The one line the editor is: a time, the word "for", and a length.
+   *
+   * Sized to survive a 375px phone intact. Two pills at their comfortable
+   * width plus the connector overflow it, and a wrapped line leaves "for"
+   * stranded at the end of the first row pointing at nothing — so the pills
+   * are trimmed to fit rather than allowed to break the sentence.
+   */
+  editLine: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 10, flexWrap: 'wrap',
+  },
+  /** The same two controls on a phone too narrow to hold them side by side. */
+  editLineStacked: {
+    flexDirection: 'column', alignItems: 'center', gap: space(2), flexWrap: 'nowrap',
+  },
+  stepper: {
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: 999,
+    backgroundColor: alpha(colors.amber, 0.07),
+    borderWidth: StyleSheet.hairlineWidth, borderColor: alpha(colors.amber, 0.28),
+  },
+  stepArrow: {
+    width: 28, height: 38, borderRadius: 999,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line,
+  },
+  stepValue: {
+    ...type.body,
+    color: colors.amber, fontWeight: '700',
+    minWidth: 56, textAlign: 'center',
+    fontVariant: liningNums,
   },
   /** Where the reclaimed hour goes. The only pressable thing on the screen
       card, so it is drawn as an offer rather than as another line of data. */
