@@ -139,6 +139,7 @@ Hard rules:
 - The title must read alone on a card, with nothing around it. It must not start with "Give it", "Do it" or any phrase whose noun is missing.
 - Keep it a rhythm, not an errand: no deadlines, no one-off projects, nothing that could be finished and ticked off forever.
 - Never invent a hobby, pet, illness, job, place, person or habit that is not in the context. Name a person only if that exact name appears in the context.
+- The context may carry \`hobbies\`: \`current\` is what they still do, \`lapsed\` is what they used to do and miss. Use them. A suggestion built around something they already keep is worth ten built from a job title. Never treat a \`lapsed\` one as though they still do it — that is a thing they have lost, and writing as if they had not is the cruellest sentence this app can produce. Both lists may be empty, in which case you were not told and must invent nothing.
 - If you cannot improve on \`baseTitle\` for this life, return it unchanged.
 - \`title\` <= 42 characters, no trailing period. \`because\` <= 100 characters, one sentence naming what is at stake in that domain.
 ${TONE_GUIDE}

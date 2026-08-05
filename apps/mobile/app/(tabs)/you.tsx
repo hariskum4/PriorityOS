@@ -10,6 +10,7 @@ import { Button, Card, Chip, ErrorNote, Input, Label, XpBar } from '@/components
 import { CountryField } from '@/components/CountryField';
 import { CityField } from '@/components/CityField';
 import { RegionField } from '@/components/RegionField';
+import { HobbyPicker } from '@/components/HobbyPicker';
 import { canonicalTimezone, regionOfCity } from '@priority/scoring-engine';
 import {
   colors, type, space, levelProgress, themeMode, setThemeMode, isLight,
@@ -147,6 +148,35 @@ export default function You() {
    * and a PATCH per character would be a write for every one of them.
    */
   const [cityDraft, setCityDraft] = useState<string | null>(null);
+  /**
+   * The two hobby lists, read from the onboarding answers that hold them.
+   *
+   * Kept as local state seeded from the server so a tap redraws immediately
+   * — an upsert round trip is the wrong amount of latency for toggling a
+   * chip.
+   */
+  const { data: answers } = useQuery({
+    queryKey: ['onboarding-answers'],
+    queryFn: () => api<any[]>('/onboarding/answers'),
+  });
+  const savedHobbies = (answers ?? []).find((a: any) => a.key === 'hobbies')?.value;
+  const savedLapsed = (answers ?? []).find((a: any) => a.key === 'lapsedHobbies')?.value;
+  const [hobbyDraft, setHobbies] = useState<string[] | null>(null);
+  const [lapsedDraft, setLapsedHobbies] = useState<string[] | null>(null);
+  const hobbies = hobbyDraft ?? (Array.isArray(savedHobbies) ? savedHobbies : []);
+  const lapsedHobbies = lapsedDraft ?? (Array.isArray(savedLapsed) ? savedLapsed : []);
+  const saveHobbies = useMutation({
+    mutationFn: (patch: { hobbies?: string[]; lapsedHobbies?: string[] }) =>
+      api('/onboarding/answers', {
+        method: 'POST',
+        body: {
+          answers: Object.entries(patch).map(([key, value]) => ({
+            section: 'life', key, value,
+          })),
+        },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding-answers'] }),
+  });
   /** The state, only while this screen is open — see `RegionField`. */
   const [region, setRegion] = useState('');
 
@@ -303,6 +333,36 @@ export default function You() {
               }}
             />
           )}
+        </View>
+        {/**
+          * What they do for themselves, correctable.
+          *
+          * Hobbies rot faster than anything else the profile holds — somebody
+          * says "guitar" in March and stops in April — and this app has a bad
+          * record with facts captured once and believed forever: the clock
+          * read at render, the country taken from a timezone and never asked
+          * about again. A fact that cannot be corrected becomes a lie on a
+          * schedule, so this is here from the start rather than after the
+          * first person is nagged about a guitar they sold.
+          */}
+        <View style={{ gap: space(2) }}>
+          <Text style={type.dim}>What you do for yourself</Text>
+          <HobbyPicker
+            value={hobbies}
+            onChange={(next) => { setHobbies(next); saveHobbies.mutate({ hobbies: next }); }}
+            placeholder="…or one of your own"
+            disabled={saveHobbies.isPending}
+          />
+        </View>
+        <View style={{ gap: space(2) }}>
+          <Text style={type.dim}>Anything you used to do and miss</Text>
+          <HobbyPicker
+            value={lapsedHobbies}
+            onChange={(next) => { setLapsedHobbies(next); saveHobbies.mutate({ lapsedHobbies: next }); }}
+            placeholder="…or one of your own"
+            max={4}
+            disabled={saveHobbies.isPending}
+          />
         </View>
         <ErrorNote error={saveProfile.error} onRetry={() => saveProfile.reset()} />
       </Card>

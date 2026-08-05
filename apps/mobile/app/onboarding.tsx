@@ -37,6 +37,7 @@ import { ShareRevealButton } from '@/components/ShareReveal';
 import { CountryField } from '@/components/CountryField';
 import { CityField } from '@/components/CityField';
 import { RegionField } from '@/components/RegionField';
+import { HobbyPicker } from '@/components/HobbyPicker';
 import { colors, type, space, domainColor, alpha } from '@/theme';
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -240,6 +241,14 @@ export default function Onboarding() {
    * re-derived from the saved city instead.
    */
   const [region, setRegion] = useState('');
+  /**
+   * What they do for themselves, and what they used to do.
+   *
+   * Kept apart all the way through — see `hobbies.ts` for why merging them
+   * is the one thing this pair must never do.
+   */
+  const [hobbies, setHobbies] = useState<string[]>([]);
+  const [lapsedHobbies, setLapsedHobbies] = useState<string[]>([]);
   const [marital, setMarital] = useState('');
   const [children, setChildren] = useState<string>('0');
   const [awayFromParents, setAwayFromParents] = useState<string>('');
@@ -653,6 +662,11 @@ export default function Onboarding() {
             { section: 'reflection', key: 'postponing', value: postponing },
             { section: 'reflection', key: 'futureSelf', value: futureSelf },
             { section: 'reflection', key: 'eulogy', value: eulogy },
+            /* Grounding, and the one thing worth putting back. Sent as
+               `life` rather than `reflection`: these are facts about a
+               person, not something they worked out about themselves. */
+            { section: 'life', key: 'hobbies', value: hobbies },
+            { section: 'life', key: 'lapsedHobbies', value: lapsedHobbies },
           ].filter((a) => hasValue(a.value)),
         },
       });
@@ -956,6 +970,50 @@ export default function Onboarding() {
                     country={country}
                     region={region}
                     deviceGuess={deviceCity}
+                  />
+                </View>
+              </>
+            )}
+            {/**
+              * The one thing the app has never asked, and the reason every
+              * generated suggestion read as though assembled from a CV.
+              *
+              * Two questions rather than one, because the answers are used
+              * for opposite things — what you keep is grounding, what you
+              * have lost is the behavioural-activation rung with a name in
+              * it. Merged, they produce the cruellest sentence this app
+              * could write: telling somebody to play the guitar they gave up
+              * when the second child arrived, as though they had simply
+              * forgotten to.
+              *
+              * Optional, both of them. Silence here costs nothing and leaves
+              * the app exactly as it was.
+              */}
+            {lane !== 'fast' && (
+              <>
+                <View style={{ gap: space(2) }}>
+                  <Label>What do you do for yourself? (optional)</Label>
+                  <Text style={type.faint}>
+                    Pick what fits, or type your own. Priority builds around what you
+                    already do rather than guessing from your job.
+                  </Text>
+                  <HobbyPicker
+                    value={hobbies}
+                    onChange={setHobbies}
+                    placeholder="…or one of your own"
+                  />
+                </View>
+                <View style={{ gap: space(2) }}>
+                  <Label>Anything you used to do and miss? (optional)</Label>
+                  <Text style={type.faint}>
+                    Not a reproach — it is the thing most worth putting back in a week,
+                    and Priority will only ever offer it, once.
+                  </Text>
+                  <HobbyPicker
+                    value={lapsedHobbies}
+                    onChange={setLapsedHobbies}
+                    placeholder="…or one of your own"
+                    max={4}
                   />
                 </View>
               </>

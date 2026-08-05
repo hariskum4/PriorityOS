@@ -30,6 +30,7 @@ import {
   bodyWindows,
   judgeBlueprint,
   lifeShape,
+  readHobbies,
   roleOfRelation,
   type BlueprintContext,
   type PersonalRhythm,
@@ -244,6 +245,18 @@ export class BlueprintService {
           neglectedDomains: answerOf('neglectedDomains'),
           firstWeekFeeling: answerOf('firstWeekFeeling'),
         },
+        /**
+         * What they actually do, and what they used to do and miss.
+         *
+         * The prompt has always said "never invent a hobby" — a right rule
+         * doing half a job, because nothing ever told it the real ones. Every
+         * generation was assembled from work, family and a domain ranking: a
+         * life described entirely by its obligations. Sent separately from
+         * `profile` because the two lists are used for opposite things and
+         * merging them is how an app ends up telling somebody to play the
+         * guitar they gave up when the second child arrived.
+         */
+        hobbies: readHobbies(answerOf('hobbies'), answerOf('lapsedHobbies')),
         goals: goals.map((g) => ({ title: g.title, domain: g.domainType })),
         /* Roles, never names. The judge would reject a named person anyway,
            but there is no reason to send the names at all. */
