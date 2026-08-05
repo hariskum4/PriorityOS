@@ -294,6 +294,22 @@ export default function Today() {
     queryKey: ['dashboard'],
     queryFn: () => api<any>('/dashboard'),
   });
+  /**
+   * No spinner is allowed to be permanent.
+   *
+   * "Reading your record…" had no way out: a query that never settles — paused
+   * by the offline manager, retrying behind a captive portal, or a render that
+   * throws right after this one paints — left the front page saying it was
+   * reading, forever, with nothing to press. The request itself gives up after
+   * fifteen seconds (TIMEOUT_MS), so anything still "loading" well past that
+   * is not loading, and the honest screen is the one with the button on it.
+   */
+  const [waitedTooLong, setWaitedTooLong] = useState(false);
+  useEffect(() => {
+    if (!isLoading) { setWaitedTooLong(false); return; }
+    const t = setTimeout(() => setWaitedTooLong(true), 20_000);
+    return () => clearTimeout(t);
+  }, [isLoading]);
   const { data: review } = useQuery({
     queryKey: ['weekly-review'],
     queryFn: () => api<any>('/weekly-review/current'),
@@ -723,15 +739,15 @@ export default function Today() {
       <View style={{ flex: 1, backgroundColor: obs.ground }}>
         <LinearGradient colors={obsSky()} style={s.skyWash} pointerEvents="none" />
         <View style={s.blankWrap}>
-          {isLoading ? (
+          {isLoading && !waitedTooLong ? (
             <Text style={obsType.dim}>Reading your record…</Text>
           ) : (
             <>
               <Text style={[obsType.said, { textAlign: 'center' }]}>
-                {isError ? 'Can’t reach your record.' : 'Nothing here yet.'}
+                {isError || waitedTooLong ? 'Can’t reach your record.' : 'Nothing here yet.'}
               </Text>
               <Text style={[obsType.dim, { textAlign: 'center', marginTop: 8 }]}>
-                {isError
+                {isError || waitedTooLong
                   ? 'Everything you have written is safe on the server — this is only '
                     + 'the connection. It will come back on its own.'
                   : 'Once you have answered a few things about your life, today '
@@ -742,7 +758,7 @@ export default function Today() {
                 style={({ pressed }) => [s.blankButton, pressed && { opacity: 0.7 }]}
               >
                 <Text style={[obsType.tick, { color: obs.brass }]}>
-                  {isError ? 'Try again' : 'Refresh'}
+                  {isError || waitedTooLong ? 'Try again' : 'Refresh'}
                 </Text>
               </Pressable>
             </>
