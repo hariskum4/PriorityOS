@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { KNOWN_COUNTRIES, countryName, searchCountries } from './countries';
+import { KNOWN_COUNTRIES, countryName, searchCountries, searchCities, CITIES_BY_COUNTRY } from './countries';
 import { timezoneCountryCodes } from './timezoneCountry';
 import { lifeExpectancyRegions } from './timeReality';
 
@@ -76,5 +76,62 @@ describe('finding your country by typing', () => {
 
   it('finds nothing for a query that matches nothing', () => {
     expect(searchCountries('qqqqq')).toEqual([]);
+  });
+});
+
+/**
+ * "Where you live" was a bare box with one timezone-derived chip beside it,
+ * directly above a country field that had a searchable list — two answers to
+ * one question. The suggestions are scoped by that country field.
+ */
+describe('finding your city', () => {
+  it('suggests inside the country that was chosen', () => {
+    expect(searchCities('kol', 'IN')).toContain('Kolkata');
+    expect(searchCities('vig', 'ES')).toContain('Vigo');
+  });
+
+  it('does not offer another country’s cities', () => {
+    expect(searchCities('kol', 'ES')).toEqual([]);
+    expect(searchCities('vig', 'IN')).toEqual([]);
+  });
+
+  /* Birmingham is in England and in Alabama; with no country the app cannot
+     tell which is meant, and a list that guesses is worse than no list. */
+  it('says nothing at all when no country is known', () => {
+    expect(searchCities('lon', null)).toEqual([]);
+    expect(searchCities('lon', '')).toEqual([]);
+    expect(searchCities('lon', 'ZZ')).toEqual([]);
+  });
+
+  it('offers the country’s best-known cities before anything is typed', () => {
+    const out = searchCities('', 'IN');
+    expect(out.length).toBeGreaterThan(0);
+    expect(out).toContain('Mumbai');
+  });
+
+  it('ranks a prefix above a substring', () => {
+    const out = searchCities('man', 'GB');
+    expect(out[0]).toBe('Manchester');
+  });
+
+  it('ignores case and accents', () => {
+    expect(searchCities('MUMBAI', 'IN')).toContain('Mumbai');
+    expect(searchCities('sao', 'BR')).toContain('Sao Paulo');
+  });
+
+  it('respects the limit', () => {
+    expect(searchCities('', 'US', 3).length).toBe(3);
+  });
+
+  it('only lists cities for countries the app can actually hold', () => {
+    const known = new Set(KNOWN_COUNTRIES.map((c) => c.code));
+    for (const code of Object.keys(CITIES_BY_COUNTRY)) expect(known).toContain(code);
+  });
+
+  it('has no empty city lists — an empty list is a broken promise', () => {
+    for (const [code, cities] of Object.entries(CITIES_BY_COUNTRY)) {
+      expect(cities.length, code).toBeGreaterThan(0);
+      expect(new Set(cities).size, code).toBe(cities.length);
+    }
   });
 });

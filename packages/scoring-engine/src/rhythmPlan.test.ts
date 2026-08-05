@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   rhythmWeekdays, rhythmDueToday, preferredMinutes, isPlaceable, isBoundary, type Weekday,
-  weekPlan, WEEK_COLUMNS, WEEKDAY_INITIALS, preferredTime,
+  weekPlan, WEEK_COLUMNS, WEEKDAY_INITIALS, preferredTime, passedSlot, WEEKDAY_NAMES,
 } from './rhythmPlan';
 
 /** A date on a known weekday, local time. 2026-08-03 is a Monday. */
@@ -299,5 +299,56 @@ describe('preferredTime — where an hour came from', () => {
   it('ignores a chosen hour that is not a number', () => {
     const t = preferredTime({ when: 'morning', chosenMinutes: null });
     expect(t.source).toBe('catalog');
+  });
+});
+
+/**
+ * Reported at ten at night: the day plan still offered "Add to today" on a
+ * seven-in-the-morning walk, which writes a mission due fifteen hours ago.
+ */
+describe('a slot whose hour has gone', () => {
+  const at = (h: number, m = 0) => h * 60 + m;
+
+  it('is not passed while it has not started', () => {
+    expect(passedSlot({ startMinutes: at(7), nowMinutes: at(6), today: 3 }).passed).toBe(false);
+  });
+
+  it('survives a late start — ten past seven is the same walk', () => {
+    expect(passedSlot({ startMinutes: at(7), nowMinutes: at(7, 10), today: 3 }).passed).toBe(false);
+    expect(passedSlot({ startMinutes: at(7), nowMinutes: at(7, 29), today: 3 }).passed).toBe(false);
+  });
+
+  it('is passed once the window is genuinely gone', () => {
+    const p = passedSlot({ startMinutes: at(7), nowMinutes: at(22), today: 3 });
+    expect(p.passed).toBe(true);
+    expect(p.when).toBe('tomorrow');
+    expect(p.daysAhead).toBe(1);
+    expect(p.weekday).toBe(4);
+  });
+
+  it('lands on the rhythm’s own next day, not merely tomorrow', () => {
+    // A Saturday rhythm, missed on Saturday, belongs next Saturday.
+    const p = passedSlot({ startMinutes: at(9), nowMinutes: at(23), today: 6, days: [6] });
+    expect(p.daysAhead).toBe(7);
+    expect(p.weekday).toBe(6);
+    expect(p.when).toBe('later');
+  });
+
+  it('takes the nearer planned day when the week has several', () => {
+    // Runs Mon/Wed/Fri; missed on Monday → Wednesday.
+    const p = passedSlot({ startMinutes: at(7), nowMinutes: at(23), today: 1, days: [1, 3, 5] });
+    expect(p.daysAhead).toBe(2);
+    expect(p.weekday).toBe(3);
+  });
+
+  it('wraps the week end correctly', () => {
+    const p = passedSlot({ startMinutes: at(7), nowMinutes: at(23), today: 6, days: [1] });
+    expect(p.daysAhead).toBe(2);
+    expect(p.weekday).toBe(1);
+  });
+
+  it('names the day it lands on', () => {
+    expect(WEEKDAY_NAMES[0]).toBe('Sunday');
+    expect(WEEKDAY_NAMES[6]).toBe('Saturday');
   });
 });

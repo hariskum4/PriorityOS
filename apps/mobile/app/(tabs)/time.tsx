@@ -32,6 +32,8 @@ import {
   rhythmForHabit,
   rhythmByKey,
   rhythmWeekdays,
+  passedSlot,
+  type Weekday,
   rhythmDueToday,
   preferredMinutes,
   preferredTime,
@@ -1216,9 +1218,19 @@ export default function TimeReality() {
    */
   const [scheduled, setScheduled] = useState<string[]>([]);
   const scheduleBlock = useMutation({
-    mutationFn: (p: { key: string; action: string; reason?: string; domains: string[]; startMinutes: number; minutes: number }) => {
+    mutationFn: (p: {
+      key: string; action: string; reason?: string; domains: string[];
+      startMinutes: number; minutes: number;
+      /**
+       * Days from today this is for. Zero unless the hour has already gone,
+       * in which case writing it against today would file a mission due
+       * hours ago — a thing that arrives on the list already failed.
+       */
+      daysAhead?: number;
+    }) => {
       const at = new Date();
       at.setHours(0, 0, 0, 0);
+      if (p.daysAhead) at.setDate(at.getDate() + p.daysAhead);
       at.setMinutes(p.startMinutes);
       return api('/missions', {
         method: 'POST',
@@ -1596,6 +1608,16 @@ export default function TimeReality() {
    * kept week reads as kept, never as four boxes and two failures.
    */
   const todayWeekday = new Date().getDay();
+  /**
+   * Minutes past midnight, now. Read once per render rather than memoised:
+   * the day card is redrawn on every interaction with it anyway, and a
+   * stale clock here is the difference between "add to today" and "the
+   * morning has gone" — the one number on this screen that must not lag.
+   */
+  const nowMinutes = (() => {
+    const n = new Date();
+    return n.getHours() * 60 + n.getMinutes();
+  })();
   const weekRows = useMemo(() => {
     const entries = (habits ?? [])
       .filter((h: any) => h.isActive !== false)
@@ -1636,6 +1658,20 @@ export default function TimeReality() {
       };
     });
   }, [habits, rhythmDays, rhythmHours, habitHours]);
+
+  /**
+   * The days a placed block's rhythm runs on, when it is one.
+   *
+   * Placements key rhythms as `rhythm:<habitId>` and `weekRows` is keyed by
+   * the same id, so a missed Saturday rhythm can be offered next Saturday
+   * rather than blankly tomorrow. Anything not a rhythm — a proposal, a
+   * stack — has no weekly shape and correctly gets no days.
+   */
+  const rhythmDaysFor = (key: string): Weekday[] | undefined => {
+    if (!key.startsWith(RHYTHM_PREFIX)) return undefined;
+    const id = key.slice(RHYTHM_PREFIX.length);
+    return weekRows.find((r) => r.key === id)?.days;
+  };
 
   const age = ageFromDob(me?.dob);
   const birthYear = me?.dob ? new Date(me.dob).getUTCFullYear() : null;
@@ -2725,6 +2761,24 @@ export default function TimeReality() {
                        used to forget and offer to add it a second time. */
                     const done = scheduled.includes(p.key) || onTheList.has(norm(p.action));
                     const mins = p.endMinutes - p.startMinutes;
+                    /**
+                     * Whether this block's hour is behind the clock.
+                     *
+                     * The day is drawn whole, so at ten at night the seven
+                     * o'clock walk is still on it — and the button under it
+                     * said "Add to today", which writes a mission due fifteen
+                     * hours ago. It lands on the list already late, and the
+                     * reader is holding a failure the app handed them.
+                     *
+                     * A rhythm goes to the next day it actually runs; anything
+                     * else goes to tomorrow.
+                     */
+                    const gone = passedSlot({
+                      startMinutes: p.startMinutes,
+                      nowMinutes: nowMinutes,
+                      today: todayWeekday as any,
+                      days: rhythmDaysFor(p.key),
+                    });
 
                     return (
                       <DraggableBlock
@@ -2828,10 +2882,32 @@ export default function TimeReality() {
                                   value={formatLength(mins)}
                                 />
                               </View>
+                              {/* The hour is a fact. Say it, and offer the
+                                  next one that is actually available — a
+                                  passed slot that still reads "Add to today"
+                                  is the app asking somebody to agree to
+                                  something that already cannot happen. No
+                                  reproach in it: the sentence names the day
+                                  it goes to, and that is all. */}
+                              {gone.passed && !done && (
+                                <Text style={[type.faint, { marginBottom: 4 }]}>
+                                  {gone.when === 'tomorrow'
+                                    ? 'That hour has gone for today. Put it on tomorrow instead.'
+                                    : `That hour has gone for today. The next one this lands on is ${WEEKDAY_NAMES[gone.weekday]}.`}
+                                </Text>
+                              )}
                               <Button
                                 kind={done ? 'ghost' : 'primary'}
                                 disabled={done || scheduleBlock.isPending}
-                                title={done ? 'On your list' : 'Add to today'}
+                                title={
+                                  done
+                                    ? 'On your list'
+                                    : gone.passed
+                                      ? (gone.when === 'tomorrow'
+                                        ? 'Add to tomorrow'
+                                        : `Add to ${WEEKDAY_NAMES[gone.weekday]}`)
+                                      : 'Add to today'
+                                }
                                 onPress={() => scheduleBlock.mutate({
                                   key: p.key,
                                   action: p.action,
@@ -2839,6 +2915,7 @@ export default function TimeReality() {
                                   domains: p.domains,
                                   startMinutes: p.startMinutes,
                                   minutes: mins,
+                                  daysAhead: gone.daysAhead,
                                 })}
                               />
                             </View>

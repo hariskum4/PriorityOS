@@ -35,6 +35,7 @@ import { track } from '@/services/analytics';
 import { Button, Card, DomainDot, GapBar, Input, Label } from '@/components/ui';
 import { ShareRevealButton } from '@/components/ShareReveal';
 import { CountryField } from '@/components/CountryField';
+import { CityField } from '@/components/CityField';
 import { colors, type, space, domainColor, alpha } from '@/theme';
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -903,31 +904,16 @@ export default function Onboarding() {
                 </View>
                 <View style={{ gap: space(2) }}>
                   <Label>Where you live</Label>
-                  <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center', flexWrap: 'wrap' }}>
-                    {/* One tap for the common case, from the zone the device
-                        already declared. A guess, worn as one: tappable,
-                        ignorable, never pre-filled. */}
-                    {deviceCity && city !== deviceCity && (
-                      <Pressable
-                        onPress={() => setCity(deviceCity)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Use ${deviceCity}`}
-                        style={({ pressed }) => [s.chip, pressed && { transform: [{ scale: 0.96 }] }]}
-                      >
-                        <Ionicons name="location-outline" size={13} color={colors.amber} />
-                        <Text style={type.body}>{deviceCity}</Text>
-                      </Pressable>
-                    )}
-                    <View style={{ flex: 1, minWidth: 160 }}>
-                      <Input
-                        placeholder="Your city (optional)"
-                        value={city}
-                        onChangeText={setCity}
-                        autoCapitalize="words"
-                        returnKeyType="done"
-                      />
-                    </View>
-                  </View>
+                  {/* The country field below scopes these suggestions, which
+                      is why the two sit together: answer where in the world,
+                      and "where you live" stops being an unbounded question.
+                      The device's guess still leads, worn as a guess. */}
+                  <CityField
+                    value={city}
+                    onChange={setCity}
+                    country={country}
+                    deviceGuess={deviceCity}
+                  />
                   {/* The country, asked rather than assumed.
                       It was never asked here at all — signup derived it from
                       the device timezone and that stood for good. So somebody

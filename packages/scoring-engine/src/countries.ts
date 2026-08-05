@@ -117,3 +117,103 @@ export function searchCountries(query: string, limit = 6): Country[] {
   starts.sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name));
   return [...starts, ...contains].slice(0, limit);
 }
+
+/**
+ * The cities each country offers as suggestions.
+ *
+ * Why a list at all: "where you live" was a bare text box beside a single
+ * guess chip read off the device timezone, so a reader in Kolkata saw
+ * "Kolkata" — correct, and completely unexplained — while everybody the
+ * guess was wrong about got a blank box and no help. The country field
+ * directly beneath it had a searchable list. Two fields about the same
+ * question, answered two different ways.
+ *
+ * Scoped by country on purpose. It is the field above, it is nearly always
+ * already answered, and it turns an unbounded question into a short one:
+ * a few dozen names rather than every settlement on earth. Anything not
+ * listed is still typed, because a list of three hundred cities is a
+ * shortlist however long it looks, and the box has always accepted prose.
+ *
+ * Not exhaustive and not trying to be — the largest handful per country,
+ * enough that most readers tap rather than type.
+ */
+export const CITIES_BY_COUNTRY: Record<string, string[]> = {
+  IN: ["Mumbai", "Delhi", "Bengaluru", "Hyderabad", "Chennai", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Kochi"],
+  US: ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", "San Antonio", "San Diego", "Dallas", "San Francisco", "Seattle", "Boston", "Austin", "Denver"],
+  GB: ["London", "Birmingham", "Manchester", "Glasgow", "Leeds", "Liverpool", "Bristol", "Edinburgh", "Sheffield", "Cardiff"],
+  CA: ["Toronto", "Montreal", "Vancouver", "Calgary", "Ottawa", "Edmonton", "Winnipeg", "Quebec City"],
+  AU: ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide", "Canberra", "Hobart", "Gold Coast"],
+  SG: ["Singapore"],
+  AE: ["Dubai", "Abu Dhabi", "Sharjah", "Ajman"],
+  DE: ["Berlin", "Hamburg", "Munich", "Cologne", "Frankfurt", "Stuttgart", "Dusseldorf", "Leipzig"],
+  JP: ["Tokyo", "Yokohama", "Osaka", "Nagoya", "Sapporo", "Fukuoka", "Kobe", "Kyoto"],
+  ES: ["Madrid", "Barcelona", "Valencia", "Seville", "Zaragoza", "Malaga", "Bilbao", "Vigo"],
+  FR: ["Paris", "Marseille", "Lyon", "Toulouse", "Nice", "Nantes", "Strasbourg", "Bordeaux"],
+  IT: ["Rome", "Milan", "Naples", "Turin", "Palermo", "Genoa", "Bologna", "Florence"],
+  NL: ["Amsterdam", "Rotterdam", "The Hague", "Utrecht", "Eindhoven"],
+  BR: ["Sao Paulo", "Rio de Janeiro", "Brasilia", "Salvador", "Fortaleza", "Belo Horizonte", "Curitiba", "Recife"],
+  MX: ["Mexico City", "Guadalajara", "Monterrey", "Puebla", "Tijuana", "Leon"],
+  ZA: ["Johannesburg", "Cape Town", "Durban", "Pretoria", "Port Elizabeth"],
+  NG: ["Lagos", "Kano", "Ibadan", "Abuja", "Port Harcourt"],
+  KE: ["Nairobi", "Mombasa", "Kisumu", "Nakuru"],
+  PK: ["Karachi", "Lahore", "Faisalabad", "Rawalpindi", "Islamabad", "Peshawar"],
+  BD: ["Dhaka", "Chittagong", "Khulna", "Rajshahi", "Sylhet"],
+  LK: ["Colombo", "Kandy", "Galle", "Jaffna"],
+  NP: ["Kathmandu", "Pokhara", "Lalitpur"],
+  PH: ["Manila", "Quezon City", "Davao", "Cebu City", "Makati"],
+  ID: ["Jakarta", "Surabaya", "Bandung", "Medan", "Semarang"],
+  MY: ["Kuala Lumpur", "George Town", "Johor Bahru", "Ipoh", "Kuching"],
+  TH: ["Bangkok", "Chiang Mai", "Phuket", "Pattaya"],
+  VN: ["Ho Chi Minh City", "Hanoi", "Da Nang", "Hai Phong"],
+  CN: ["Shanghai", "Beijing", "Shenzhen", "Guangzhou", "Chengdu", "Hangzhou", "Wuhan", "Xian"],
+  HK: ["Hong Kong"],
+  KR: ["Seoul", "Busan", "Incheon", "Daegu", "Daejeon"],
+  TW: ["Taipei", "Kaohsiung", "Taichung", "Tainan"],
+  IE: ["Dublin", "Cork", "Galway", "Limerick"],
+  NZ: ["Auckland", "Wellington", "Christchurch", "Hamilton"],
+  PT: ["Lisbon", "Porto", "Braga", "Coimbra"],
+  PL: ["Warsaw", "Krakow", "Lodz", "Wroclaw", "Poznan", "Gdansk"],
+  SE: ["Stockholm", "Gothenburg", "Malmo", "Uppsala"],
+  NO: ["Oslo", "Bergen", "Trondheim", "Stavanger"],
+  DK: ["Copenhagen", "Aarhus", "Odense", "Aalborg"],
+  FI: ["Helsinki", "Espoo", "Tampere", "Vantaa"],
+  CH: ["Zurich", "Geneva", "Basel", "Bern", "Lausanne"],
+  AT: ["Vienna", "Graz", "Linz", "Salzburg"],
+  BE: ["Brussels", "Antwerp", "Ghent", "Bruges"],
+  GR: ["Athens", "Thessaloniki", "Patras", "Heraklion"],
+  CZ: ["Prague", "Brno", "Ostrava"],
+  RO: ["Bucharest", "Cluj-Napoca", "Timisoara", "Iasi"],
+  RU: ["Moscow", "Saint Petersburg", "Novosibirsk", "Yekaterinburg", "Kazan"],
+  UA: ["Kyiv", "Kharkiv", "Odesa", "Dnipro", "Lviv"],
+  TR: ["Istanbul", "Ankara", "Izmir", "Bursa", "Antalya"],
+  IL: ["Tel Aviv", "Jerusalem", "Haifa", "Beersheba"],
+  SA: ["Riyadh", "Jeddah", "Mecca", "Medina", "Dammam"],
+  QA: ["Doha", "Al Rayyan"],
+  EG: ["Cairo", "Alexandria", "Giza", "Luxor"],
+  MA: ["Casablanca", "Rabat", "Marrakesh", "Fez", "Tangier"],
+  AR: ["Buenos Aires", "Cordoba", "Rosario", "Mendoza"],
+  CL: ["Santiago", "Valparaiso", "Concepcion"],
+  CO: ["Bogota", "Medellin", "Cali", "Barranquilla"],
+  PE: ["Lima", "Arequipa", "Trujillo", "Cusco"],
+  ET: ["Addis Ababa", "Dire Dawa"],
+  GH: ["Accra", "Kumasi", "Tamale"],
+};
+
+/**
+ * City suggestions for what has been typed so far, inside one country.
+ *
+ * With no country known this stays empty rather than searching the world:
+ * a suggestion list that offers Birmingham to somebody in Alabama and
+ * Birmingham to somebody in the Midlands, with no way to tell which is
+ * meant, is worse than no list.
+ */
+export function searchCities(query: string, country?: string | null, limit = 6): string[] {
+  const code = (country ?? '').trim().toUpperCase();
+  const pool = CITIES_BY_COUNTRY[code];
+  if (!pool) return [];
+  const q = fold(query);
+  if (!q) return pool.slice(0, limit);
+  const starts = pool.filter((c) => fold(c).startsWith(q));
+  const contains = pool.filter((c) => !fold(c).startsWith(q) && fold(c).includes(q));
+  return [...starts, ...contains].slice(0, limit);
+}

@@ -392,3 +392,84 @@ export function weekPlan(entries: WeekPlanEntry[], now: Date = new Date()): Week
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// A slot whose hour has already gone
+// ---------------------------------------------------------------------------
+
+/**
+ * The day plan draws every block against the clock, including the ones behind
+ * it. At ten at night the seven-in-the-morning walk was still sitting there
+ * offering "Add to today" — which writes a mission due fifteen hours ago, into
+ * a list, where it arrives already late. The reader is then holding a failure
+ * they were handed by a button.
+ *
+ * The hour is a fact, so say it and move: the same block, offered to the next
+ * day that suits it. That is what somebody looking at a passed slot actually
+ * wants — not a scolding, and not the pretence that the morning is still
+ * available.
+ */
+export interface PassedSlotInput {
+  /** Minutes past local midnight the block starts at. */
+  startMinutes: number;
+  /** Minutes past local midnight, now. */
+  nowMinutes: number;
+  /** Weekday today, for choosing where it lands next. */
+  today: Weekday;
+  /** Days this rhythm runs on, when it is a rhythm rather than a one-off. */
+  days?: Weekday[];
+  /**
+   * How long after the start a block is still worth starting.
+   *
+   * A twenty-minute walk at ten past seven is the same walk. Only once the
+   * window is genuinely gone does the offer change — otherwise the app would
+   * spend every day telling people they were sixty seconds late.
+   */
+  graceMinutes?: number;
+}
+
+/** Half an hour: late enough to still be the same plan, not a different one. */
+const DEFAULT_GRACE_MINUTES = 30;
+
+export interface PassedSlot {
+  /** Whether today's window for this block has closed. */
+  passed: boolean;
+  /** Days from today the next suitable slot falls on. 0 when it is still today. */
+  daysAhead: number;
+  /** What that day is called in copy: "tomorrow", "Saturday", … */
+  when: 'today' | 'tomorrow' | 'later';
+  /** The weekday it lands on. */
+  weekday: Weekday;
+}
+
+/**
+ * Whether this block's hour has gone, and where it goes instead.
+ *
+ * When the rhythm names its days, the next one of those is where it lands —
+ * a Saturday rhythm missed on Saturday belongs on the following Saturday, not
+ * on Sunday morning where nothing about the person's week says it fits. With
+ * no days given, tomorrow is the honest answer.
+ */
+export function passedSlot(input: PassedSlotInput): PassedSlot {
+  const grace = input.graceMinutes ?? DEFAULT_GRACE_MINUTES;
+  const passed = input.nowMinutes > input.startMinutes + grace;
+  if (!passed) {
+    return { passed: false, daysAhead: 0, when: 'today', weekday: input.today };
+  }
+
+  const days = (input.days ?? []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  let daysAhead = 1;
+  if (days.length) {
+    /* The next planned day strictly after today, wrapping the week. */
+    for (let i = 1; i <= 7; i += 1) {
+      if (days.includes(((input.today + i) % 7) as Weekday)) { daysAhead = i; break; }
+    }
+  }
+  const weekday = ((input.today + daysAhead) % 7) as Weekday;
+  return {
+    passed: true,
+    daysAhead,
+    when: daysAhead === 1 ? 'tomorrow' : 'later',
+    weekday,
+  };
+}

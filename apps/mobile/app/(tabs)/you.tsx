@@ -8,6 +8,7 @@ import { useRefresh } from '@/hooks/useRefresh';
 import { useAuth } from '@/store/auth';
 import { Button, Card, Chip, ErrorNote, Input, Label, XpBar } from '@/components/ui';
 import { CountryField } from '@/components/CountryField';
+import { CityField } from '@/components/CityField';
 import { canonicalTimezone } from '@priority/scoring-engine';
 import {
   colors, type, space, levelProgress, themeMode, setThemeMode, isLight,
@@ -139,6 +140,13 @@ export default function You() {
    * guess was already right about. `CountryField` keeps the nine and puts
    * every country behind them.
    */
+  /**
+   * The city being edited, or null when nothing is in flight. Held rather
+   * than committed on every keystroke: the suggestions update as you type,
+   * and a PATCH per character would be a write for every one of them.
+   */
+  const [cityDraft, setCityDraft] = useState<string | null>(null);
+
   const saveProfile = useMutation({
     mutationFn: (patch: Record<string, string | null>) =>
       api('/me', { method: 'PATCH', body: patch }),
@@ -254,13 +262,28 @@ export default function You() {
           disabled={saveProfile.isPending}
           onCommit={(v) => saveProfile.mutate({ profession: v })}
         />
-        <ProfileField
-          label="City"
-          placeholder="e.g. Chennai"
-          value={me?.city}
-          disabled={saveProfile.isPending}
-          onCommit={(v) => saveProfile.mutate({ city: v })}
-        />
+        {/* Same control as onboarding, for the same reason: a bare box here
+            and a searchable list one field below is two answers to one
+            question. Suggestions are scoped by the country beneath it. */}
+        <View style={{ gap: space(2) }}>
+          <Text style={type.dim}>City</Text>
+          <CityField
+            value={cityDraft ?? me?.city ?? ''}
+            onChange={setCityDraft}
+            country={me?.country}
+            disabled={saveProfile.isPending}
+          />
+          {cityDraft != null && cityDraft.trim() !== (me?.city ?? '') && (
+            <Button
+              small
+              title={saveProfile.isPending ? 'Saving…' : 'Save city'}
+              onPress={() => {
+                saveProfile.mutate({ city: cityDraft.trim() || null });
+                setCityDraft(null);
+              }}
+            />
+          )}
+        </View>
         <CountryField
           value={me?.country}
           disabled={saveProfile.isPending}
