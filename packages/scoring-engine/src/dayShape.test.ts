@@ -1109,8 +1109,21 @@ describe('the free stretches say what they are', () => {
   it('names the length and where it sits', () => {
     const notes = dayShape(nineToFive).blocks
       .filter((b) => b.kind === 'open').map((b) => b.note);
-    expect(notes.some((n) => /before the day starts/.test(n ?? ''))).toBe(true);
+    expect(notes.some((n) => /before work/.test(n ?? ''))).toBe(true);
     expect(notes.some((n) => /after work/.test(n ?? ''))).toBe(true);
+  });
+
+  /* Found by an ICU nurse who wakes at five in the afternoon: the stretch
+     before her ten o'clock shift was labelled "before the day starts", by
+     which time her day was five hours old. */
+  it('anchors the label to work, which is fixed, not to "the day", which is not', () => {
+    const nightShift = dayShape({
+      workStartHour: 22, workEndHour: 6, commuteMinutes: 30,
+      workType: 'shift', sleepHour: 9, wakeHour: 17,
+    });
+    const notes = nightShift.blocks.filter((b) => b.kind === 'open').map((b) => b.note ?? '');
+    expect(notes.some((n) => /before work/.test(n))).toBe(true);
+    for (const n of notes) expect(n).not.toMatch(/before the day starts/);
   });
 
   it('measures the stretch, not the whole evening', () => {

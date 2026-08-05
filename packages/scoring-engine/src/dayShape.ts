@@ -829,7 +829,12 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
     if (!isWorkday) {
       note = `${length} clear`;
     } else if (endMinutes <= workStart - commute) {
-      note = `${length} before the day starts`;
+      /* "before the day starts" read well for somebody who wakes at seven
+         and is at a desk by nine, and was plainly wrong for the ICU nurse
+         who wakes at five in the afternoon: at six her day had been going
+         an hour, and the card told her it had not begun. Work is the fixed
+         point in both lives; the day is not. */
+      note = `${length} before work`;
     } else if (startMinutes >= workEnd + commute) {
       note = `${length} after work`;
     } else {
