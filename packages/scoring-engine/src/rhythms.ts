@@ -132,6 +132,26 @@ export interface Rhythm {
    * comes from a plan somebody could actually picture keeping.
    */
   anchorTemplate?: string;
+  /**
+   * How hard this is on a body — a different axis from `needs`.
+   *
+   * `needs: ['canMove']` asks whether the ROOM allows moving. It has never
+   * asked whether the person can, so a strength session was offered to
+   * somebody with a back injury standing in a perfectly open room. Absent
+   * reads as gentle enough for anybody, which is true of almost everything
+   * in these catalogs — only the entries that genuinely ask something of a
+   * body carry this.
+   */
+  intensity?: 'gentle' | 'moderate' | 'vigorous';
+  /**
+   * What to offer instead when this one asks too much — a walk for a run,
+   * yoga for a strength session.
+   *
+   * A twin rather than silence, because a domain that goes quiet reads as
+   * the app having nothing to say about somebody's health, which is the
+   * opposite of true for the person most likely to have declared a limit.
+   */
+  gentleTwin?: string;
 }
 
 /**
@@ -177,6 +197,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
   health: [
     {
       key: 'health.move',
+      intensity: 'moderate', gentleTwin: 'health.stretch',
       anchorTemplate: 'put your shoes on before you sit down',
       title: 'Move three times a week',
       perWeek: 3, minutes: 40, when: 'morning', needs: ['canMove'],
@@ -184,6 +205,7 @@ const RHYTHMS: Record<string, Rhythm[]> = {
     },
     {
       key: 'health.strength',
+      intensity: 'vigorous', gentleTwin: 'health.yoga',
       anchorTemplate: 'do the session before the day fills up',
       title: 'One strength session a week',
       perWeek: 1, minutes: 45, when: 'morning', needs: ['canMove'],
@@ -555,9 +577,52 @@ export function rhythmFor(
   domainType: string,
   taken: Iterable<string> = [],
   extra: Rhythm[] = [],
+  limits?: MovementLimits,
 ): Rhythm | null {
-  return availableRhythms(domainType, taken, extra)[0] ?? null;
+  const available = availableRhythms(domainType, taken, extra);
+  return withinLimits(available, limits)[0] ?? null;
 }
+
+/**
+ * What a body allows, as the reader declared it. Absent means never asked.
+ *
+ * `none` is not the same as absent in intent but is identical in behaviour,
+ * and that is deliberate — somebody who answers "no limits" should see the
+ * app they would have seen anyway.
+ */
+export type MovementLimits = 'none' | 'low_impact' | 'ask_doctor' | null | undefined;
+
+/**
+ * The offer list, filtered by what a body allows rather than what a room does.
+ *
+ * `needs: ['canMove']` asks about the place. A strength session was therefore
+ * offered to somebody with a back injury standing in a perfectly open room,
+ * because the app had no field in which to be told otherwise.
+ *
+ * A vigorous entry is swapped for its gentle twin, never merely dropped. A
+ * health domain that goes quiet reads as the app having nothing to say about
+ * somebody's health — which is precisely backwards for the person most likely
+ * to have declared a limit in the first place. Where a twin is not available
+ * the entry does fall away, and the domain's remaining entries carry on.
+ */
+export function withinLimits(list: Rhythm[], limits: MovementLimits): Rhythm[] {
+  if (!limits || limits === 'none') return list;
+
+  const out: Rhythm[] = [];
+  const seen = new Set<string>();
+  for (const r of list) {
+    /* Only 'vigorous' is swapped. 'moderate' is a brisk walk, which is the
+       thing most people with a limit have been told to do more of. */
+    if (r.intensity !== 'vigorous') {
+      if (!seen.has(r.key)) { seen.add(r.key); out.push(r); }
+      continue;
+    }
+    const twin = r.gentleTwin ? rhythmByKey(r.gentleTwin) : null;
+    if (twin && !seen.has(twin.key)) { seen.add(twin.key); out.push(twin); }
+  }
+  return out;
+}
+
 
 /**
  * The catalog entry a saved habit came from, matched on title.

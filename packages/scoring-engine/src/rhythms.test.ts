@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-  rhythmsFor, rhythmFor, rhythmByKey, rhythmDomains, availableRhythms,
-  rhythmForHabit, REMOTE_CHILDREN_RHYTHMS, IN_PERSON_CHILDREN_TITLES,
+  rhythmsFor,
+  rhythmFor,
+  rhythmByKey,
+  rhythmDomains,
+  availableRhythms,
+  rhythmForHabit,
+  REMOTE_CHILDREN_RHYTHMS,
+  IN_PERSON_CHILDREN_TITLES,
+  withinLimits,
 } from './rhythms';
 import { PROMOTED, CATALOG } from './commonHabits';
 
@@ -308,5 +315,47 @@ describe('children rhythms at a distance', () => {
   it('a co-located household never sees the remote variants — they ride extra, not the catalog', () => {
     const titles = rhythmsFor('children').map((r) => r.title);
     for (const r of REMOTE_CHILDREN_RHYTHMS) expect(titles).not.toContain(r.title);
+  });
+});
+
+/**
+ * `needs: ['canMove']` asks whether the ROOM allows moving. It has never
+ * asked whether the person can — so a strength session was offered to
+ * somebody with a back injury standing in a perfectly open room.
+ */
+describe('what a body allows, as opposed to what a room allows', () => {
+  it('changes nothing when no limit was declared', () => {
+    for (const limits of [undefined, null, 'none'] as const) {
+      expect(rhythmFor('health', [], [], limits)?.key).toBe('health.move');
+    }
+  });
+
+  it('swaps a vigorous entry for its gentle twin rather than dropping it', () => {
+    const taken = ['Move three times a week'];
+    expect(rhythmFor('health', taken)?.key).toBe('health.strength');
+    expect(rhythmFor('health', taken, [], 'low_impact')?.key).toBe('health.yoga');
+  });
+
+  it('leaves a brisk walk alone — moderate is the thing people are told to do more of', () => {
+    expect(rhythmFor('health', [], [], 'ask_doctor')?.key).toBe('health.move');
+  });
+
+  /* A health domain that goes quiet reads as the app having nothing to say
+     about somebody's health, which is backwards for the reader most likely
+     to have declared a limit. */
+  it('still has a full domain to offer under a limit', () => {
+    const under = withinLimits(rhythmsFor('health'), 'low_impact');
+    expect(under.length).toBeGreaterThanOrEqual(rhythmsFor('health').length - 1);
+    expect(under.some((r) => r.intensity === 'vigorous')).toBe(false);
+  });
+
+  it('never offers the same thing twice after a swap', () => {
+    const under = withinLimits(rhythmsFor('health'), 'low_impact');
+    expect(new Set(under.map((r) => r.key)).size).toBe(under.length);
+  });
+
+  it('finds an entry by its key across every domain', () => {
+    expect(rhythmByKey('health.yoga')?.title).toBe('Yoga, twice a week');
+    expect(rhythmByKey('nope.nope')).toBeNull();
   });
 });

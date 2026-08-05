@@ -43,6 +43,15 @@ model User {
   /// times a year, to say a thing that was true the first time. A correction
   /// that has to be repeated is a question that should have been asked.
   workDays            Int[]     @default([])
+  /// Self-declared, and deliberately not a medical field.
+  ///
+  /// `needs: ['canMove']` on a rhythm asks whether the ROOM allows moving —
+  /// so a strength session was still offered to somebody with a back injury
+  /// standing in a perfectly open room. Three answers, no diagnosis, no
+  /// follow-up questions: 'none' behaves exactly as before, 'low_impact'
+  /// swaps a vigorous offer for its gentle twin, and 'ask_doctor' does the
+  /// same and says why once.
+  movementLimits      String?
   // A declared season: one part of life the person chose to concentrate on,
   // and the date it ends. `suggestSeason` picked one before this and nothing
   // read it; a focus without an end date is neglect with a nicer name, so the

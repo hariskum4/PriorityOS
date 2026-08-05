@@ -16,6 +16,7 @@ const PUBLIC_USER_FIELDS = {
   city: true, country: true, profession: true, workType: true,
   workHoursPerWeek: true, screenHoursPerDay: true,
   workStartHour: true, workEndHour: true, commuteMinutes: true, workDays: true,
+  movementLimits: true,
   maritalStatus: true, childrenCount: true,
   livesAwayFromParents: true, parentsInLife: true, onboardingCompleted: true,
   motivationStyle: true, createdAt: true,
@@ -37,7 +38,7 @@ export class UsersService {
       'fullName', 'dob', 'timezone', 'city', 'country', 'profession',
       'workType', 'workHoursPerWeek', 'screenHoursPerDay', 'maritalStatus',
       'childrenCount', 'livesAwayFromParents', 'parentsInLife', 'motivationStyle',
-      'workStartHour', 'workEndHour', 'commuteMinutes', 'workDays',
+      'workStartHour', 'workEndHour', 'commuteMinutes', 'workDays', 'movementLimits',
     ];
     const patch = Object.fromEntries(
       Object.entries(data).filter(([k]) => allowed.includes(k)),
@@ -95,6 +96,19 @@ export class UsersService {
         throw new BadRequestException('workDays must be whole numbers from 0 (Sunday) to 6');
       }
       patch.workDays = [...new Set(days)].sort((a, b) => a - b);
+    }
+    /**
+     * Three answers, and null for never asked.
+     *
+     * Not a medical field and deliberately not a list of conditions: the app
+     * needs to know whether to offer a vigorous session, and nothing more.
+     * Anything outside the three is refused rather than stored, because a
+     * value the offer path cannot read would silently behave as "no limits" —
+     * which is the failure this column exists to prevent.
+     */
+    if (patch.movementLimits !== undefined && patch.movementLimits !== null
+        && !['none', 'low_impact', 'ask_doctor'].includes(String(patch.movementLimits))) {
+      throw new BadRequestException('movementLimits must be none, low_impact or ask_doctor');
     }
     /* An hour of the day, not a duration — 0 is midnight and is valid. */
     for (const key of ['workStartHour', 'workEndHour']) {

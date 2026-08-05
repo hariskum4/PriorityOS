@@ -169,7 +169,7 @@ export const PROMOTED = {
 export const CATALOG = {
   yoga: {
     key: 'health.yoga', title: 'Yoga, twice a week', perWeek: 2, minutes: 40,
-    when: 'morning', needs: ['canMove'],
+    when: 'morning', needs: ['canMove'], intensity: 'gentle',
     because: 'Strength, balance and a quiet head, from a mat and forty minutes.',
   },
 } satisfies Record<string, Rhythm>;
