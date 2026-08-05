@@ -172,7 +172,7 @@ export class BlueprintService {
         select: {
           profession: true, workType: true, workHoursPerWeek: true, commuteMinutes: true,
           city: true, country: true, maritalStatus: true, childrenCount: true, dob: true,
-          livesAwayFromParents: true, motivationStyle: true,
+          livesAwayFromParents: true, parentsInLife: true, motivationStyle: true,
         },
       }),
       this.prisma.onboardingAnswer.findMany({
@@ -226,6 +226,9 @@ export class BlueprintService {
           maritalStatus: user?.maritalStatus ?? null,
           childrenCount: user?.childrenCount ?? 0,
           livesAwayFromParents: user?.livesAwayFromParents ?? false,
+          /* So nothing generated writes a mother into a life that does not
+             have one. Only an explicit false says so; null is never asked. */
+          hasParentsInLife: user?.parentsInLife !== false,
           motivationStyle: user?.motivationStyle ?? 'balanced',
           ageYears: user?.dob
             ? Math.floor((Date.now() - user.dob.getTime()) / (365.25 * DAY_MS))

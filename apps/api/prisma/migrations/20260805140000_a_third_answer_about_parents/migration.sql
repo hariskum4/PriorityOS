@@ -1,0 +1,13 @@
+-- A third answer to a question that only had two.
+--
+-- "Do you live away from your parents?" is a yes/no, and for anybody whose
+-- parents have died — or are not in their life — neither answer is true. They
+-- answered "away", the truthful half of a wrong question, and the app then
+-- offered them "Call home, the same day every week" and "Ask one thing you
+-- have never asked: your parents carry a whole life you have not heard."
+--
+-- Nullable, with no backfill and no default, and that is the point: NULL means
+-- never asked, which is every account that existed before this column. Only an
+-- explicit FALSE suppresses anything. Guessing here would delete somebody's
+-- mother on the strength of a column being new.
+ALTER TABLE "User" ADD COLUMN "parentsInLife" BOOLEAN;

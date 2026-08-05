@@ -42,3 +42,30 @@ describe('lifeQuestions', () => {
     expect(lifeQuestions(ADULT_AGE).askMarital).toBe(true);
   });
 });
+
+/**
+ * The third answer. Two options made a false choice: anybody whose parents
+ * have died had to claim they live "away from" them, and the app then spent a
+ * year offering to help them call home.
+ */
+describe('a question that only had two answers', () => {
+  it('offers a way out of the yes/no for an adult', () => {
+    expect(lifeQuestions(40, 'employee').awayNeitherLabel).toBe('neither applies');
+  });
+
+  it('phrases it against the question actually asked', () => {
+    // A hosteller and a minor are being asked about a house, not about
+    // whether anybody is in it.
+    expect(lifeQuestions(20, 'student').awayNeitherLabel).toMatch(/no parents at home/);
+    expect(lifeQuestions(16, 'employee').awayNeitherLabel).toMatch(/no parents at home/);
+  });
+
+  it('always gives one, whatever the life', () => {
+    for (const age of [15, 22, 40, 87, null]) {
+      for (const work of ['student', 'employee', 'retired', null]) {
+        const plan = lifeQuestions(age as never, work as never);
+        expect(plan.awayNeitherLabel.length).toBeGreaterThan(0);
+      }
+    }
+  });
+});

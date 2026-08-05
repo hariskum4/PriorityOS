@@ -323,6 +323,9 @@ export default function Onboarding() {
           maritalStatus: plan.askMarital ? marital || undefined : undefined,
           childrenCount: plan.askChildren ? parseInt(children, 10) || 0 : 0,
           livesAwayFromParents: awayFromParents === 'yes',
+          /* Only an explicit "neither" says no. An unanswered question stays
+             null — silence must not delete somebody's mother. */
+          parentsInLife: awayFromParents === 'neither' ? false : true,
           motivationStyle: style,
         },
       });
@@ -543,9 +546,16 @@ export default function Onboarding() {
                 onPick={setChildren}
               />
             )}
+            {/* Three answers, because two of them were a false choice. Anyone
+                whose parents have died had to claim they live "away from"
+                them, and the app then spent a year offering to help them call
+                home. `neither` is a catch-all on purpose — death, estrangement
+                and not wanting to say are one answer, since the app needs one
+                fact and has no business itemising the reason. */}
             <PickRow
               label={plan.awayLabel}
-              options={['yes', 'no']}
+              options={['yes', 'no', 'neither']}
+              display={{ neither: plan.awayNeitherLabel }}
               value={awayFromParents}
               onPick={setAwayFromParents}
             />

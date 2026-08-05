@@ -22,6 +22,20 @@ export interface LifeQuestionPlan {
   askMarital: boolean;
   askChildren: boolean;
   awayLabel: string;
+  /**
+   * The answer for somebody with no parents to live away from.
+   *
+   * The question was a yes/no, and for anyone whose parents have died — or
+   * are not in their life — neither answer is true. They picked "away", the
+   * truthful half of a wrong question, and were then offered "Call home, the
+   * same day every week" for as long as they used the app.
+   *
+   * Deliberately a catch-all rather than a taxonomy. Death, estrangement,
+   * never having known them and not wanting to say are one answer here,
+   * because the app needs exactly one fact — whether to direct anything at a
+   * parent — and has no business asking a bereaved person to itemise it.
+   */
+  awayNeitherLabel: string;
 }
 
 export function lifeQuestions(
@@ -41,5 +55,8 @@ export function lifeQuestions(
       : minor
         ? 'Do you live away from home?'
         : 'Do you live away from your parents?',
+    // A minor or a hosteller is being asked about a house, not about whether
+    // anyone is in it, so the opt-out is phrased against the question asked.
+    awayNeitherLabel: student || minor ? 'no parents at home' : 'neither applies',
   };
 }

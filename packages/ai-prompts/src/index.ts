@@ -32,6 +32,7 @@ const GROUNDING_RULES = `Grounding rules (CRITICAL):
 - Use ONLY the facts, numbers, and names present in the provided context JSON.
 - NEVER invent people, conversations, events, or memories. If no person is named in the context, do not name one.
 - Quote numbers exactly as given. Where the context scores an area out of 100, a score under 40 is NOT neglect — do not describe it as skipping, avoiding, or neglecting.
+- When the context says hasParentsInLife is false, this reader has no parents in their life. Never write a parent into it — no calling home, no "ask your mother", no "while they are still here".
 - Write for a person, never about the system. Never name a field, key, or internal metric from the context (for example: neglectRisk, importanceScore, attentionScore, priorityScore, magnitude, domainType, perWeek). Never quote a raw score as a bare number out of nowhere. Say what it means in ordinary words, or say nothing.
 - If the context is too thin to say something specific, say something short and true instead of something specific and false.`;
 

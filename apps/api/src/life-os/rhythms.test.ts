@@ -18,7 +18,11 @@ import { RhythmsService } from './rhythms.service';
 
 type Habit = { title: string; domainType: string; isActive?: boolean };
 
-function fakePrisma(over: { habits?: Habit[]; domains?: Array<[string, number, number]> } = {}) {
+function fakePrisma(over: {
+  habits?: Habit[];
+  domains?: Array<[string, number, number]>;
+  user?: Record<string, unknown>;
+} = {}) {
   const domains = (over.domains ?? [
     ['purpose', 60, 0], ['friends', 40, 5], ['career', 50, 30], ['health', 70, 65],
   ]).map(([domainType, importanceScore, attentionScore]) => ({
@@ -33,6 +37,8 @@ function fakePrisma(over: { habits?: Habit[]; domains?: Array<[string, number, n
         profession: 'Designer', workType: 'onsite', workHoursPerWeek: 40,
         city: 'Bengaluru', country: 'IN', maritalStatus: 'married', childrenCount: 1,
         dob: new Date('1990-01-01'), livesAwayFromParents: true, motivationStyle: 'balanced',
+        parentsInLife: null,
+        ...over.user,
       }),
     },
     onboardingAnswer: {
@@ -226,5 +232,49 @@ describe('the app is whole with the model switched off', () => {
       expect(r.perWeek).toBeLessThanOrEqual(7);
       expect(r.because.length).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * "Do you live away from your parents?" was a yes/no, and for anyone whose
+ * parents have died neither answer is true. They answered "away", and the app
+ * offered them "Call home, the same day every week" and "Ask one thing you
+ * have never asked — your parents carry a whole life you have not heard" for
+ * as long as they used it.
+ */
+describe('nothing aimed at a parent, for somebody who has none', () => {
+  const familyOnly: Array<[string, number, number]> = [['family', 80, 0]];
+
+  const titlesFor = async (user: Record<string, unknown>) => {
+    const svc = new RhythmsService(
+      fakePrisma({ domains: familyOnly, user }),
+      fakeAi(null),
+      fakeBlueprint(),
+    );
+    const { rhythms } = await svc.forUser('u1');
+    return rhythms.map((r) => r.title);
+  };
+
+  it('drops both parent-directed rhythms when there are no parents', async () => {
+    const titles = await titlesFor({ parentsInLife: false });
+    expect(titles).not.toContain('Call home, the same day every week');
+    expect(titles).not.toContain('Ask one thing you have never asked');
+  });
+
+  it('leaves the domain something to say rather than falling silent', async () => {
+    // An unhurried hour is true for siblings, cousins and grandchildren.
+    const titles = await titlesFor({ parentsInLife: false });
+    expect(titles).toContain('An unhurried hour with them, weekly');
+  });
+
+  it('never asked is not the same as nobody', async () => {
+    // Every account predating the column reads null, and must be untouched.
+    const titles = await titlesFor({ parentsInLife: null });
+    expect(titles).toContain('Call home, the same day every week');
+  });
+
+  it('leaves an ordinary account alone', async () => {
+    const titles = await titlesFor({ parentsInLife: true });
+    expect(titles).toContain('Call home, the same day every week');
   });
 });

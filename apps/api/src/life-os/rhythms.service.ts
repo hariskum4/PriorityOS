@@ -81,7 +81,7 @@ export class RhythmsService {
         select: {
           profession: true, workType: true, workHoursPerWeek: true, city: true,
           country: true, maritalStatus: true, childrenCount: true, dob: true,
-          livesAwayFromParents: true, motivationStyle: true,
+          livesAwayFromParents: true, parentsInLife: true, motivationStyle: true,
         },
       }),
       this.prisma.onboardingAnswer.findMany({
@@ -114,6 +114,28 @@ export class RhythmsService {
        next rhythm, which works face to face. */
     if (user?.livesAwayFromParents === false) {
       takenTitles.push('Call home, the same day every week');
+    }
+    /**
+     * Nothing aimed at a parent, for somebody who has none.
+     *
+     * Two of the family catalog's three are written straight at a living
+     * parent — one asks you to call home weekly, and the other says "your
+     * parents carry a whole life you have not heard, and it does not keep",
+     * which is a sentence to read at eighty-seven when both of them are
+     * decades gone. `family.hour` survives: an unhurried hour with the people
+     * you have is true for siblings, cousins and grandchildren, and leaving
+     * one rhythm standing means the domain still has something to offer
+     * rather than falling silent.
+     *
+     * Explicit `false` only. `null` is every account that predates the
+     * column, and treating "never asked" as "nobody" would delete a mother
+     * on the strength of a migration.
+     */
+    if (user?.parentsInLife === false) {
+      takenTitles.push(
+        'Call home, the same day every week',
+        'Ask one thing you have never asked',
+      );
     }
 
     const ranked = domains
@@ -186,6 +208,9 @@ export class RhythmsService {
           maritalStatus: user?.maritalStatus ?? null,
           childrenCount: user?.childrenCount ?? 0,
           livesAwayFromParents: user?.livesAwayFromParents ?? false,
+          /* So nothing generated writes a mother into a life that does not
+             have one. Only an explicit false says so; null is never asked. */
+          hasParentsInLife: user?.parentsInLife !== false,
           motivationStyle: user?.motivationStyle ?? 'balanced',
           ageYears: user?.dob
             ? Math.floor((Date.now() - user.dob.getTime()) / (365.25 * DAY_MS))

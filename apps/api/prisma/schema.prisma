@@ -47,6 +47,21 @@ model User {
   maritalStatus       String?
   childrenCount       Int       @default(0)
   livesAwayFromParents Boolean  @default(false)
+  /// Whether there are parents in this life to direct anything at.
+  ///
+  /// `livesAwayFromParents` is a boolean, so for years the only answers were
+  /// "near them" and "away from them" — and an 87-year-old, or anyone whose
+  /// parents have died or are not in their life, could say neither. They
+  /// answered "away", which is the truthful half of a wrong question, and the
+  /// app spent the next year offering them "Call home, the same day every
+  /// week" and "Ask one thing you have never asked — your parents carry a
+  /// whole life you have not heard".
+  ///
+  /// Three states on purpose. `null` is "never asked", which is every account
+  /// that existed before this column and is NOT the same as "no" — silence
+  /// must not delete somebody's mother. Only an explicit `false` suppresses
+  /// parent-directed content.
+  parentsInLife       Boolean?
   onboardingCompleted Boolean   @default(false)
   preferredLanguage   String    @default("en")
   motivationStyle     String    @default("balanced") // gentle | balanced | challenging

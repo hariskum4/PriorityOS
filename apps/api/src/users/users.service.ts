@@ -17,7 +17,7 @@ const PUBLIC_USER_FIELDS = {
   workHoursPerWeek: true, screenHoursPerDay: true,
   workStartHour: true, workEndHour: true, commuteMinutes: true,
   maritalStatus: true, childrenCount: true,
-  livesAwayFromParents: true, onboardingCompleted: true,
+  livesAwayFromParents: true, parentsInLife: true, onboardingCompleted: true,
   motivationStyle: true, createdAt: true,
 } as const;
 
@@ -36,7 +36,7 @@ export class UsersService {
     const allowed = [
       'fullName', 'dob', 'timezone', 'city', 'country', 'profession',
       'workType', 'workHoursPerWeek', 'screenHoursPerDay', 'maritalStatus',
-      'childrenCount', 'livesAwayFromParents', 'motivationStyle',
+      'childrenCount', 'livesAwayFromParents', 'parentsInLife', 'motivationStyle',
       'workStartHour', 'workEndHour', 'commuteMinutes',
     ];
     const patch = Object.fromEntries(
@@ -63,6 +63,19 @@ export class UsersService {
         throw new BadRequestException(`${key} must be a non-negative number`);
       }
       patch[key] = Math.round(n);
+    }
+    /**
+     * Three states, and only one of them silences anything.
+     *
+     * `parentsInLife` is nullable because `null` means "never asked" — every
+     * account older than the column — and an explicit `false` is what stops
+     * the app offering to help somebody call a parent who has died. A string
+     * "false" reaching Prisma would throw, and worse, a truthy "false" would
+     * quietly restore the copy this field exists to withhold.
+     */
+    if (patch.parentsInLife !== undefined && patch.parentsInLife !== null
+        && typeof patch.parentsInLife !== 'boolean') {
+      throw new BadRequestException('parentsInLife must be true, false, or null');
     }
     /* An hour of the day, not a duration — 0 is midnight and is valid. */
     for (const key of ['workStartHour', 'workEndHour']) {
