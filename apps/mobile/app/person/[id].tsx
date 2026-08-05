@@ -131,8 +131,11 @@ export default function PersonDetail() {
 
         <Card style={{ gap: space(3) }}>
           <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+            {/* "Never logged" reads as a verdict on the friendship rather
+                than on the record — and the People list says "nothing yet"
+                for the same state. One phrasing for one fact. */}
             <Chip
-              label={days === null ? 'never logged' : days === 0 ? 'talked today' : `${days}d since`}
+              label={days === null ? 'nothing logged yet' : days === 0 ? 'talked today' : `${days}d since`}
               color={days !== null && days > 30 ? colors.rose : colors.textDim}
             />
             <Chip label={`wants ${person.desiredCallFrequency ?? 'weekly'}`} color={colors.amber} />

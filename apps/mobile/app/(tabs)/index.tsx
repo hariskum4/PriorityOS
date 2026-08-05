@@ -393,6 +393,28 @@ export default function Today() {
     queryFn: () => api<any[]>('/memories/on-this-day'),
     staleTime: 30 * 60_000,
   });
+  /**
+   * The best move that pays two parts of a life at once.
+   *
+   * Read here rather than only in the Time tab, where it has always been —
+   * and only ever the first one. A stack is a way to spend an hour, not a
+   * second to-do list, so the card below shows one and links to the rest.
+   * Covering two domains is the bar: a "stack" that helps a single one is
+   * an ordinary suggestion, and calling it a stack would be the overselling
+   * this feature exists to avoid.
+   *
+   * Up here with the others, and not beside the card that reads it, because
+   * this screen returns early when the record has not arrived. A hook below
+   * that return runs on some renders and not others: React counted 177 hooks
+   * one render and 178 the next, and tore the whole screen down with
+   * "rendered fewer hooks than expected". Every hook on this screen must sit
+   * above the early return at `if (!data)`.
+   */
+  const { data: stackData } = useQuery({
+    queryKey: ['life-stacks'],
+    queryFn: () => api<{ stacks: any[] }>('/life-os/stacks'),
+    staleTime: 5 * 60_000,
+  });
   const [lastOpened, setLastOpened] = useState<string | null>(null);
   useEffect(() => {
     /**
@@ -831,21 +853,6 @@ export default function Today() {
   /** True when a lens is on and that part of the life is genuinely quiet. */
   const lensEmpty = Boolean(lensLife) && !missionInLens && openProposals.length === 0;
 
-  /**
-   * The best move that pays two parts of a life at once.
-   *
-   * Read here rather than only in the Time tab, where it has always been —
-   * and only ever the first one. A stack is a way to spend an hour, not a
-   * second to-do list, so the card below shows one and links to the rest.
-   * Covering two domains is the bar: a "stack" that helps a single one is
-   * an ordinary suggestion, and calling it a stack would be the overselling
-   * this feature exists to avoid.
-   */
-  const { data: stackData } = useQuery({
-    queryKey: ['life-stacks'],
-    queryFn: () => api<{ stacks: any[] }>('/life-os/stacks'),
-    staleTime: 5 * 60_000,
-  });
   const topStack = (stackData?.stacks ?? []).find(
     (st: any) => (st?.covers?.length ?? 0) >= 2,
   ) ?? null;

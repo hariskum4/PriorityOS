@@ -606,7 +606,7 @@ function Memories() {
         {justSaved ? (
           <View style={s.savedRow}>
             <Ionicons name="checkmark-circle" size={18} color={colors.green} />
-            <Text style={[type.dim, { color: colors.green }]}>Kept — +30 XP. This is what the numbers were for.</Text>
+            <Text style={[type.dim, { color: colors.green }]}>Kept. This is what the numbers were for.</Text>
           </View>
         ) : (
           <Button

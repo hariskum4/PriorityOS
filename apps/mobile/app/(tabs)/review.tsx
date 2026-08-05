@@ -197,7 +197,7 @@ export default function Review() {
               body="Six short steps: last week honestly, how each part of life feels, one insight, next week's few priorities, the one thing, and an intention."
             />
             <Button title="Begin the session" onPress={startSession} />
-            <Text style={[type.faint, { textAlign: 'center' }]}>+50 XP · your future self says thanks</Text>
+            <Text style={[type.faint, { textAlign: 'center' }]}>Fifteen minutes · your future self says thanks</Text>
           </Card>
         )}
       </ScrollView>
@@ -215,7 +215,6 @@ export default function Review() {
             {done.missionsCreated} priorit{done.missionsCreated === 1 ? 'y' : 'ies'} set.
             {intention ? `\nThis week: ${intention}.` : ''}
           </Text>
-          <Chip label="+50 XP" color={colors.amber} />
           <Button title="Back to the week" onPress={() => setInSession(false)} />
         </Card>
       </ScrollView>
@@ -457,7 +456,7 @@ export default function Review() {
           </View>
           <Input placeholder="…or your own word" value={intention} onChangeText={setIntention} />
           <Button
-            title={submit.isPending ? 'Sealing the week…' : 'Complete the session  +50 XP'}
+            title={submit.isPending ? 'Sealing the week…' : 'Complete the session'}
             onPress={() => submit.mutate()}
             disabled={!intention.trim() || submit.isPending}
           />

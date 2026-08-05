@@ -14,6 +14,7 @@ import {
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
+import { driftOf } from '@/components/Constellation';
 import { Button, Card, Chip, DomainDot, EmptyState, GapBar, Label } from '@/components/ui';
 import { colors, type, space, domainColor, isLight, alpha } from '@/theme';
 
@@ -51,6 +52,30 @@ function ageFromDob(dob?: string | null): number | null {
   if (!dob) return null;
   const y = (Date.now() - new Date(dob).getTime()) / (365.25 * 86_400_000);
   return y > 5 && y < 110 ? Math.floor(y) : null;
+}
+
+/**
+ * What this domain is doing, in one word — the same reading as everywhere else.
+ *
+ * The thresholds are the Today read-out's, and the input is `driftOf`, so a
+ * domain cannot be "drifting" on one screen and "flat" on another. Green is
+ * spent only where the gap is genuinely small: a trend of "flat" describes
+ * the direction, and saying so in green above a bar reading 63 against 0
+ * congratulates somebody for holding still at the bottom.
+ */
+function verdictFor(domain: { importance: number; attention: number; neglectRisk?: number; trend?: string }) {
+  /* Never rated is not the same as balanced. Five of the twelve domains sit
+     at 0 importance for a new account, and "steady" in green told somebody
+     they had this part of their life handled when they had never mentioned
+     it. Today's read-out has always said "not in your plan yet"; this says
+     the same thing in a chip. */
+  if (domain.importance <= 0) return { label: 'not rated', color: colors.textDim };
+  const drift = driftOf(domain as Parameters<typeof driftOf>[0]);
+  if (drift > 0.55) return { label: 'drifting', color: colors.rose };
+  if (drift > 0.25) return { label: 'a gap', color: colors.amber };
+  if (domain.trend === 'up') return { label: 'rising', color: colors.green };
+  if (domain.trend === 'down') return { label: 'slipping', color: colors.amber };
+  return { label: 'steady', color: colors.green };
 }
 
 export default function DomainDetail() {
@@ -246,9 +271,16 @@ export default function DomainDetail() {
           <Card style={{ gap: space(2), backgroundColor: `${c}${isLight ? '10' : '12'}` }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Label>Say vs do</Label>
-              {domain.neglectRisk >= 50
-                ? <Chip label="drifting" color={colors.rose} />
-                : <Chip label={domain.trend === 'up' ? 'rising' : domain.trend} color={colors.green} />}
+              {/* One verdict per domain, from `driftOf` — the same function the
+                  constellation and the Today read-out use. This card judged on
+                  `neglectRisk` alone and ignored the say/do gap beside it, so a
+                  domain rated 63 and getting 0 wore a green "flat" here while
+                  Today called it drifting: two screens, one domain, opposite
+                  answers, and the green one directly above the evidence. */}
+              {(() => {
+                const chip = verdictFor(domain);
+                return <Chip label={chip.label} color={chip.color} />;
+              })()}
             </View>
             <GapBar importance={domain.importance} attention={domain.attention} color={c} />
           </Card>
@@ -359,7 +391,9 @@ export default function DomainDetail() {
             {domainMissions.map((m) => (
               <Card key={m.id} style={{ gap: space(2) }}>
                 <Text style={type.body}>{m.title}</Text>
-                <Button title={`Complete  +${m.xpReward} XP`} small onPress={() => complete.mutate(m.id)} />
+                {/* Same verb as Today and Missions, and no bounty on it —
+                    a mission is worth doing for the thing it does. */}
+                <Button title="Done" small onPress={() => complete.mutate(m.id)} />
               </Card>
             ))}
           </View>
