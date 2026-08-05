@@ -18,8 +18,11 @@ export class PartnersController {
     return this.partners.invite(u.userId, body.email);
   }
 
+  /* The email travels with the id because the service checks that the invite
+     was actually addressed to the caller — without it the link id was a
+     bearer token for somebody else's weekly signal. */
   @Post(':id/accept')
   accept(@CurrentUser() u: JwtUser, @Param('id') id: string) {
-    return this.partners.accept(u.userId, id);
+    return this.partners.accept(u.userId, u.email, id);
   }
 }

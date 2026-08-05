@@ -23,6 +23,7 @@ import { CreateRelationshipDto } from '../src/relationships/relationships.dto';
 import { CreateJournalEntryDto } from '../src/journal/journal.dto';
 import { CreateMissionDto } from '../src/missions/missions.dto';
 import { MemoriesService } from '../src/memories/memories.service';
+import { PartnersService } from '../src/partners/partners.service';
 import { HabitsService } from '../src/habits/habits.service';
 
 let prisma: PrismaService;
@@ -211,6 +212,107 @@ describe('requests that are wrong get told, not 500', () => {
       const r = await users.updatePreferences(userId, { quietHoursStart: good });
       expect(r.quietHoursStart).toBe(good);
     }
+  });
+});
+
+/**
+ * Two holes found when the link model was proposed as the foundation for
+ * shared activities. Both quiet, both far more serious once something is
+ * built on top of them.
+ */
+describe('an accountability link is between two people who both agreed', () => {
+  const partnersFor = () => new PartnersService(prisma);
+
+  const makeUser = async (email: string) => prisma.user.create({
+    data: { email, fullName: email.split('@')[0], passwordHash: 'x' },
+    select: { id: true, email: true },
+  });
+
+  it('refuses an invite accepted by somebody it was not addressed to', async () => {
+    const partners = partnersFor();
+    const [invitee, stranger] = await Promise.all([
+      makeUser('invitee@test.local'), makeUser('stranger@test.local'),
+    ]);
+    const link: any = await partners.invite(userId, invitee.email);
+
+    /* The exact attack: a link id that travelled — a log line, a support
+       thread, a screenshot — and an authenticated stranger holding it. */
+    await expect(partners.accept(stranger.id, stranger.email, link.id))
+      .rejects.toThrow('No pending invite');
+
+    const after = await prisma.partnerLink.findUnique({ where: { id: link.id } });
+    expect(after!.partnerId).toBeNull();
+    expect(after!.status).toBe('pending');
+  });
+
+  it('lets the person it was addressed to accept it', async () => {
+    const partners = partnersFor();
+    const invitee = await makeUser('real@test.local');
+    const link: any = await partners.invite(userId, invitee.email);
+    await partners.accept(invitee.id, invitee.email, link.id);
+
+    const after = await prisma.partnerLink.findUnique({ where: { id: link.id } });
+    expect(after!.status).toBe('active');
+    expect(after!.partnerId).toBe(invitee.id);
+  });
+
+  it('says the same thing however the accept was wrong', async () => {
+    const partners = partnersFor();
+    const stranger = await makeUser('nosy@test.local');
+    /* A link that does not exist and one addressed elsewhere must be
+       indistinguishable, or the error itself answers the question. */
+    await expect(partners.accept(stranger.id, stranger.email, '00000000-0000-0000-0000-000000000000'))
+      .rejects.toThrow('No pending invite');
+  });
+
+  /**
+   * Whether somebody uses this app is their fact to share, not the app's to
+   * confirm. Resolving the address at invite time made a non-null partner on
+   * a pending link mean "yes, they are here".
+   */
+  it('does not reveal whether the invited address has an account', async () => {
+    const partners = partnersFor();
+    const existing = await makeUser('已有@test.local'.replace('已有', 'existing'));
+
+    const toUser: any = await partners.invite(userId, existing.email);
+    const toNobody: any = await partners.invite(userId, 'no-such-person@test.local');
+
+    for (const link of [toUser, toNobody]) {
+      expect(Object.keys(link)).not.toContain('partnerId');
+      expect(Object.keys(link)).not.toContain('ownerId');
+    }
+    /* And nothing was written server-side either — a pending link has no
+       partner at all until somebody accepts. */
+    const rows = await prisma.partnerLink.findMany({ where: { ownerId: userId } });
+    expect(rows.every((r) => r.partnerId === null)).toBe(true);
+  });
+
+  it('keeps partnerId out of the listing too', async () => {
+    const partners = partnersFor();
+    const invitee = await makeUser('listed@test.local');
+    const link: any = await partners.invite(userId, invitee.email);
+    await partners.accept(invitee.id, invitee.email, link.id);
+
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const { owned } = await partners.list(userId, me!.email);
+    expect(owned).toHaveLength(1);
+    expect(Object.keys(owned[0])).not.toContain('partnerId');
+    /* The signal itself still arrives — the point was never to break it. */
+    expect(owned[0].stats).toBeTruthy();
+  });
+
+  it('refuses to link somebody to themselves', async () => {
+    const partners = partnersFor();
+    const me = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    await expect(partners.invite(userId, me!.email)).rejects.toThrow('your own address');
+  });
+
+  it('treats a repeated invite as the same invite', async () => {
+    const partners = partnersFor();
+    const a: any = await partners.invite(userId, 'twice@test.local');
+    const b: any = await partners.invite(userId, 'TWICE@test.local');
+    expect(b.id).toBe(a.id);
+    expect(await prisma.partnerLink.count({ where: { ownerId: userId } })).toBe(1);
   });
 });
 
