@@ -20,7 +20,19 @@
  */
 
 export type HealthStatus = 'good' | 'declining' | 'serious';
-export type LocationType = 'same_city' | 'different_city' | 'abroad';
+/**
+ * `same_home` is a real value, not an alias.
+ *
+ * It used to normalise into `same_city` at the door, so "lives in my house"
+ * was stored as "lives in my town" and every server-side reader lost the
+ * difference — which is a large difference: the onboarding picker offers
+ * "same home" as its own choice, the sanity rules skip call questions for it,
+ * and the first mission for somebody's live-in partner should not be "one
+ * message is enough". The visit arithmetic still treats it as same_city —
+ * seeing somebody is not harder for sharing a roof — but storage keeps the
+ * word that was said.
+ */
+export type LocationType = 'same_home' | 'same_city' | 'different_city' | 'abroad';
 
 export interface TimeRealityInput {
   personAge: number;
@@ -93,6 +105,9 @@ const HEALTH_MODIFIER: Record<HealthStatus, number> = {
 };
 
 const LOCATION_CAPACITY: Record<LocationType, number> = {
+  // A shared roof caps nothing a shared city does not; the pair stay equal
+  // so keeping the word changes no arithmetic anywhere.
+  same_home: 52,
   same_city: 52,
   different_city: 24,
   abroad: 4,
@@ -128,7 +143,8 @@ const HEALTH_ALIASES: Record<string, HealthStatus> = {
 };
 
 const LOCATION_ALIASES: Record<string, LocationType> = {
-  same_city: 'same_city', same_home: 'same_city', same_house: 'same_city',
+  same_home: 'same_home', same_house: 'same_home',
+  same_city: 'same_city',
   same_town: 'same_city', local: 'same_city', nearby: 'same_city',
   different_city: 'different_city', another_city: 'different_city',
   same_country: 'different_city', different_state: 'different_city',

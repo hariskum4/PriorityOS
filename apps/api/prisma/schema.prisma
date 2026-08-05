@@ -188,7 +188,7 @@ model Relationship {
   closenessScore        Int?     // 1..10
   inPersonFrequency     String?  // Cadence
   healthStatus          String?  // good | declining | serious — user-described, never inferred
-  locationType          String?  // same_city | different_city | abroad
+  locationType          String?  // same_home | same_city | different_city | abroad
   callFrequency         String?  // Cadence
   desiredCallFrequency  String?  // Cadence — what the user WANTS
   wantsMoreTime         Boolean  @default(true)

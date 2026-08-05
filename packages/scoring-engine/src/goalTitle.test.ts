@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveGoalTitle, GOAL_TITLE_MAX } from './goalTitle';
+import { deriveGoalTitle, namesAThing, GOAL_TITLE_MAX } from './goalTitle';
 
 describe('goal titles', () => {
   it('leaves a short answer completely alone', () => {
@@ -94,5 +94,52 @@ describe('goal titles', () => {
     const twice = deriveGoalTitle(once.title, once.description);
     expect(twice.title).toBe(once.title);
     expect(twice.description).toBe(once.description);
+  });
+});
+
+/**
+ * The overwhelm answers. "Name the thing you keep postponing" is sometimes
+ * answered with the truth instead of a thing — and that answer must not
+ * become a goal title, a mission ("One small step toward: Everything. I do
+ * not know where to start any more."), or a permanent row the goal engine
+ * nags about. When unsure the detector says yes: refusing a real goal costs
+ * more than accepting a vague one.
+ */
+describe('answers that do not name a thing', () => {
+  it('recognises plain overwhelm', () => {
+    for (const s of [
+      'Everything. I do not know where to start any more.',
+      'everything',
+      'Everything.',
+      'Nothing',
+      "I don't know",
+      'I do not know where to start',
+      'No idea where to start',
+      'Too much',
+      'All of it',
+      'not sure',
+    ]) {
+      expect(namesAThing(s), s).toBe(false);
+    }
+  });
+
+  it('lets every answer that names anything through', () => {
+    for (const s of [
+      'Run a 10K by December',
+      'Seeing a doctor about the back pain I have had for a year',
+      'Everything with the house — the roof first',
+      'Everything about my health',
+      "I don't know, maybe the gym?",
+      'Not sure, probably calling Amma more',
+      'Too much screen time at night',
+      'The trip to Kerala',
+    ]) {
+      expect(namesAThing(s), s).toBe(true);
+    }
+  });
+
+  it('treats empty as not naming a thing', () => {
+    expect(namesAThing('')).toBe(false);
+    expect(namesAThing('   ')).toBe(false);
   });
 });

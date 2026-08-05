@@ -236,7 +236,11 @@ describe('refresh tokens die on schedule', () => {
  * had just answered, and nothing reconciled the two.
  */
 describe('the reveal reads the number it quotes', () => {
-  const reveal = async (reality: Record<string, number>, neglected: string[] = []) => {
+  const reveal = async (
+    reality: Record<string, number>,
+    neglected: string[] = [],
+    extraAnswers: { section: string; key: string; value: unknown }[] = [],
+  ) => {
     const svc = new OnboardingService(
       prisma,
       scoringStub as never,
@@ -252,6 +256,7 @@ describe('the reveal reads the number it quotes', () => {
       { section: 'values', key: 'priorityRanking', value: ['health', 'family', 'career'] },
       { section: 'values', key: 'currentReality', value: reality },
       { section: 'values', key: 'neglectedDomains', value: neglected },
+      ...extraAnswers,
     ]);
     return (await svc.complete(userId)).reveal as { narrative: string; driftWarning: string };
   };
@@ -344,6 +349,53 @@ describe('the reveal reads the number it quotes', () => {
       expect(v.perYear).toBeGreaterThan(0);
       expect(v.label.length).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * You do not text a four-year-old.
+   *
+   * "Reach out to Zoe this week — one message is enough" was the first
+   * mission handed to a father whose Zoe is four, and to another whose
+   * nine-year-old sleeps down the hall. The bar stays low — that was always
+   * the point — but the currency changes with the age and the address.
+   */
+  it('does not offer to message a small child in your own home', async () => {
+    await people.create(userId, {
+      name: 'Zoe', relationType: 'child', age: 4, locationType: 'same_home',
+      closenessScore: 9, desiredCallFrequency: 'daily', wantsMoreTime: true,
+    } as never);
+    const r = await reveal({ health: 1, family: 4, career: 3 }, ['health']) as any;
+    const zoe = (r.firstWeekFocus as Array<{ title: string }>)
+      .find((o) => o.title.includes('Zoe'));
+    expect(zoe).toBeTruthy();
+    expect(zoe!.title).not.toMatch(/message|reach out/i);
+    expect(zoe!.title).toMatch(/fifteen minutes/i);
+  });
+
+  it('still offers a message to an adult far away', async () => {
+    await people.create(userId, {
+      name: 'Fiona', relationType: 'child', age: 44, locationType: 'different_country',
+      closenessScore: 8, desiredCallFrequency: 'weekly', wantsMoreTime: true,
+    } as never);
+    const r = await reveal({ health: 1, family: 4, career: 3 }, ['health']) as any;
+    const fiona = (r.firstWeekFocus as Array<{ title: string }>)
+      .find((o) => o.title.includes('Fiona'));
+    expect(fiona!.title).toMatch(/one message is enough/);
+  });
+
+  /**
+   * The overwhelm answer, end to end: no "One small step toward:
+   * Everything…" option, and the narrative meets it with narrowing rather
+   * than quoting it back with a checkbox attached.
+   */
+  it('does not hand an overwhelm answer back as a mission', async () => {
+    const r = await reveal({ health: 1, family: 4, career: 3 }, ['health'], [
+      { section: 'reflection', key: 'postponing', value: 'Everything. I do not know where to start any more.' },
+    ]) as any;
+    const options = r.firstWeekFocus as Array<{ title: string }>;
+    expect(options.some((o) => /One small step toward/i.test(o.title))).toBe(false);
+    expect(r.narrative).not.toContain('Everything. I do not know');
+    expect(r.narrative).toContain('everything at once');
   });
 
   it('does not write a second copy when onboarding completes twice', async () => {

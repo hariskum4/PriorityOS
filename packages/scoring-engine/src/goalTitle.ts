@@ -72,6 +72,29 @@ function clip(s: string, max: number): string {
  * @param existing  a description already supplied by the caller; kept if the
  *                  caller knows better than we do
  */
+/**
+ * Whether an answer names a thing at all.
+ *
+ * "Name the thing you keep postponing" is usually answered with a thing —
+ * and sometimes with the truth instead: "Everything. I do not know where to
+ * start any more." That is not a goal, it is a description of being
+ * underwater, and everything downstream treated it as a title anyway. A
+ * burnt-out lawyer's first mission arrived as "One small step toward:
+ * Everything. I do not know where to start any more." — the app repeating a
+ * cry for help back to its author with a checkbox next to it.
+ *
+ * Conservative and anchored, like every matcher in this package: only the
+ * openings that plainly declare there is no nameable thing. "Everything with
+ * the house" names the house and passes; a bare "everything" does not. When
+ * unsure this says yes, because refusing a real goal costs more than
+ * accepting a vague one.
+ */
+export function namesAThing(raw: string): boolean {
+  const t = (raw ?? '').trim().toLowerCase();
+  if (!t) return false;
+  return !/^(?:everything|nothing|all of it|too (?:much|many)|i (?:do not|don't|dont) know|no idea|not sure|i (?:can't|cannot|cant) (?:choose|decide|pick))\b[.,!?\s]*(?:$|i\b|where\b|it\b|any\s?more\b)/.test(t);
+}
+
 export function deriveGoalTitle(
   raw: string,
   existing?: string | null,

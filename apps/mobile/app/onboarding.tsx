@@ -6,6 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   deriveGoalTitle,
+  namesAThing,
   relationshipSanity,
   relationshipBlocked,
   defaultsForRelation,
@@ -331,7 +332,14 @@ export default function Onboarding() {
       // its reasoning rather than posting an essay as a title. The API
       // normalises again on its side; doing it here keeps the intent explicit
       // and lets the reveal show the same short name the user will see later.
-      if (postponing.trim()) {
+      /* Only an answer that names a thing becomes a goal. "Everything. I do
+         not know where to start any more." is an honest answer to this
+         question and is not a goal — written into one it becomes a permanent
+         row the goal engine nags about forever ("Take the smallest possible
+         step on 'Everything…'"), the app repeating someone's worst sentence
+         back to them on a schedule. The answer itself is still saved below,
+         where it belongs. */
+      if (postponing.trim() && namesAThing(postponing)) {
         const goal = deriveGoalTitle(postponing);
         await api('/goals', {
           method: 'POST',
@@ -856,7 +864,9 @@ export default function Onboarding() {
             ranking,
             neglectedCount: neglected.length,
             personName: person.name.trim() || null,
-            goalTitle: postponing.trim() ? deriveGoalTitle(postponing).title : null,
+            goalTitle: postponing.trim() && namesAThing(postponing)
+              ? deriveGoalTitle(postponing).title
+              : null,
             feeling: feeling || null,
             labelOf: domainLabel,
           })}

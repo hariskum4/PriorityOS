@@ -6,7 +6,9 @@ import { AiService } from '../ai/ai.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { BlueprintService } from '../life-os/blueprint.service';
 import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
-import { deriveGoalTitle, suggestCountables, countKeyOf } from '@priority/scoring-engine';
+import {
+  deriveGoalTitle, namesAThing, suggestCountables, countKeyOf,
+} from '@priority/scoring-engine';
 import { ALL_DOMAINS, domainForRelationType } from '@priority/types';
 
 /** The names people and integrations use for domains, mapped to the slugs the rows use. */
@@ -168,6 +170,9 @@ export class OnboardingService {
     person?: string | null;
     personDomain?: string | null;
     personId?: string | null;
+    personAge?: number | null;
+    personLocation?: string | null;
+    personRelation?: string | null;
     postponing: string;
     postponingDomain?: string | null;
     postponingGoalId?: string | null;
@@ -175,7 +180,8 @@ export class OnboardingService {
     currentReality: Record<string, number>;
   }): Array<{ title: string; domainType: string; relationshipId?: string; goalId?: string }> {
     const {
-      top3, person, personDomain, personId, postponing, postponingDomain,
+      top3, person, personDomain, personId, personAge, personLocation,
+      personRelation, postponing, postponingDomain,
       postponingGoalId, neglected, currentReality,
     } = opts;
     const fallback = top3[0] ?? 'family';
@@ -183,7 +189,7 @@ export class OnboardingService {
 
     if (person) {
       out.push({
-        title: `Reach out to ${person} this week — one message is enough`,
+        title: this.reachOutTo(person, personAge, personLocation, personRelation),
         domainType: personDomain ?? 'family',
         /* Linked, not merely named. An unlinked mission about Vikram is
            invisible to everything that reasons about Vikram — which is how
@@ -192,7 +198,12 @@ export class OnboardingService {
       });
     }
 
-    const goal = deriveGoalTitle(postponing).title;
+    /* Only when the answer names a thing. "Everything. I do not know where
+       to start any more." is not a goal, it is being underwater — and this
+       option handed that sentence back as a mission title with a checkbox
+       next to it. The drift option below is the honest offer for that
+       person: one named domain, one hour, chosen from their own numbers. */
+    const goal = namesAThing(postponing) ? deriveGoalTitle(postponing).title : '';
     if (goal) {
       // Their sentence, reduced to a title, offered as a first step rather
       // than as the whole mountain — the postponing answer is by definition
@@ -225,6 +236,39 @@ export class OnboardingService {
     }
 
     return out.slice(0, 3);
+  }
+
+  /**
+   * How you actually reach this particular person.
+   *
+   * "Reach out to Zoe this week — one message is enough" was the first
+   * mission handed to a father whose Zoe is four years old, and to another
+   * whose nine-year-old sleeps down the hall. You do not text a four-year-old
+   * and you do not reach out to somebody in your own kitchen. It is the
+   * opening move of the whole product, and it proved the app had not read the
+   * age and the address it had just been given.
+   *
+   * "One message is enough" was never about messages — it is a low bar, put
+   * there so the first thing asked of somebody is small enough to actually
+   * happen. So the bar stays low and the currency changes: for a small child,
+   * and for anybody under the same roof, the cheap version of contact is a
+   * quarter of an hour, not a text.
+   *
+   * Thirteen is where a phone stops being a novelty, and an unknown age is
+   * treated as young only when the person is filed as a child — an adult
+   * child in another city is exactly who a message suits best.
+   */
+  private reachOutTo(
+    name: string,
+    age?: number | null,
+    locationType?: string | null,
+    relationType?: string | null,
+  ): string {
+    const isChild = ['child', 'son', 'daughter'].includes((relationType ?? '').toLowerCase());
+    const small = typeof age === 'number' ? age < 13 : isChild && locationType === 'same_home';
+    if (small) return `Fifteen minutes with ${name} this week, doing what they pick`;
+    if (locationType === 'same_home') return `Fifteen minutes with ${name} this week, phones away`;
+    return `Reach out to ${name} this week — one message is enough`;
   }
 
   private quoteFragment(text: string, max: number): string {
@@ -346,7 +390,10 @@ export class OnboardingService {
     const domains = await this.prisma.lifeDomain.findMany({ where: { userId } });
     const relationships = await this.prisma.relationship.findMany({
       where: { userId },
-      select: { id: true, name: true, relationType: true, wantsMoreTime: true, priorityScore: true },
+      select: {
+        id: true, name: true, relationType: true, wantsMoreTime: true,
+        priorityScore: true, age: true, locationType: true,
+      },
       /**
        * The person the Reveal names is `relationships[0]`, and this had no
        * order at all — so which one it was came back to whatever Postgres
@@ -397,8 +444,13 @@ export class OnboardingService {
             ? `You put ${topDomain} first, and you are already living it ${topReality}/5. That is worth protecting rather than fixing — the work is holding it there while the rest catches up.`
             : `You put ${topDomain} first and rated it ${topReality}/5 — the honest middle, where most weeks sit. Priority's job is to move it.`,
     );
-    if (postponing) {
+    if (postponing && namesAThing(postponing)) {
       narrativeParts.push(`You told us what keeps sliding: "${this.quoteFragment(postponing, 70)}". Not someday — this week, one small step.`);
+    } else if (postponing) {
+      /* They answered "everything". Quoting that back with "one small step"
+         attached reads as the app not having heard them. Overwhelm is met by
+         narrowing, and narrowing is literally what this product does. */
+      narrativeParts.push('You said it feels like everything at once. That is exactly what Priority is for — it picks the one small thing, so you never have to choose from the whole pile.');
     }
     if (person) {
       narrativeParts.push(`And ${person} is in this plan by name.`);
@@ -439,6 +491,9 @@ export class OnboardingService {
             ? domainForRelationType(relationships[0].relationType)
             : null,
           personId: relationships[0]?.id ?? null,
+          personAge: relationships[0]?.age ?? null,
+          personLocation: relationships[0]?.locationType ?? null,
+          personRelation: relationships[0]?.relationType ?? null,
           postponing,
           postponingDomain: postponingGoalDomain,
           postponingGoalId: postponingGoal?.id ?? null,

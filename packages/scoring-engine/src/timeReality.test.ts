@@ -207,7 +207,14 @@ describe('unknown stored values never become NaN', () => {
     expect(normalizeHealthStatus('sick')).toBe('declining');
     expect(normalizeHealthStatus('cancer')).toBe('serious');
     expect(normalizeHealthStatus('hospitalized')).toBe('serious');
-    expect(normalizeLocationType('same_home')).toBe('same_city');
+    /* `same_home` is its own value now, not an alias of same_city. It used
+       to be collapsed at storage, so "lives in my house" was remembered as
+       "lives in my town" and a live-in partner's first mission read "one
+       message is enough". The capacity table keeps the pair numerically
+       identical, so this widening changes no estimate. */
+    expect(normalizeLocationType('same_home')).toBe('same_home');
+    expect(normalizeLocationType('same house')).toBe('same_home');
+    expect(normalizeLocationType('same_city')).toBe('same_city');
     expect(normalizeLocationType('different_country')).toBe('abroad');
     expect(normalizeLocationType('overseas')).toBe('abroad');
     expect(normalizeLocationType(undefined)).toBe('different_city');
