@@ -13,6 +13,8 @@ import {
   relationshipBlocked,
   defaultsForRelation,
   asksAboutCalls,
+  asksAboutWish,
+  visitDefaultFor,
   parseAge,
   feelingOptions,
   lifeQuestions,
@@ -280,6 +282,22 @@ export default function Onboarding() {
     if (!touched.desired) setDesired(d.desiredCallFrequency);
     if (!touched.visitFrequency) setVisitFrequency(d.inPersonFrequency);
   };
+
+  /**
+   * Moving somebody moves how often you could possibly see them.
+   *
+   * The relation defaults assume a child is at home and seen daily. Change
+   * the address to "another city" and nothing re-derived: the screen read
+   * "another city" above "see them in person: daily", and would have recorded
+   * it. Distance bounds visits, so visits follow the address — unless the
+   * reader picked one themselves, in which case it stands and the sanity note
+   * says what looks odd about it rather than the app quietly overruling them.
+   */
+  const pickLocation = (loc: string) => {
+    setTouched((t) => ({ ...t, locationType: true }));
+    setLocationType(loc);
+    if (!touched.visitFrequency) setVisitFrequency(visitDefaultFor(loc));
+  };
   const own = <T,>(field: string, set: (v: T) => void) => (v: T) => {
     setTouched((t) => ({ ...t, [field]: true }));
     set(v);
@@ -290,6 +308,16 @@ export default function Onboarding() {
    * the honest answer for someone in the next room is "daily".
    */
   const effectiveCall = asksAboutCalls(locationType) ? callFrequency : 'daily';
+  /**
+   * What they wish, or what they already do when there was nothing to wish.
+   *
+   * The wish row is hidden once the actual cadence is daily, and a question
+   * that was never shown must not submit a stale answer: somebody who talks
+   * to their son every day would otherwise have "wants weekly" recorded from
+   * a default they never saw, and the People tab measures overdue against
+   * exactly that field.
+   */
+  const effectiveDesired = asksAboutWish(effectiveCall) ? desired : effectiveCall;
 
   /**
    * Whether what they have told us about this person holds together.
@@ -307,7 +335,7 @@ export default function Onboarding() {
     locationType,
     // Withheld when the question was not asked, so it cannot produce a note.
     callFrequency: asksAboutCalls(locationType) ? callFrequency : null,
-    desiredCallFrequency: desired,
+    desiredCallFrequency: effectiveDesired,
     inPersonFrequency: visitFrequency,
   }), [
     person.name, person.relationType, personAge, userAge,
@@ -630,7 +658,7 @@ export default function Onboarding() {
                not submit its default. The People tab measures overdue
                against this field, so an unasked "weekly" would set a clock
                nobody agreed to, against a person in the next room. */
-            ...(asksAboutCalls(locationType) ? { desiredCallFrequency: desired } : {}),
+            ...(asksAboutCalls(locationType) ? { desiredCallFrequency: effectiveDesired } : {}),
             inPersonFrequency: visitFrequency,
             closenessScore: 9,
             wantsMoreTime: true,
@@ -1237,7 +1265,7 @@ export default function Onboarding() {
               options={PLACES}
               display={PLACE_LABELS}
               value={locationType}
-              onPick={own('locationType', setLocationType)}
+              onPick={pickLocation}
             />
             {/* Not asked of someone in the next room, where the answer is
                 "constantly", carries nothing, and is three taps of
@@ -1253,7 +1281,13 @@ export default function Onboarding() {
             {asksAboutCalls(locationType) && (
               <>
                 <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={own('callFrequency', setCallFrequency)} />
-                <PickRow label="And how often do you wish you talked?" options={CADENCES} value={desired} onPick={own('desired', setDesired)} />
+                {/* Only while there is room to wish for more. Somebody who
+                    already talks daily was shown a second identical row of
+                    five chips, also reading "daily", asking what they wished
+                    for — a gap-finding question with no gap to find. */}
+                {asksAboutWish(callFrequency) && (
+                  <PickRow label="And how often do you wish you talked?" options={CADENCES} value={desired} onPick={own('desired', setDesired)} />
+                )}
               </>
             )}
             <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={own('visitFrequency', setVisitFrequency)} />

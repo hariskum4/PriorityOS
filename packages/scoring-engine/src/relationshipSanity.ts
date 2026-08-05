@@ -151,6 +151,48 @@ export function asksAboutCalls(locationType: string | null | undefined): boolean
   return String(locationType ?? '').toLowerCase() !== 'same_home';
 }
 
+/**
+ * Whether "how often do you *wish* you talked" is a question worth asking.
+ *
+ * Only when there is room to wish for more. Somebody who already talks daily
+ * is at the top of the scale, and the app asked anyway — two identical rows
+ * of five chips, both reading "daily", the second one inviting an answer that
+ * can only repeat the first or ask for less. A reader who talks to their son
+ * every day and is then asked how often they wish they talked is being asked
+ * to find fault with something that is already working.
+ *
+ * The wish is a gap-finding question. With no gap available there is nothing
+ * to find, so the honest move is to stop asking and record that what they do
+ * is what they want.
+ */
+export function asksAboutWish(callFrequency: string | null | undefined): boolean {
+  return String(callFrequency ?? '').trim().toLowerCase() !== 'daily';
+}
+
+/**
+ * How often you could plausibly see somebody, given where they live.
+ *
+ * `defaultsForRelation` bundles a location with its cadences — a child is
+ * assumed to be at home, seen daily — and nothing re-derived them when the
+ * reader then said the child lives in another city. So the screen sat there
+ * reading "another city" and "see them in person: daily", which is not a
+ * preference the app should record; it is an arrangement that does not exist.
+ *
+ * Distance bounds visits and nothing else. How often you *talk* is not
+ * limited by an address — plenty of people speak daily across an ocean — so
+ * only this one is re-derived, and a reader who deliberately picks something
+ * unusual keeps it and gets a note (`location.abroad-but-seen`) rather than a
+ * silent correction.
+ */
+export function visitDefaultFor(locationType: string | null | undefined): string {
+  switch (String(locationType ?? '').trim().toLowerCase()) {
+    case 'same_home': return 'daily';
+    case 'same_city': return 'weekly';
+    case 'abroad': return 'yearly';
+    default: return 'quarterly';
+  }
+}
+
 export function relationshipSanity(input: SanityInput): SanityFinding[] {
   const out: SanityFinding[] = [];
   const rel = String(input.relationType ?? '').toLowerCase();

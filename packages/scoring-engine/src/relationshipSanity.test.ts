@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   relationshipSanity, relationshipBlocked, defaultsForRelation,
-  asksAboutCalls, parseAge, type SanityFinding,
+  asksAboutCalls, asksAboutWish, visitDefaultFor, parseAge, type SanityFinding,
 } from './relationshipSanity';
 
 const keys = (f: SanityFinding[]) => f.map((x) => x.key);
@@ -281,5 +281,55 @@ describe('every combination of the answers', () => {
     });
     expect(Array.isArray(f)).toBe(true);
     expect(keys(f)).toContain('age.unusable');
+  });
+});
+
+/**
+ * Both from one reported walk-through. Picking "child" defaults the person
+ * to the same home, seen daily; changing the address to "another city" left
+ * "see them in person: daily" sitting under it. And somebody who talks to
+ * their son every day was still asked how often they wished they talked.
+ */
+describe('a question the answers have already settled', () => {
+  it('stops asking what you wish once you are at the top of the scale', () => {
+    expect(asksAboutWish('daily')).toBe(false);
+    expect(asksAboutWish('weekly')).toBe(true);
+    expect(asksAboutWish('monthly')).toBe(true);
+    expect(asksAboutWish('yearly')).toBe(true);
+  });
+
+  it('keeps asking when nothing is known — unset is not "already daily"', () => {
+    expect(asksAboutWish(null)).toBe(true);
+    expect(asksAboutWish(undefined)).toBe(true);
+    expect(asksAboutWish('')).toBe(true);
+  });
+});
+
+describe('how often you could see somebody at that distance', () => {
+  it('bounds visits by the address', () => {
+    expect(visitDefaultFor('same_home')).toBe('daily');
+    expect(visitDefaultFor('same_city')).toBe('weekly');
+    expect(visitDefaultFor('different_city')).toBe('quarterly');
+    expect(visitDefaultFor('abroad')).toBe('yearly');
+  });
+
+  it('never returns daily for anybody who does not live with you', () => {
+    for (const loc of ['same_city', 'different_city', 'abroad']) {
+      expect(visitDefaultFor(loc)).not.toBe('daily');
+    }
+  });
+
+  it('an unknown address gets the cautious middle, not the impossible end', () => {
+    expect(visitDefaultFor(null)).toBe('quarterly');
+    expect(visitDefaultFor('somewhere_odd')).toBe('quarterly');
+  });
+
+  /* The explicit answer still stands, and the note is what speaks. */
+  it('leaves a deliberate contradiction to the sanity note', () => {
+    const f = relationshipSanity({
+      name: 'Sean', relationType: 'child', age: '25',
+      locationType: 'abroad', inPersonFrequency: 'weekly',
+    });
+    expect(keys(f)).toContain('location.abroad-but-seen');
   });
 });
