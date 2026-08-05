@@ -22,6 +22,23 @@ const BADGE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   getting_clear: 'sunny-outline',
 };
 
+/**
+ * The countries offered as taps, not the whole table.
+ *
+ * `lifeExpectancyForRegion` knows about sixty; sixty chips is a wall, and the
+ * ones below cover the overwhelming majority of who opens this. Anything the
+ * timezone derived that is not here is added to the list at render rather
+ * than dropped — a country that vanishes because it was not popular enough is
+ * worse than a longer row.
+ */
+const COUNTRY_BASE: Array<{ code: string; name: string }> = [
+  { code: 'IN', name: 'India' }, { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' }, { code: 'CA', name: 'Canada' },
+  { code: 'AU', name: 'Australia' }, { code: 'SG', name: 'Singapore' },
+  { code: 'AE', name: 'UAE' }, { code: 'DE', name: 'Germany' },
+  { code: 'JP', name: 'Japan' },
+];
+
 const LEVEL_TITLES: Array<[number, string]> = [
   [1, 'Waking up'], [11, 'Getting clear'], [26, 'Building'],
   [51, 'Living well'], [76, 'Mastery'], [91, 'Fully alive'],
@@ -133,6 +150,13 @@ export default function You() {
    * from the device timezone at signup, and a derivation someone cannot
    * fix is a guess wearing a fact's clothes.
    */
+  /* Whatever the timezone derived stays offered, popular or not. */
+  const countryChoices = React.useMemo(() => {
+    const code = me?.country;
+    if (!code || COUNTRY_BASE.some((c) => c.code === code)) return COUNTRY_BASE;
+    return [...COUNTRY_BASE, { code, name: code }];
+  }, [me?.country]);
+
   const saveProfile = useMutation({
     mutationFn: (patch: Record<string, string | null>) =>
       api('/me', { method: 'PATCH', body: patch }),
@@ -243,7 +267,7 @@ export default function You() {
         </Text>
         <ProfileField
           label="What you do"
-          placeholder="e.g. ICU nurse, teacher, founder"
+          placeholder="e.g. ICU nurse, teacher"
           value={me?.profession}
           disabled={saveProfile.isPending}
           onCommit={(v) => saveProfile.mutate({ profession: v })}
@@ -255,13 +279,43 @@ export default function You() {
           disabled={saveProfile.isPending}
           onCommit={(v) => saveProfile.mutate({ city: v })}
         />
-        <ProfileField
-          label="Country"
-          placeholder="e.g. IN, JP, US"
-          value={me?.country}
-          disabled={saveProfile.isPending}
-          onCommit={(v) => saveProfile.mutate({ country: v ? v.toUpperCase() : v })}
-        />
+        {/* Country is a code, and a code is the one thing nobody should be
+            asked to type. It is also not free text to the engine — only
+            listed countries change the arithmetic — so the honest control is
+            a named list, not a box that accepts "Bharat" and silently means
+            nothing. Read as a sentence, and shown with what it actually
+            decides, since a lone "IN" explains none of itself. */}
+        <View style={{ gap: space(2) }}>
+          <Text style={type.dim}>Country</Text>
+          <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+            {countryChoices.map((c) => {
+              const on = (me?.country ?? '') === c.code;
+              return (
+                <Pressable
+                  key={c.code}
+                  onPress={() => saveProfile.mutate({ country: on ? null : c.code })}
+                  disabled={saveProfile.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel={c.name}
+                  accessibilityState={{ selected: on }}
+                  style={[s.modeChip, on && { borderColor: colors.amber, backgroundColor: colors.amberFaint }]}
+                >
+                  <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                    {c.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {/* The name, never the code. This line exists to explain what a
+              two-letter code means, so printing "IN's life expectancy" in it
+              explains nothing and reads like a leaked database value. */}
+          <Text style={type.faint}>
+            {me?.country
+              ? `Time numbers use ${countryChoices.find((c) => c.code === me.country)?.name ?? me.country}'s life expectancy. Not listed? Leave it unset — Priority uses a world average.`
+              : 'Sets the life-expectancy figure behind every number on the Time tab.'}
+          </Text>
+        </View>
         <ErrorNote error={saveProfile.error} onRetry={() => saveProfile.reset()} />
       </Card>
 

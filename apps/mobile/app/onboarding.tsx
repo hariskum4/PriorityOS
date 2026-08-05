@@ -116,6 +116,53 @@ const MARITAL: Record<string, string> = {
 };
 
 /**
+ * Tap-first, type-if-you-must — the mobile-form rule this whole flow
+ * follows, applied to the one question it forgot on. A bare text box asked
+ * everyone to compose an answer on a phone keyboard; a handful of common
+ * answers shaped to the work pattern they just picked turns the common case
+ * into one tap, and the field stays for the ICU nurse the chips missed.
+ * Deliberately not a dropdown: a closed menu hides its options and costs
+ * three taps; these are visible and cost one.
+ */
+const PROFESSION_SUGGESTIONS: Record<string, string[]> = {
+  office_9_5: ['Software engineer', 'Teacher', 'Accountant', 'Doctor', 'Designer', 'Marketing', 'Lawyer', 'Banker'],
+  remote: ['Software engineer', 'Designer', 'Writer', 'Product manager', 'Consultant', 'Marketing', 'Customer support'],
+  shift: ['Nurse', 'Doctor', 'Driver', 'Chef', 'Police officer', 'Factory worker', 'Flight crew', 'Security'],
+  business: ['Shop owner', 'Restaurant owner', 'Startup founder', 'Trader', 'Contractor', 'Agency owner'],
+  freelance: ['Designer', 'Developer', 'Writer', 'Photographer', 'Consultant', 'Tutor', 'Artist'],
+  student: ['Engineering student', 'Medical student', 'Law student', 'MBA student', 'Arts student', 'PhD researcher'],
+};
+/** The generic list, for lives where the question is "what did you do?" as much as "what do you do?". */
+const PROFESSION_DEFAULT = ['Teacher', 'Engineer', 'Doctor', 'Nurse', 'Accountant', 'Designer', 'Shopkeeper', 'Farmer'];
+
+/**
+ * The city the device's own timezone names — "Asia/Kolkata" knows a city the
+ * way "what country" never asked one. Offered as a single tappable guess,
+ * never pre-filled: a smart default the reader can take with one tap or
+ * ignore entirely, which is the whole discipline of smart defaults. Zones
+ * that name no city (UTC, Etc/*) offer nothing.
+ */
+function cityFromDeviceTimezone(): string | null {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? '';
+    const leaf = tz.split('/').pop() ?? '';
+    if (!leaf || /^(UTC|GMT|Universal|Zulu|Greenwich)/i.test(tz) || tz.startsWith('Etc/')) return null;
+    const name = leaf.replace(/_/g, ' ');
+    /* The tz database keeps its original spellings for compatibility, so a
+       great many devices still report Asia/Calcutta and Asia/Saigon. Offering
+       somebody in Kolkata a chip reading "Calcutta" is the app using a name
+       the city stopped using in 2001 — a small thing, and exactly the kind of
+       small thing that reads as carelessness. */
+    return ({
+      Calcutta: 'Kolkata', Saigon: 'Ho Chi Minh City', Rangoon: 'Yangon',
+      Dacca: 'Dhaka', Katmandu: 'Kathmandu', Bombay: 'Mumbai', Madras: 'Chennai',
+    } as Record<string, string>)[name] ?? name;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Life Discovery (PRODUCT_PHILOSOPHY.md): values ranking, current-reality
  * scores, drift admission, relationship mapping, and a feeling intention —
  * then the Time Reality Reveal: one finite-window number, framed with
@@ -142,6 +189,8 @@ export default function Onboarding() {
    */
   const [profession, setProfession] = useState('');
   const [city, setCity] = useState('');
+  /** Computed once — the device's zone does not change mid-form. */
+  const deviceCity = React.useMemo(cityFromDeviceTimezone, []);
   const [marital, setMarital] = useState('');
   const [children, setChildren] = useState<string>('0');
   const [awayFromParents, setAwayFromParents] = useState<string>('');
@@ -552,27 +601,79 @@ export default function Onboarding() {
                 that were null for every account, because nothing ever asked.
                 Full lane only, and skippable: the fast lane's promise is
                 ninety seconds, and silence here costs only what it already
-                cost. */}
+                cost. Chips lead and the field follows — tapping fills the
+                field, so there is one answer in one place, still editable. */}
             {lane !== 'fast' && (
-              <View style={{ gap: space(2) }}>
-                <Label>What you do, and where (optional)</Label>
-                <Text style={type.faint}>
-                  So suggestions speak your language — a nurse's week and a
-                  founder's week need different advice.
-                </Text>
-                <View style={{ flexDirection: 'row', gap: space(3) }}>
-                  <View style={{ flex: 3 }}>
-                    <Input
-                      placeholder="e.g. ICU nurse, teacher, founder"
-                      value={profession}
-                      onChangeText={setProfession}
-                    />
+              <>
+                <View style={{ gap: space(2) }}>
+                  <Label>What you do</Label>
+                  <Text style={type.faint}>
+                    Optional — it teaches Priority your words. A nurse's week
+                    and a founder's week need different advice.
+                  </Text>
+                  <View style={s.chips}>
+                    {(PROFESSION_SUGGESTIONS[workType] ?? PROFESSION_DEFAULT).map((p) => {
+                      const on = profession === p;
+                      return (
+                        <Pressable
+                          key={p}
+                          onPress={() => setProfession(on ? '' : p)}
+                          accessibilityRole="button"
+                          accessibilityLabel={p}
+                          accessibilityState={{ selected: on }}
+                          style={({ pressed }) => [
+                            s.chip,
+                            on && s.chipOn,
+                            pressed && { transform: [{ scale: 0.96 }] },
+                          ]}
+                        >
+                          <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                            {p}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                   </View>
-                  <View style={{ flex: 2 }}>
-                    <Input placeholder="City" value={city} onChangeText={setCity} />
+                  <Input
+                    /* Short enough to survive a 375px field — the longer
+                       version was clipped mid-word ("…potter, ima"), which
+                       reads as a bug rather than an invitation. */
+                    placeholder="…or your own words"
+                    value={profession}
+                    onChangeText={setProfession}
+                    autoCapitalize="words"
+                    returnKeyType="done"
+                  />
+                </View>
+                <View style={{ gap: space(2) }}>
+                  <Label>Where you live</Label>
+                  <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* One tap for the common case, from the zone the device
+                        already declared. A guess, worn as one: tappable,
+                        ignorable, never pre-filled. */}
+                    {deviceCity && city !== deviceCity && (
+                      <Pressable
+                        onPress={() => setCity(deviceCity)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Use ${deviceCity}`}
+                        style={({ pressed }) => [s.chip, pressed && { transform: [{ scale: 0.96 }] }]}
+                      >
+                        <Ionicons name="location-outline" size={13} color={colors.amber} />
+                        <Text style={type.body}>{deviceCity}</Text>
+                      </Pressable>
+                    )}
+                    <View style={{ flex: 1, minWidth: 160 }}>
+                      <Input
+                        placeholder="Your city (optional)"
+                        value={city}
+                        onChangeText={setCity}
+                        autoCapitalize="words"
+                        returnKeyType="done"
+                      />
+                    </View>
                   </View>
                 </View>
-              </View>
+              </>
             )}
             {plan.askMarital && (
               <PickRow
