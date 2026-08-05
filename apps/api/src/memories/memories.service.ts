@@ -200,7 +200,50 @@ export class MemoriesService {
     return { attached: count };
   }
 
+  /**
+   * A mission has one kept moment, however many times it is saved.
+   *
+   * The Today banner offers "Save it" on a completed mission and goes on
+   * offering it after the moment has been kept — so tapping it twice wrote
+   * two rows with the same `missionId`, and the archive showed the same
+   * evening twice under the same date. Worse quietly: `game.award` fired on
+   * each one, so a duplicate paid twice for a thing that happened once.
+   *
+   * It is not only a double tap. Capture writes are `offlineFirst` and
+   * resume from disk on the next launch (see `mutationDefaults`), so a write
+   * that succeeded just as the process died could legitimately arrive twice
+   * with no user error at all. The guard belongs here, where every path
+   * meets, rather than on the button.
+   *
+   * A second save updates rather than being discarded: somebody who kept the
+   * moment bare and came back to write down what they will remember must not
+   * lose that sentence to an idempotency rule. Only fields the new payload
+   * actually carries are written, so a stray re-post cannot blank a
+   * reflection that is already there.
+   */
   async create(userId: string, data: any) {
+    const already = data.missionId
+      ? await this.prisma.memory.findFirst({
+        where: { userId, missionId: data.missionId },
+      })
+      : null;
+
+    if (already) {
+      const patch: Record<string, unknown> = {};
+      for (const field of ['title', 'domainType', 'countKey', 'location', 'reflection', 'relationshipId']) {
+        const v = data[field];
+        if (v !== undefined && v !== null && v !== '') patch[field] = v;
+      }
+      if (Array.isArray(data.peoplePresent) && data.peoplePresent.length) {
+        patch.peoplePresent = data.peoplePresent;
+      }
+      const memory = Object.keys(patch).length
+        ? await this.prisma.memory.update({ where: { id: already.id }, data: patch })
+        : already;
+      /* No XP. The moment was already paid for the first time it was kept. */
+      return { ...memory, xp: null, alreadyKept: true };
+    }
+
     const memory = await this.prisma.memory.create({
       data: {
         userId,

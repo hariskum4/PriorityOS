@@ -288,6 +288,8 @@ export default function Today() {
   const qc = useQueryClient();
   const router = useRouter();
   const setMemoryDraft = useMemoryDraft((st) => st.setDraft);
+  /** Missions whose moment is already in the archive — see the banner below. */
+  const keptMoments = useMemoryDraft((st) => st.kept);
   /**
    * The clock this screen speaks from — the date line, the greeting, and the
    * word on the hero card all turn on the hour.
@@ -928,21 +930,31 @@ export default function Today() {
                 ? 'The engine lined up what comes next.'
                 : 'Your plate already holds what matters.'}
             </Text>
-            <Pressable
-              onPress={() => {
-                setMemoryDraft({
-                  title: justCompleted.title,
-                  missionId: justCompleted.id,
-                  relationshipId: justCompleted.relationshipId ?? undefined,
-                  domainType: justCompleted.domainType,
-                  personName: justCompleted.relationship?.name,
-                });
-                router.push('/(tabs)/journal');
-              }}
-              hitSlop={8}
-            >
-              <Tick color={obs.brass}>Save it</Tick>
-            </Pressable>
+            {/* Once the moment is kept, this says so instead of offering it
+                again. It used to keep reading "Save it" forever, so the
+                natural second tap wrote the archive a second copy of the
+                same evening — and paid XP for it twice. */}
+            {keptMoments.includes(justCompleted.id) ? (
+              <Tick>Kept</Tick>
+            ) : (
+              <Pressable
+                onPress={() => {
+                  setMemoryDraft({
+                    title: justCompleted.title,
+                    missionId: justCompleted.id,
+                    relationshipId: justCompleted.relationshipId ?? undefined,
+                    domainType: justCompleted.domainType,
+                    personName: justCompleted.relationship?.name,
+                  });
+                  router.push('/(tabs)/journal');
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Keep a moment for ${justCompleted.title}`}
+              >
+                <Tick color={obs.brass}>Save it</Tick>
+              </Pressable>
+            )}
             <Pressable onPress={() => setJustCompleted(null)} hitSlop={8}>
               <Ionicons name="close" size={15} color={obs.inkFaint} />
             </Pressable>
@@ -1643,10 +1655,20 @@ export default function Today() {
                     >
                       {h.title}
                     </Text>
-                    {/* What was actually agreed to, against what has happened. */}
-                    {target > 1 ? (
-                      <Tick color={met ? obs.brass : undefined}>{kept}/{target} this week</Tick>
-                    ) : null}
+                    {/**
+                      * What was agreed to, against what has happened — on
+                      * every row, not only the ones asking for more than one.
+                      *
+                      * Hiding it at a target of one made the card unreadable
+                      * in the way that matters: "Thirty minutes of learning,
+                      * daily" carried "1/7 this week" and "One thing you have
+                      * never done, weekly" carried nothing, so a row with no
+                      * number was indistinguishable from a row whose number
+                      * had gone missing. It also left a once-a-week rhythm
+                      * with no way of saying it was once a week. "0/1 this
+                      * week" is not clutter; it is the commitment.
+                      */}
+                    <Tick color={met ? obs.brass : undefined}>{kept}/{target} this week</Tick>
                     {typeof h.streak === 'number' && h.streak > 0 ? (
                       <Tick>{h.streak}w</Tick>
                     ) : null}

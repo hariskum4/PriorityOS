@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { KNOWN_COUNTRIES, countryName, searchCountries, searchCities, CITIES_BY_COUNTRY } from './countries';
+import {
+  KNOWN_COUNTRIES, countryName, searchCountries, searchCities, CITIES_BY_COUNTRY,
+  REGIONS_BY_COUNTRY, regionsOf, searchRegions, regionOfCity, citiesIn,
+} from './countries';
 import { timezoneCountryCodes } from './timezoneCountry';
 import { lifeExpectancyRegions } from './timeReality';
 
@@ -120,7 +123,7 @@ describe('finding your city', () => {
   });
 
   it('respects the limit', () => {
-    expect(searchCities('', 'US', 3).length).toBe(3);
+    expect(searchCities('', 'US', null, 3).length).toBe(3);
   });
 
   it('only lists cities for countries the app can actually hold', () => {
@@ -132,6 +135,86 @@ describe('finding your city', () => {
     for (const [code, cities] of Object.entries(CITIES_BY_COUNTRY)) {
       expect(cities.length, code).toBeGreaterThan(0);
       expect(new Set(cities).size, code).toBe(cities.length);
+    }
+  });
+});
+
+/**
+ * The defect: a reader in Ranchi typed their own city into a box backed by
+ * ten Indian cities and got nothing. Ten cities for a country of a billion
+ * is not a shortlist, it is a rounding error — so the question is asked the
+ * way an address is written, country then state then city.
+ */
+describe('the state between a country and a city', () => {
+  it('knows Ranchi now, which is the whole point', () => {
+    expect(searchCities('ranch', 'IN')).toContain('Ranchi');
+    expect(regionOfCity('IN', 'Ranchi')).toBe('Jharkhand');
+  });
+
+  it('narrows the cities to the state that was chosen', () => {
+    expect(searchCities('', 'IN', 'Jharkhand')).toContain('Ranchi');
+    expect(searchCities('', 'IN', 'Kerala')).not.toContain('Ranchi');
+  });
+
+  it('offers every state, because a partial list reads as "you do not live anywhere"', () => {
+    // 28 states + 8 union territories.
+    expect(regionsOf('IN')).toHaveLength(36);
+    // 50 states + the District of Columbia.
+    expect(regionsOf('US')).toHaveLength(51);
+    expect(regionsOf('CA')).toHaveLength(13);
+    expect(regionsOf('AU')).toHaveLength(8);
+    expect(regionsOf('GB')).toHaveLength(4);
+    expect(regionsOf('DE')).toHaveLength(16);
+  });
+
+  it('has no middle step for a country it does not know, rather than an empty one', () => {
+    expect(regionsOf('BR')).toEqual([]);
+    expect(searchRegions('sao', 'BR')).toEqual([]);
+    expect(regionOfCity('BR', 'Sao Paulo')).toBeNull();
+  });
+
+  it('still finds cities in those countries, exactly as before', () => {
+    expect(searchCities('sao', 'BR')).toContain('Sao Paulo');
+    expect(searchCities('vig', 'ES')).toContain('Vigo');
+  });
+
+  it('finds a state by typing part of it', () => {
+    expect(searchRegions('jhar', 'IN')).toEqual(['Jharkhand']);
+    expect(searchRegions('tamil', 'IN')).toEqual(['Tamil Nadu']);
+    expect(searchRegions('cal', 'US')).toContain('California');
+  });
+
+  it('lists them all before anything is typed — a state has siblings, not peers', () => {
+    expect(searchRegions('', 'IN', 40)).toHaveLength(36);
+  });
+
+  it('keeps the flat list reachable when no state is chosen', () => {
+    // Mumbai is in both sources; Ranchi is only in the regional one.
+    const all = citiesIn('IN');
+    expect(all).toContain('Mumbai');
+    expect(all).toContain('Ranchi');
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('says nothing for a state that is not in the country', () => {
+    expect(searchCities('', 'IN', 'California')).toEqual([]);
+  });
+
+  it('ignores case and spacing in a state name', () => {
+    expect(searchCities('', 'IN', '  tamil nadu  ')).toContain('Chennai');
+  });
+
+  it('only names regions for countries the app can actually hold', () => {
+    const known = new Set(KNOWN_COUNTRIES.map((c) => c.code));
+    for (const code of Object.keys(REGIONS_BY_COUNTRY)) expect(known).toContain(code);
+  });
+
+  it('has no empty region, and no duplicate city inside one', () => {
+    for (const [code, regions] of Object.entries(REGIONS_BY_COUNTRY)) {
+      for (const [name, cities] of Object.entries(regions)) {
+        expect(cities.length, `${code}/${name}`).toBeGreaterThan(0);
+        expect(new Set(cities).size, `${code}/${name}`).toBe(cities.length);
+      }
     }
   });
 });

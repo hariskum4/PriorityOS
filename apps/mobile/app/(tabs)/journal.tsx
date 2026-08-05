@@ -407,7 +407,7 @@ function Reflect() {
 // --------------------------------------------------------------- memories
 function Memories() {
   const qc = useQueryClient();
-  const { draft, clear } = useMemoryDraft();
+  const { draft, clear, markKept } = useMemoryDraft();
 
   const { data: memories } = useQuery({
     queryKey: ['memories'],
@@ -493,6 +493,9 @@ function Memories() {
     mutationFn: (body: ReturnType<typeof momentBody>) =>
       api<any>('/memories', { method: 'POST', body }),
     onSuccess: () => {
+      /* Remembered before the draft is cleared, so the banner that sent us
+         here stops offering to save a moment that is already kept. */
+      if (draft?.missionId) markKept(draft.missionId);
       setTitle(''); setReflection(''); setPersonIds([]); setCountKey(''); setOccurredOn('');
       clear();
       setJustSaved(true);

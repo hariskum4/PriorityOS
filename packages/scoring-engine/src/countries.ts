@@ -137,6 +137,177 @@ export function searchCountries(query: string, limit = 6): Country[] {
  * Not exhaustive and not trying to be — the largest handful per country,
  * enough that most readers tap rather than type.
  */
+/**
+ * The tier between a country and a city.
+ *
+ * "Where you live" was one box with a country under it, and the reader who
+ * typed "Ranchi" got nothing back — Jharkhand's capital, a million people,
+ * and not among the ten Indian cities the flat list happened to hold. A list
+ * of ten cities for a country of a billion is not a shortlist, it is a
+ * rounding error, and the reader is left doing the app's filing for it.
+ *
+ * So the question is asked the way an address is written: country, then the
+ * state inside it, then the city inside that. Each step narrows the next, and
+ * three short lists beat one impossible one.
+ *
+ * Two rules this data follows:
+ *
+ *  - **The regions are complete or absent.** Every state and union territory
+ *    of India is here, every state of the US. A partial list of regions is
+ *    worse than none, because a reader who cannot find theirs concludes the
+ *    app does not believe they live anywhere.
+ *  - **The cities are not, and never claim to be.** A few per region, enough
+ *    to tap rather than type. The box still takes anything, because no list
+ *    of cities is ever finished and nobody should be told their home is not
+ *    a place.
+ *
+ * Countries absent from here simply have no middle step. The city field then
+ * scopes by country exactly as it did before, which is what most of the world
+ * gets and is no worse than what everybody had.
+ */
+export const REGIONS_BY_COUNTRY: Record<string, Record<string, string[]>> = {
+  IN: {
+    'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Tirupati'],
+    'Arunachal Pradesh': ['Itanagar', 'Naharlagun'],
+    Assam: ['Guwahati', 'Silchar', 'Dibrugarh', 'Jorhat'],
+    Bihar: ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur'],
+    Chhattisgarh: ['Raipur', 'Bhilai', 'Bilaspur', 'Korba'],
+    Goa: ['Panaji', 'Margao', 'Vasco da Gama'],
+    Gujarat: ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Gandhinagar'],
+    Haryana: ['Gurugram', 'Faridabad', 'Panipat', 'Ambala', 'Karnal'],
+    'Himachal Pradesh': ['Shimla', 'Dharamshala', 'Mandi', 'Solan'],
+    Jharkhand: ['Ranchi', 'Jamshedpur', 'Dhanbad', 'Bokaro'],
+    Karnataka: ['Bengaluru', 'Mysuru', 'Mangaluru', 'Hubballi', 'Belagavi'],
+    Kerala: ['Kochi', 'Thiruvananthapuram', 'Kozhikode', 'Thrissur', 'Kollam'],
+    'Madhya Pradesh': ['Indore', 'Bhopal', 'Jabalpur', 'Gwalior', 'Ujjain'],
+    Maharashtra: ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Thane', 'Aurangabad'],
+    Manipur: ['Imphal'],
+    Meghalaya: ['Shillong'],
+    Mizoram: ['Aizawl'],
+    Nagaland: ['Kohima', 'Dimapur'],
+    Odisha: ['Bhubaneswar', 'Cuttack', 'Rourkela', 'Puri'],
+    Punjab: ['Ludhiana', 'Amritsar', 'Jalandhar', 'Patiala', 'Mohali'],
+    Rajasthan: ['Jaipur', 'Jodhpur', 'Udaipur', 'Kota', 'Ajmer'],
+    Sikkim: ['Gangtok'],
+    'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Tiruchirappalli', 'Salem', 'Erode'],
+    Telangana: ['Hyderabad', 'Warangal', 'Nizamabad', 'Karimnagar'],
+    Tripura: ['Agartala'],
+    'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Varanasi', 'Agra', 'Prayagraj', 'Noida', 'Ghaziabad', 'Meerut'],
+    Uttarakhand: ['Dehradun', 'Haridwar', 'Rishikesh', 'Nainital'],
+    'West Bengal': ['Kolkata', 'Howrah', 'Siliguri', 'Durgapur', 'Asansol'],
+    'Andaman and Nicobar Islands': ['Port Blair'],
+    Chandigarh: ['Chandigarh'],
+    'Dadra and Nagar Haveli and Daman and Diu': ['Silvassa', 'Daman'],
+    Delhi: ['New Delhi', 'Delhi', 'Dwarka', 'Rohini'],
+    'Jammu and Kashmir': ['Srinagar', 'Jammu'],
+    Ladakh: ['Leh', 'Kargil'],
+    Lakshadweep: ['Kavaratti'],
+    Puducherry: ['Puducherry', 'Karaikal'],
+  },
+  US: {
+    Alabama: ['Birmingham', 'Montgomery', 'Huntsville'],
+    Alaska: ['Anchorage', 'Juneau'],
+    Arizona: ['Phoenix', 'Tucson', 'Mesa', 'Scottsdale'],
+    Arkansas: ['Little Rock', 'Fayetteville'],
+    California: ['Los Angeles', 'San Diego', 'San Jose', 'San Francisco', 'Sacramento', 'Oakland', 'Fresno'],
+    Colorado: ['Denver', 'Colorado Springs', 'Boulder'],
+    Connecticut: ['Hartford', 'New Haven', 'Stamford'],
+    Delaware: ['Wilmington', 'Dover'],
+    'District of Columbia': ['Washington'],
+    Florida: ['Miami', 'Orlando', 'Tampa', 'Jacksonville'],
+    Georgia: ['Atlanta', 'Savannah', 'Augusta'],
+    Hawaii: ['Honolulu'],
+    Idaho: ['Boise'],
+    Illinois: ['Chicago', 'Springfield', 'Naperville'],
+    Indiana: ['Indianapolis', 'Fort Wayne'],
+    Iowa: ['Des Moines', 'Cedar Rapids'],
+    Kansas: ['Wichita', 'Overland Park'],
+    Kentucky: ['Louisville', 'Lexington'],
+    Louisiana: ['New Orleans', 'Baton Rouge'],
+    Maine: ['Portland', 'Augusta'],
+    Maryland: ['Baltimore', 'Annapolis', 'Rockville'],
+    Massachusetts: ['Boston', 'Cambridge', 'Worcester'],
+    Michigan: ['Detroit', 'Grand Rapids', 'Ann Arbor'],
+    Minnesota: ['Minneapolis', 'Saint Paul'],
+    Mississippi: ['Jackson', 'Gulfport'],
+    Missouri: ['Kansas City', 'St. Louis', 'Springfield'],
+    Montana: ['Billings', 'Missoula'],
+    Nebraska: ['Omaha', 'Lincoln'],
+    Nevada: ['Las Vegas', 'Reno'],
+    'New Hampshire': ['Manchester', 'Concord'],
+    'New Jersey': ['Newark', 'Jersey City', 'Princeton'],
+    'New Mexico': ['Albuquerque', 'Santa Fe'],
+    'New York': ['New York', 'Buffalo', 'Rochester', 'Albany'],
+    'North Carolina': ['Charlotte', 'Raleigh', 'Durham'],
+    'North Dakota': ['Fargo', 'Bismarck'],
+    Ohio: ['Columbus', 'Cleveland', 'Cincinnati'],
+    Oklahoma: ['Oklahoma City', 'Tulsa'],
+    Oregon: ['Portland', 'Eugene', 'Salem'],
+    Pennsylvania: ['Philadelphia', 'Pittsburgh', 'Harrisburg'],
+    'Rhode Island': ['Providence'],
+    'South Carolina': ['Charleston', 'Columbia', 'Greenville'],
+    'South Dakota': ['Sioux Falls', 'Rapid City'],
+    Tennessee: ['Nashville', 'Memphis', 'Knoxville'],
+    Texas: ['Houston', 'Dallas', 'Austin', 'San Antonio', 'Fort Worth', 'El Paso'],
+    Utah: ['Salt Lake City', 'Provo'],
+    Vermont: ['Burlington', 'Montpelier'],
+    Virginia: ['Virginia Beach', 'Richmond', 'Arlington'],
+    Washington: ['Seattle', 'Spokane', 'Tacoma', 'Bellevue'],
+    'West Virginia': ['Charleston', 'Morgantown'],
+    Wisconsin: ['Milwaukee', 'Madison'],
+    Wyoming: ['Cheyenne', 'Casper'],
+  },
+  GB: {
+    England: ['London', 'Birmingham', 'Manchester', 'Leeds', 'Liverpool', 'Bristol', 'Sheffield', 'Newcastle'],
+    Scotland: ['Glasgow', 'Edinburgh', 'Aberdeen', 'Dundee'],
+    Wales: ['Cardiff', 'Swansea', 'Newport'],
+    'Northern Ireland': ['Belfast', 'Londonderry'],
+  },
+  CA: {
+    Alberta: ['Calgary', 'Edmonton'],
+    'British Columbia': ['Vancouver', 'Victoria', 'Surrey'],
+    Manitoba: ['Winnipeg'],
+    'New Brunswick': ['Moncton', 'Fredericton'],
+    'Newfoundland and Labrador': ["St. John's"],
+    'Northwest Territories': ['Yellowknife'],
+    'Nova Scotia': ['Halifax'],
+    Nunavut: ['Iqaluit'],
+    Ontario: ['Toronto', 'Ottawa', 'Mississauga', 'Hamilton', 'London'],
+    'Prince Edward Island': ['Charlottetown'],
+    Quebec: ['Montreal', 'Quebec City', 'Laval', 'Gatineau'],
+    Saskatchewan: ['Saskatoon', 'Regina'],
+    Yukon: ['Whitehorse'],
+  },
+  AU: {
+    'Australian Capital Territory': ['Canberra'],
+    'New South Wales': ['Sydney', 'Newcastle', 'Wollongong'],
+    'Northern Territory': ['Darwin', 'Alice Springs'],
+    Queensland: ['Brisbane', 'Gold Coast', 'Cairns', 'Townsville'],
+    'South Australia': ['Adelaide'],
+    Tasmania: ['Hobart', 'Launceston'],
+    Victoria: ['Melbourne', 'Geelong', 'Ballarat'],
+    'Western Australia': ['Perth', 'Fremantle'],
+  },
+  DE: {
+    'Baden-Wurttemberg': ['Stuttgart', 'Karlsruhe', 'Mannheim', 'Freiburg'],
+    Bavaria: ['Munich', 'Nuremberg', 'Augsburg'],
+    Berlin: ['Berlin'],
+    Brandenburg: ['Potsdam'],
+    Bremen: ['Bremen'],
+    Hamburg: ['Hamburg'],
+    Hesse: ['Frankfurt', 'Wiesbaden', 'Darmstadt'],
+    'Lower Saxony': ['Hanover', 'Braunschweig', 'Osnabruck'],
+    'Mecklenburg-Vorpommern': ['Rostock', 'Schwerin'],
+    'North Rhine-Westphalia': ['Cologne', 'Dusseldorf', 'Dortmund', 'Essen', 'Bonn'],
+    'Rhineland-Palatinate': ['Mainz', 'Ludwigshafen'],
+    Saarland: ['Saarbrucken'],
+    Saxony: ['Leipzig', 'Dresden', 'Chemnitz'],
+    'Saxony-Anhalt': ['Magdeburg', 'Halle'],
+    'Schleswig-Holstein': ['Kiel', 'Lubeck'],
+    Thuringia: ['Erfurt', 'Jena'],
+  },
+};
+
 export const CITIES_BY_COUNTRY: Record<string, string[]> = {
   IN: ["Mumbai", "Delhi", "Bengaluru", "Hyderabad", "Chennai", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Kochi"],
   US: ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", "San Antonio", "San Diego", "Dallas", "San Francisco", "Seattle", "Boston", "Austin", "Denver"],
@@ -207,13 +378,91 @@ export const CITIES_BY_COUNTRY: Record<string, string[]> = {
  * Birmingham to somebody in the Midlands, with no way to tell which is
  * meant, is worse than no list.
  */
-export function searchCities(query: string, country?: string | null, limit = 6): string[] {
-  const code = (country ?? '').trim().toUpperCase();
-  const pool = CITIES_BY_COUNTRY[code];
-  if (!pool) return [];
+export function searchCities(
+  query: string,
+  country?: string | null,
+  region?: string | null,
+  limit = 6,
+): string[] {
+  const pool = citiesIn(country, region);
+  if (!pool.length) return [];
   const q = fold(query);
   if (!q) return pool.slice(0, limit);
   const starts = pool.filter((c) => fold(c).startsWith(q));
   const contains = pool.filter((c) => !fold(c).startsWith(q) && fold(c).includes(q));
   return [...starts, ...contains].slice(0, limit);
+}
+
+/**
+ * Every city the app knows inside a country, or inside one region of it.
+ *
+ * The two sources are deliberately unioned rather than one replacing the
+ * other. `CITIES_BY_COUNTRY` is the flat list every country has; the regional
+ * data covers a handful of countries in much more depth. Reading only the
+ * flat one would lose Ranchi again; reading only the regional one would empty
+ * the city field for the hundred-odd countries that have no regions here.
+ */
+export function citiesIn(country?: string | null, region?: string | null): string[] {
+  const code = (country ?? '').trim().toUpperCase();
+  if (!code) return [];
+  const byRegion = REGIONS_BY_COUNTRY[code];
+  const wanted = (region ?? '').trim();
+
+  if (wanted && byRegion) {
+    const key = Object.keys(byRegion).find((r) => fold(r) === fold(wanted));
+    return key ? [...byRegion[key]] : [];
+  }
+  const all = [
+    ...(CITIES_BY_COUNTRY[code] ?? []),
+    ...(byRegion ? Object.values(byRegion).flat() : []),
+  ];
+  return [...new Set(all)];
+}
+
+/** The states, provinces or nations of a country, or nothing if unknown. */
+export function regionsOf(country?: string | null): string[] {
+  const code = (country ?? '').trim().toUpperCase();
+  return Object.keys(REGIONS_BY_COUNTRY[code] ?? {});
+}
+
+/**
+ * Region suggestions for what has been typed so far.
+ *
+ * Empty query returns the whole list, unlike the country field — a country
+ * has a couple of hundred peers and a state has a couple of dozen siblings,
+ * so showing them all is a menu rather than a wall.
+ */
+export function searchRegions(query: string, country?: string | null, limit = 8): string[] {
+  const pool = regionsOf(country);
+  if (!pool.length) return [];
+  const q = fold(query);
+  if (!q) return pool.slice(0, limit);
+  const starts = pool.filter((r) => fold(r).startsWith(q));
+  const contains = pool.filter((r) => !fold(r).startsWith(q) && fold(r).includes(q));
+  return [...starts, ...contains].slice(0, limit);
+}
+
+/**
+ * Which region a city sits in — how the middle step is filled on a return
+ * visit without storing it.
+ *
+ * The state is a filter, not a fact about somebody's life: the app uses the
+ * country for its life-expectancy figure and the city for nothing but
+ * context, so adding a column to remember a narrowing step would be storing
+ * data to serve the form rather than the reader. Derived on the way in, it
+ * costs nothing and cannot go stale.
+ *
+ * Null for a city we do not know, which is the honest answer — the field
+ * simply stays unanswered and the city box still takes anything.
+ */
+export function regionOfCity(country?: string | null, city?: string | null): string | null {
+  const code = (country ?? '').trim().toUpperCase();
+  const want = fold(city ?? '');
+  if (!code || !want) return null;
+  const byRegion = REGIONS_BY_COUNTRY[code];
+  if (!byRegion) return null;
+  for (const [region, cities] of Object.entries(byRegion)) {
+    if (cities.some((c) => fold(c) === want)) return region;
+  }
+  return null;
 }

@@ -9,7 +9,8 @@ import { useAuth } from '@/store/auth';
 import { Button, Card, Chip, ErrorNote, Input, Label, XpBar } from '@/components/ui';
 import { CountryField } from '@/components/CountryField';
 import { CityField } from '@/components/CityField';
-import { canonicalTimezone } from '@priority/scoring-engine';
+import { RegionField } from '@/components/RegionField';
+import { canonicalTimezone, regionOfCity } from '@priority/scoring-engine';
 import {
   colors, type, space, levelProgress, themeMode, setThemeMode, isLight,
 } from '@/theme';
@@ -146,6 +147,8 @@ export default function You() {
    * and a PATCH per character would be a write for every one of them.
    */
   const [cityDraft, setCityDraft] = useState<string | null>(null);
+  /** The state, only while this screen is open — see `RegionField`. */
+  const [region, setRegion] = useState('');
 
   const saveProfile = useMutation({
     mutationFn: (patch: Record<string, string | null>) =>
@@ -262,15 +265,32 @@ export default function You() {
           disabled={saveProfile.isPending}
           onCommit={(v) => saveProfile.mutate({ profession: v })}
         />
-        {/* Same control as onboarding, for the same reason: a bare box here
-            and a searchable list one field below is two answers to one
-            question. Suggestions are scoped by the country beneath it. */}
+        {/* Country, then state, then city — the same order as onboarding and
+            the same order an address is written in. Each answer shortens the
+            list under it, which is the only thing that makes a list better
+            than a text box. */}
+        <CountryField
+          value={me?.country}
+          disabled={saveProfile.isPending}
+          onPick={(code) => { saveProfile.mutate({ country: code }); setRegion(''); }}
+        />
+        {/* Re-derived from the saved city rather than stored, so a return
+            visit lands on the right state without a column existing to
+            remember a narrowing step. Unknown city, no state — and the city
+            box below still takes anything typed into it. */}
+        <RegionField
+          value={region || (regionOfCity(me?.country, me?.city) ?? '')}
+          onChange={setRegion}
+          country={me?.country}
+          disabled={saveProfile.isPending}
+        />
         <View style={{ gap: space(2) }}>
           <Text style={type.dim}>City</Text>
           <CityField
             value={cityDraft ?? me?.city ?? ''}
             onChange={setCityDraft}
             country={me?.country}
+            region={region || regionOfCity(me?.country, me?.city)}
             disabled={saveProfile.isPending}
           />
           {cityDraft != null && cityDraft.trim() !== (me?.city ?? '') && (
@@ -284,11 +304,6 @@ export default function You() {
             />
           )}
         </View>
-        <CountryField
-          value={me?.country}
-          disabled={saveProfile.isPending}
-          onPick={(code) => saveProfile.mutate({ country: code })}
-        />
         <ErrorNote error={saveProfile.error} onRetry={() => saveProfile.reset()} />
       </Card>
 

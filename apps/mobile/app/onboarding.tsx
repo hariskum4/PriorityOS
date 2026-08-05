@@ -36,6 +36,7 @@ import { Button, Card, DomainDot, GapBar, Input, Label } from '@/components/ui';
 import { ShareRevealButton } from '@/components/ShareReveal';
 import { CountryField } from '@/components/CountryField';
 import { CityField } from '@/components/CityField';
+import { RegionField } from '@/components/RegionField';
 import { colors, type, space, domainColor, alpha } from '@/theme';
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -229,6 +230,16 @@ export default function Onboarding() {
   const [country, setCountry] = useState<string>(
     () => countryFromTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone) ?? '',
   );
+  /**
+   * The state, kept only for as long as this form is open.
+   *
+   * It narrows the city list and nothing else — the country carries the
+   * life-expectancy figure, the city carries the context, and neither of them
+   * needs to know which state it came through. Storing it would be keeping
+   * data to serve the form rather than the reader; on the You tab it is
+   * re-derived from the saved city instead.
+   */
+  const [region, setRegion] = useState('');
   const [marital, setMarital] = useState('');
   const [children, setChildren] = useState<string>('0');
   const [awayFromParents, setAwayFromParents] = useState<string>('');
@@ -902,33 +913,49 @@ export default function Onboarding() {
                     returnKeyType="done"
                   />
                 </View>
+                {/**
+                  * Where you live, asked the way an address is written:
+                  * country, then the state inside it, then the city inside
+                  * that.
+                  *
+                  * It used to run the other way — an unbounded "where you
+                  * live" box first, with the country underneath it. Which
+                  * meant the field that could have made the question small
+                  * was answered after the question, and a reader in Ranchi
+                  * typed their own city into a box that knew ten Indian
+                  * cities and got nothing back. Each answer here shortens the
+                  * next list; that is the entire reason a list beats a box.
+                  *
+                  * The country, meanwhile, is asked rather than assumed. It
+                  * was never asked at all — signup derived it from the device
+                  * timezone and that stood for good — so somebody who typed
+                  * "Vigo" was still filed under India by a phone that had not
+                  * been reset since the flight, and the Reveal counted his
+                  * daughter's remaining visits over fourteen years instead of
+                  * twenty-two. Pre-filled with the guess, because the guess is
+                  * usually right.
+                  */}
                 <View style={{ gap: space(2) }}>
                   <Label>Where you live</Label>
-                  {/* The country field below scopes these suggestions, which
-                      is why the two sit together: answer where in the world,
-                      and "where you live" stops being an unbounded question.
-                      The device's guess still leads, worn as a guess. */}
+                  <CountryField
+                    value={country}
+                    onPick={(code) => {
+                      setTouched((t) => ({ ...t, country: true }));
+                      setCountry(code ?? '');
+                      /* A new country makes the two answers below it stale —
+                         Kerala is not a state of Spain. */
+                      setRegion('');
+                      setCity('');
+                    }}
+                    footer="Only used to pick the life-expectancy figure behind your Time numbers."
+                  />
+                  <RegionField value={region} onChange={setRegion} country={country} />
                   <CityField
                     value={city}
                     onChange={setCity}
                     country={country}
+                    region={region}
                     deviceGuess={deviceCity}
-                  />
-                  {/* The country, asked rather than assumed.
-                      It was never asked here at all — signup derived it from
-                      the device timezone and that stood for good. So somebody
-                      who typed "Vigo" one line above this was still filed
-                      under India by a phone that had not been reset since the
-                      flight, and the Reveal two screens later counted his
-                      daughter's remaining visits over fourteen years instead
-                      of twenty-two. The city question is exactly where the
-                      contradiction becomes visible, so it is where the
-                      correction belongs. Pre-filled with the guess, because
-                      the guess is usually right. */}
-                  <CountryField
-                    value={country}
-                    onPick={(code) => { setTouched((t) => ({ ...t, country: true })); setCountry(code ?? ''); }}
-                    footer="Only used to pick the life-expectancy figure behind your Time numbers."
                   />
                 </View>
               </>

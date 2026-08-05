@@ -22,6 +22,7 @@ import { ttlToMs } from '../src/common/env';
 import { CreateRelationshipDto } from '../src/relationships/relationships.dto';
 import { CreateJournalEntryDto } from '../src/journal/journal.dto';
 import { CreateMissionDto } from '../src/missions/missions.dto';
+import { MemoriesService } from '../src/memories/memories.service';
 
 let prisma: PrismaService;
 let people: RelationshipsService;
@@ -205,6 +206,75 @@ describe('requests that are wrong get told, not 500', () => {
       const r = await users.updatePreferences(userId, { quietHoursStart: good });
       expect(r.quietHoursStart).toBe(good);
     }
+  });
+});
+
+/**
+ * The Today banner offers "Save it" on a completed mission and went on
+ * offering it after the moment had been kept, so the obvious second tap wrote
+ * the archive a second copy of the same evening — and paid XP for it twice.
+ * Capture writes also resume from disk after a crash, so a duplicate can
+ * arrive with no user error at all.
+ */
+describe('a mission has one kept moment, however many times it is saved', () => {
+  const memoriesFor = () => new MemoriesService(prisma, gameStub as never);
+
+  it('does not write a second row for the same mission', async () => {
+    const memories = memoriesFor();
+    const m = await missions.create(userId, { title: 'Block two hours', domainType: 'career' });
+    await memories.create(userId, { title: 'Block two hours', missionId: m!.id });
+    await memories.create(userId, { title: 'Block two hours', missionId: m!.id });
+    const rows = await prisma.memory.findMany({ where: { userId, missionId: m!.id } });
+    expect(rows).toHaveLength(1);
+  });
+
+  it('pays for it once', async () => {
+    const memories = memoriesFor();
+    const m = await missions.create(userId, { title: 'Read ten pages', domainType: 'growth' });
+    awards = 0;
+    await memories.create(userId, { title: 'Read ten pages', missionId: m!.id });
+    await memories.create(userId, { title: 'Read ten pages', missionId: m!.id });
+    expect(awards).toBe(1);
+  });
+
+  it('keeps a reflection written on the second visit', async () => {
+    const memories = memoriesFor();
+    const m = await missions.create(userId, { title: 'Call Amma', domainType: 'family' });
+    await memories.create(userId, { title: 'Call Amma', missionId: m!.id });
+    await memories.create(userId, {
+      title: 'Call Amma', missionId: m!.id, reflection: 'She sounded well.',
+    });
+    const rows = await prisma.memory.findMany({ where: { userId, missionId: m!.id } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].reflection).toBe('She sounded well.');
+  });
+
+  it('never blanks one that is already there', async () => {
+    const memories = memoriesFor();
+    const m = await missions.create(userId, { title: 'Walk', domainType: 'health' });
+    await memories.create(userId, { title: 'Walk', missionId: m!.id, reflection: 'Cold out.' });
+    await memories.create(userId, { title: 'Walk', missionId: m!.id, reflection: '' });
+    const rows = await prisma.memory.findMany({ where: { userId, missionId: m!.id } });
+    expect(rows[0].reflection).toBe('Cold out.');
+  });
+
+  it('says so, so the caller can stop offering', async () => {
+    const memories = memoriesFor();
+    const m = await missions.create(userId, { title: 'Walk', domainType: 'health' });
+    const first: any = await memories.create(userId, { title: 'Walk', missionId: m!.id });
+    const second: any = await memories.create(userId, { title: 'Walk', missionId: m!.id });
+    expect(first.alreadyKept).toBeUndefined();
+    expect(second.alreadyKept).toBe(true);
+  });
+
+  /* A moment with no mission behind it is an ordinary archive entry, and two
+     dinners with the same title on the same day are two dinners. */
+  it('leaves free-standing moments alone', async () => {
+    const memories = memoriesFor();
+    await memories.create(userId, { title: 'Dinner at home' });
+    await memories.create(userId, { title: 'Dinner at home' });
+    const rows = await prisma.memory.findMany({ where: { userId, missionId: null } });
+    expect(rows).toHaveLength(2);
   });
 });
 
