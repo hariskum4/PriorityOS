@@ -526,3 +526,37 @@ function detailFor(x: {
   }
   return `You aimed at ${x.declared} a year and are managing ~${x.obs.perYear}, so ~${x.remaining} is the honest count. ${uplift}`;
 }
+
+/**
+ * The kinds of moment worth counting with a particular person.
+ *
+ * `meaningfulMomentTypes` is the strongest input `suggestCountables` has — a
+ * reader's own phrase for what matters with somebody, which turns "days out
+ * with Ines" into "hawker centre dinners with Wei". It scores four times what
+ * a domain guess does. It has also been empty for every account ever created,
+ * because no screen in this app asks for it: two readers, no writer.
+ *
+ * Asking with a blank text field would collect nothing — nobody types a noun
+ * phrase into an onboarding form. So the question offers the handful of
+ * answers that fit the relationship it is about, and the reader taps. Phrased
+ * as plural nouns because that is what a count counts, and short because the
+ * label is rendered as "<moment> with <name>".
+ */
+const MOMENTS_BY_ROLE: Record<string, string[]> = {
+  mother: ['long calls', 'home-cooked meals', 'visits home', 'walks together'],
+  father: ['long calls', 'walks together', 'watching the match', 'visits home'],
+  parent: ['long calls', 'home-cooked meals', 'visits home', 'walks together'],
+  partner: ['evenings out', 'walks together', 'cooking together', 'weekends away'],
+  spouse: ['evenings out', 'walks together', 'cooking together', 'weekends away'],
+  child: ['bedtime stories', 'days out', 'making things', 'kicking a ball about'],
+  son: ['bedtime stories', 'days out', 'making things', 'kicking a ball about'],
+  daughter: ['bedtime stories', 'days out', 'making things', 'kicking a ball about'],
+  sibling: ['long calls', 'meals together', 'trips home', 'watching something'],
+  friend: ['long calls', 'dinners out', 'walks together', 'games or sport'],
+};
+
+const MOMENTS_DEFAULT = ['long calls', 'meals together', 'walks together', 'days out'];
+
+export function momentOptionsFor(relationType?: string | null): string[] {
+  return MOMENTS_BY_ROLE[(relationType ?? '').trim().toLowerCase()] ?? MOMENTS_DEFAULT;
+}

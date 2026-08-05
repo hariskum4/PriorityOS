@@ -106,6 +106,22 @@ export class UsersService {
     const patch = Object.fromEntries(
       Object.entries(data).filter(([k]) => allowed.includes(k)),
     );
+    /**
+     * Hours of a clock, on non-nullable columns.
+     *
+     * These are `Int` with defaults, so there is no such thing as unsetting
+     * one — and a null went to Prisma unchecked and came back a 500, an
+     * unhandled server error for what is a client mistake. Same rule as the
+     * profile's work hours: 0 is midnight and is valid, 24 is not an hour.
+     */
+    for (const key of ['quietHoursStart', 'quietHoursEnd', 'preferredReminderHour']) {
+      if (patch[key] === undefined) continue;
+      const n = Number(patch[key]);
+      if (patch[key] === null || !Number.isInteger(n) || n < 0 || n > 23) {
+        throw new BadRequestException(`${key} must be an hour between 0 and 23`);
+      }
+      patch[key] = n;
+    }
     return this.prisma.userPreferences.update({ where: { userId }, data: patch });
   }
 

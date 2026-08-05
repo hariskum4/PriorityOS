@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   deriveGoalTitle,
   namesAThing,
+  momentOptionsFor,
   relationshipSanity,
   relationshipBlocked,
   defaultsForRelation,
@@ -151,6 +152,8 @@ export default function Onboarding() {
   const [callFrequency, setCallFrequency] = useState<string>('monthly');
   const [desired, setDesired] = useState<string>('weekly');
   const [visitFrequency, setVisitFrequency] = useState<string>('quarterly');
+  /** What is worth counting with this person, in their reader's own words. */
+  const [moments, setMoments] = useState<string[]>([]);
   /**
    * Which of the person pickers the reader has actually touched.
    *
@@ -389,6 +392,8 @@ export default function Onboarding() {
             inPersonFrequency: visitFrequency,
             closenessScore: 9,
             wantsMoreTime: true,
+            /* The field two features read and nothing has ever written. */
+            meaningfulMomentTypes: moments,
           },
         });
       }
@@ -780,6 +785,46 @@ export default function Onboarding() {
                   <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={own('callFrequency', setCallFrequency)} />
                 )}
                 <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={own('visitFrequency', setVisitFrequency)} />
+
+                {/* The strongest input the countable life has, and the app has
+                    never once asked for it. `suggestCountables` scores a
+                    reader's own phrase at four times a domain guess — it is
+                    the difference between "days out with Ines" and "hawker
+                    centre dinners with Wei" — and `meaningfulMomentTypes` had
+                    two readers and no writer, so it was empty for everybody. A
+                    blank text box would have collected nothing; taps collect
+                    plenty. Two is the cap, because this is one question in a
+                    long form and the Time tab can add more later. */}
+                <View style={{ gap: space(2) }}>
+                  <Label>What is worth counting with them? (optional)</Label>
+                  <Text style={type.faint}>
+                    Pick up to two. Priority counts how many of these you have left,
+                    which turns out to be the number people remember.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                    {momentOptionsFor(person.relationType).map((m) => {
+                      const on = moments.includes(m);
+                      return (
+                        <Pressable
+                          key={m}
+                          onPress={() => setMoments((prev) => (
+                            prev.includes(m)
+                              ? prev.filter((x) => x !== m)
+                              : prev.length >= 2 ? prev : [...prev, m]
+                          ))}
+                          accessibilityRole="button"
+                          accessibilityLabel={m}
+                          accessibilityState={{ selected: on }}
+                          style={[s.chip, on && s.chipOn]}
+                        >
+                          <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                            {m}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
                 <View style={{ gap: space(2) }}>
                   <Label>How is their health these days? (optional)</Label>
                   <Text style={type.faint}>This only tunes the arithmetic. It never changes how Priority speaks to you.</Text>

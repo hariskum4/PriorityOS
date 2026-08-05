@@ -15,6 +15,7 @@ import { testPrisma, truncateAll } from './db';
 import { RelationshipsService } from '../src/relationships/relationships.service';
 import { MissionsService } from '../src/missions/missions.service';
 import { AuthJobsService } from '../src/auth/auth.jobs';
+import { UsersService } from '../src/users/users.service';
 import { normalizeDomains, OnboardingService } from '../src/onboarding/onboarding.service';
 import { ALL_DOMAINS } from '@priority/types';
 import { ttlToMs } from '../src/common/env';
@@ -179,6 +180,31 @@ describe('requests that are wrong get told, not 500', () => {
   it('a mission domain must be one the engine can score', () => {
     const dto = plainToInstance(CreateMissionDto, { title: 'x', domainType: 'vibes' });
     expect(validateSync(dto).map((e) => e.property)).toContain('domainType');
+  });
+
+  /**
+   * Quiet hours are non-nullable Int columns with defaults, so there is no
+   * unsetting one — and a null went to Prisma unchecked and came back a 500,
+   * an unhandled server error for a client mistake. Found by trying to undo a
+   * test edit on the demo account.
+   */
+  it('an hour that is not an hour is a 400, not a crash', async () => {
+    const users = new UsersService(prisma);
+    await prisma.userPreferences.upsert({
+      where: { userId }, create: { userId }, update: {},
+    });
+    // Thrown synchronously, before any query runs — the request never
+    // reaches Prisma, which is the whole point.
+    for (const bad of [null, 24, -1, 'evening', 9.5]) {
+      expect(
+        () => users.updatePreferences(userId, { quietHoursStart: bad }),
+      ).toThrow(/between 0 and 23/);
+    }
+    // 0 is midnight and is a real answer; 23 is the last hour there is.
+    for (const good of [0, 9, 23]) {
+      const r = await users.updatePreferences(userId, { quietHoursStart: good });
+      expect(r.quietHoursStart).toBe(good);
+    }
   });
 });
 

@@ -135,6 +135,25 @@ const TIME_STEP = 15;
 const LENGTHS = [15, 30, 45, 60, 90, 120];
 
 /**
+ * Every hour there is.
+ *
+ * The day-shape rows offered five morning hours to start and six afternoon
+ * ones to end, which quietly assumed everybody works days. A night nurse, a
+ * baker, a driver, a call-centre shift — none of them could describe their own
+ * week, and the engine could have drawn it perfectly: `dayShape` already reads
+ * "a shift ending before it starts is a night shift, not bad data", and
+ * `clampHour` accepts any hour from 0 to 23. Twenty-four chips wrap onto three
+ * rows and say what a picker would, without being a picker.
+ */
+const HOURS_OF_DAY = Array.from({ length: 24 }, (_, i) => i);
+
+/** "7pm", "12am" — the way an hour is said, not the way it is stored. */
+function hourLabel(n: number): string {
+  const h = n % 12 === 0 ? 12 : n % 12;
+  return `${h}${n < 12 ? 'am' : 'pm'}`;
+}
+
+/**
  * "1 hour", "1½ hours", "45 min" — a length said the way it is spoken.
  *
  * The six lengths used to be laid out as six chips, which asked somebody to
@@ -878,6 +897,21 @@ export default function TimeReality() {
     mutationFn: (patch: Record<string, number>) =>
       api('/me', { method: 'PATCH', body: patch }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+  });
+  /**
+   * When this person sleeps — which nothing has ever been able to ask.
+   *
+   * `dayShape` takes `sleepHour` and `wakeHour`, reads them from quiet hours,
+   * and defaults to 10pm–7am when they are absent. They were absent for
+   * everybody, because no screen in the app sets them: an ICU nurse who works
+   * nights and sleeps from nine in the morning had her day drawn against a
+   * night's sleep she does not get, and every "evening" suggestion landed in
+   * the middle of her shift.
+   */
+  const saveRest = useMutation({
+    mutationFn: (patch: Record<string, number>) =>
+      api('/me/preferences', { method: 'PATCH', body: patch }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['preferences'] }),
   });
   const [editingDay, setEditingDay] = useState(false);
 
@@ -2423,7 +2457,16 @@ export default function TimeReality() {
                   <Ionicons name="time-outline" size={14} color={colors.textDim} />
                   <Label>Where the hour is</Label>
                   <View style={{ flex: 1 }} />
-                  <Pressable onPress={() => setEditingDay((v) => !v)}>
+                  {/* Without a role this is a bare div on web — the one door
+                      to the hours, invisible to a screen reader and to
+                      anything else walking the page. */}
+                  <Pressable
+                    onPress={() => setEditingDay((v) => !v)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: editingDay }}
+                    accessibilityLabel={editingDay ? 'Done editing your hours' : 'Set the hours of your day'}
+                  >
                     <Text style={[type.faint, { color: colors.amber }]}>
                       {editingDay ? 'done' : dayHoursKnown ? 'adjust' : 'set hours'}
                     </Text>
@@ -2466,9 +2509,18 @@ export default function TimeReality() {
                         ? 'Change these and the shape below moves with them.'
                         : 'Only the start really matters — the length comes from the week you already gave.'}
                     </Text>
+                    {/* A whole clock, because a third of the working world is
+                        not on a nine-to-five. `dayShape` has always handled a
+                        shift that ends before it starts — "a shift ending
+                        before it starts is a night shift, not bad data" — and
+                        `clampHour` takes any hour of the day. The only thing
+                        standing between an ICU nurse and a correctly drawn day
+                        was this list of five morning hours: she could not say
+                        seven in the evening, so the app drew her a day at a
+                        desk and put every suggestion inside her shift. */}
                     {([
-                      { key: 'workStartHour', label: lifeShape(me.workType).careWorkIsWork ? 'The household day starts' : 'Work starts', opts: [6, 7, 8, 9, 10], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
-                      { key: 'workEndHour', label: lifeShape(me.workType).careWorkIsWork ? 'The household day ends' : 'Work ends', opts: [15, 16, 17, 18, 19, 21], fmt: (n: number) => `${n > 12 ? n - 12 : n}${n < 12 ? 'am' : 'pm'}` },
+                      { key: 'workStartHour', label: lifeShape(me.workType).careWorkIsWork ? 'The household day starts' : 'Work starts', opts: HOURS_OF_DAY, fmt: hourLabel },
+                      { key: 'workEndHour', label: lifeShape(me.workType).careWorkIsWork ? 'The household day ends' : 'Work ends', opts: HOURS_OF_DAY, fmt: hourLabel },
                       { key: 'commuteMinutes', label: 'Commute each way', opts: [0, 15, 30, 45, 60, 90], fmt: (n: number) => (n === 0 ? 'none' : `${n}m`) },
                     ] as const)
                       /* Judged on the work type alone, not the stored minutes:
@@ -2497,6 +2549,48 @@ export default function TimeReality() {
                         </View>
                       </View>
                     ))}
+
+                    {/* Sleep, which nothing in this app has ever asked about.
+                        `dayShape` reads it and falls back to ten-at-night, so
+                        a nurse who sleeps from nine in the morning had her day
+                        drawn against a night she does not have. Same full
+                        clock, for the same reason. */}
+                    {([
+                      { key: 'quietHoursStart', label: 'Sleep starts', current: prefs?.quietHoursStart },
+                      { key: 'quietHoursEnd', label: 'You wake', current: prefs?.quietHoursEnd },
+                    ] as const).map((row) => (
+                      <View key={row.key} style={{ gap: 6 }}>
+                        <Text style={type.dim}>{row.label}:</Text>
+                        <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                          {HOURS_OF_DAY.map((n) => {
+                            const on = row.current === n;
+                            return (
+                              <Pressable
+                                key={n}
+                                disabled={saveRest.isPending}
+                                onPress={() => saveRest.mutate({ [row.key]: n })}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${row.label} ${hourLabel(n)}`}
+                                accessibilityState={{ selected: on }}
+                                style={[s.chip, on && s.chipOn]}
+                              >
+                                <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                                  {hourLabel(n)}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ))}
+                    {/* These columns are non-nullable with defaults, so there
+                        is no "unset" state to describe — everybody starts at
+                        ten and seven whether they chose it or not, which is
+                        precisely why the rows had to exist. */}
+                    <Text style={type.faint}>
+                      The shape is drawn against these, whichever hours they are —
+                      nights included.
+                    </Text>
                     <Button title="Done" small kind="ghost" onPress={() => setEditingDay(false)} />
                   </View>
                 ) : null}
