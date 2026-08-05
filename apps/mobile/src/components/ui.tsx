@@ -135,6 +135,93 @@ export function Input(props: React.ComponentProps<typeof TextInput>) {
 }
 
 /**
+ * "7pm", "19", "7:30 pm" — an hour of the day as a person would say it.
+ *
+ * No am/pm means the 24-hour clock is taken at its word, so "19" is evening
+ * and "7" is morning; a suffix wins when given. Minutes are accepted and
+ * rounded, because the model stores whole hours, and the field redisplays
+ * what it kept — the rounding is visible, not silent.
+ */
+export function parseHour(raw: string): number | null {
+  const m = /^\s*(\d{1,2})(?:[:.](\d{2}))?\s*(?:(a|p)\.?m?\.?)?\s*$/i.exec(raw);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const minutes = m[2] ? Number(m[2]) : 0;
+  if (minutes > 59) return null;
+  const suffix = m[3]?.toLowerCase();
+  if (suffix) {
+    if (h < 1 || h > 12) return null;
+    h = suffix === 'p' ? (h % 12) + 12 : h % 12;
+  } else if (h > 23) {
+    return null;
+  }
+  return (h + (minutes >= 30 ? 1 : 0)) % 24;
+}
+
+export function formatHour(n: number): string {
+  const h12 = n % 12 === 0 ? 12 : n % 12;
+  return `${h12}${n < 12 ? 'am' : 'pm'}`;
+}
+
+/**
+ * An hour of the day, typed rather than hunted for.
+ *
+ * The first version of this was twenty-four pills, four grids of them on one
+ * sheet, because range got fixed by multiplying buttons. The person who needs
+ * 7pm already has the words "7pm" — one small field that accepts them is both
+ * faster and honest about what it wants. An entry it cannot read is put back
+ * the way it was, in front of the person, rather than saved as a guess.
+ */
+export function HourField({ label, value, onCommit, disabled, placeholder }: {
+  label: string;
+  value: number | null | undefined;
+  onCommit: (hour: number) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const shown = value == null ? '' : formatHour(value);
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const [rejected, setRejected] = React.useState(false);
+
+  const commit = () => {
+    if (draft == null) return;
+    const parsed = parseHour(draft);
+    setDraft(null);
+    if (parsed == null) {
+      setRejected(draft.trim().length > 0);
+      return;
+    }
+    setRejected(false);
+    if (parsed !== value) onCommit(parsed);
+  };
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(3) }}>
+      <Text style={[type.dim, { flex: 1 }]}>{label}</Text>
+      <TextInput
+        value={draft ?? shown}
+        onChangeText={(t) => { setDraft(t); setRejected(false); }}
+        onFocus={() => setDraft(shown)}
+        onBlur={commit}
+        onSubmitEditing={commit}
+        editable={!disabled}
+        selectTextOnFocus
+        placeholder={placeholder ?? 'e.g. 9am'}
+        placeholderTextColor={colors.textFaint}
+        returnKeyType="done"
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel={label}
+        style={[
+          s.input, s.hourInput,
+          rejected && { borderColor: alpha(colors.rose, 0.5) },
+        ]}
+      />
+    </View>
+  );
+}
+
+/**
  * Overall life alignment (100 − weighted say/do gap) as a ring. One glance
  * answers "am I living what I say matters?" Set in the serif, because it is
  * a statement about a life rather than a metric.
@@ -360,6 +447,12 @@ const s = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 13,
     fontSize: 15,
+  },
+  hourInput: {
+    width: 88,
+    paddingVertical: 9,
+    textAlign: 'center',
+    fontVariant: liningNums,
   },
   track: {
     flex: 1,
