@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UserClock } from '../common/clock.module';
 import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
-import { advanceStreak } from '@priority/scoring-engine';
+import { advanceStreak, catalogKeyFor } from '@priority/scoring-engine';
 
 /**
  * How far back a habit's rate is measured. Four weeks: long enough that one
@@ -99,6 +99,20 @@ export class HabitsService {
         targetPerWeek: data.targetPerWeek ?? 3,
         xpReward: data.xpReward ?? 10,
         sourceType: data.sourceType ?? 'user',
+        /**
+         * Which catalog entry this is, resolved once at creation.
+         *
+         * Everything downstream matched on titles, which the catalog's own
+         * comments admit is brittle — and titles are rephrased per person by
+         * the AI layer, so the join key kept changing shape. Resolved here,
+         * where the wording is still the wording the catalog used, rather
+         * than reconstructed later from something a model rewrote.
+         *
+         * Null for a habit somebody typed themselves, which is the honest
+         * answer: they invented their own commitment and the app should
+         * record it faithfully rather than claim to have authored it.
+         */
+        sourceKey: data.sourceKey ?? catalogKeyFor(String(data.title ?? '')),
       },
     });
   }

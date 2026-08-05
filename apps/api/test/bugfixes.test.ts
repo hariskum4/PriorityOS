@@ -23,10 +23,12 @@ import { CreateRelationshipDto } from '../src/relationships/relationships.dto';
 import { CreateJournalEntryDto } from '../src/journal/journal.dto';
 import { CreateMissionDto } from '../src/missions/missions.dto';
 import { MemoriesService } from '../src/memories/memories.service';
+import { HabitsService } from '../src/habits/habits.service';
 
 let prisma: PrismaService;
 let people: RelationshipsService;
 let missions: MissionsService;
+let habits: HabitsService;
 let userId: string;
 let awards: number;
 
@@ -63,6 +65,9 @@ beforeAll(async () => {
     analyticsStub as never,
     aiStub as never,
     people,
+  );
+  habits = new HabitsService(
+    prisma, scoringStub as never, gameStub as never, { forUser: async () => new Date() } as never,
   );
 });
 
@@ -206,6 +211,47 @@ describe('requests that are wrong get told, not 500', () => {
       const r = await users.updatePreferences(userId, { quietHoursStart: good });
       expect(r.quietHoursStart).toBe(good);
     }
+  });
+});
+
+/**
+ * Everything downstream of the catalog matched on titles, which the catalog's
+ * own comments admit is brittle — and titles are rephrased per person by the
+ * AI layer, so the join key kept changing shape. The identity is recorded at
+ * creation instead, which is what makes "does family.call outperform
+ * family.hour for a starved family domain" an answerable question later.
+ */
+describe('a habit remembers which catalog entry it is', () => {
+  it('resolves a catalog rhythm from its own title', async () => {
+    const h = await habits.create(userId, { title: 'Move three times a week', domainType: 'health' });
+    expect(h.sourceKey).toBe('health.move');
+  });
+
+  it('resolves the phrasings people write themselves', async () => {
+    const h = await habits.create(userId, { title: 'Yoga', domainType: 'health' });
+    expect(h.sourceKey).toBe('health.yoga');
+  });
+
+  it('leaves an invented commitment unclaimed', async () => {
+    const h = await habits.create(userId, {
+      title: 'Cycle the long way past the reservoir', domainType: 'health',
+    });
+    expect(h.sourceKey).toBeNull();
+  });
+
+  it('takes an explicit key over the title, for an AI rephrasing', async () => {
+    const h = await habits.create(userId, {
+      title: 'Get on the mat before the house wakes', domainType: 'health',
+      sourceKey: 'health.yoga',
+    });
+    expect(h.sourceKey).toBe('health.yoga');
+  });
+
+  it('records it on a mission from a ladder rung too', async () => {
+    const m = await missions.create(userId, {
+      title: 'Block two hours of focused work', domainType: 'career',
+    });
+    expect(m!.sourceKey).toBe('Block two hours of focused work');
   });
 });
 

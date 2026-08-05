@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { rhythmDomains, rhythmsFor } from './rhythms';
 import { domainLadder } from './domainLadder';
 import { healthspan } from './lifeStrategy';
-import { EVIDENCE, PROPOSED, evidenceForGenerated } from './evidence';
+import { EVIDENCE, PROPOSED, evidenceForGenerated, catalogKeyFor, evidenceFor } from './evidence';
 
 /** Every identity the catalogs currently ship. */
 function catalogIdentities(): Set<string> {
@@ -111,6 +111,42 @@ describe('what a generated entry may claim', () => {
   it('never invents a source for something ungraded', () => {
     for (const t of ['Repot the balcony plants', 'Sit with the cat', 'Sort the loft']) {
       expect(evidenceForGenerated(t).source, t).toBeUndefined();
+    }
+  });
+});
+
+/**
+ * The identity behind the wording — the join key that makes it possible to
+ * ask, in six months, which entries people actually keep.
+ */
+describe('which catalog entry a title is', () => {
+  it('names a rhythm by its own title', () => {
+    expect(catalogKeyFor('Move three times a week')).toBe('health.move');
+    expect(catalogKeyFor('  yoga, twice a week  ')).toBe('health.yoga');
+  });
+
+  it('names a rung by its title, which is its identity', () => {
+    expect(catalogKeyFor('Block two hours of focused work'))
+      .toBe('Block two hours of focused work');
+  });
+
+  it('reads the phrasings people write for themselves', () => {
+    expect(catalogKeyFor('Yoga')).toBe('health.yoga');
+    expect(catalogKeyFor('Floss')).toBe('health.upkeep');
+  });
+
+  it('says null for something somebody invented, rather than guessing', () => {
+    expect(catalogKeyFor('Cycle the long way past the reservoir')).toBeNull();
+    expect(catalogKeyFor('   ')).toBeNull();
+  });
+
+  /* Every identity it can produce must be one the bank can cite, or the
+     telemetry would count things the receipts cannot explain. */
+  it('only ever produces identities the evidence bank knows', () => {
+    for (const domain of rhythmDomains()) {
+      for (const r of rhythmsFor(domain)) {
+        expect(evidenceFor(catalogKeyFor(r.title)!), r.title).toBeTruthy();
+      }
     }
   });
 });

@@ -7,6 +7,7 @@ import { AiService } from '../ai/ai.service';
 import { RelationshipsService } from '../relationships/relationships.service';
 import { MISSION_CRAFT } from '@priority/ai-prompts';
 import {
+  catalogKeyFor,
   rankMissions,
   suggestNextMission,
   MissionSuggestion,
@@ -14,6 +15,23 @@ import {
   Cadence,
   isRemoteLocation,
 } from '@priority/scoring-engine';
+
+/**
+ * The deficit a suggestion was made into, as a band.
+ *
+ * Three names rather than a number: the risk score moves continuously and
+ * slightly, so grouping six months of completions by the exact figure would
+ * produce a thousand buckets of one. What the question needs is "was this
+ * domain starving when we offered this", and three answers is enough to tell.
+ */
+function neglectBandFor(risk: { toNumber(): number } | number | null): 'unknown' | 'low' | 'medium' | 'high' {
+  /* Prisma hands back a Decimal for this column, not a number. */
+  const n = risk == null ? null : (typeof risk === 'number' ? risk : risk.toNumber());
+  if (n == null || !Number.isFinite(n)) return 'unknown';
+  if (n >= 66) return 'high';
+  if (n >= 33) return 'medium';
+  return 'low';
+}
 
 @Injectable()
 export class MissionsService {
@@ -91,6 +109,10 @@ export class MissionsService {
         energyLevel: data.energyLevel ?? null,
         xpReward: data.xpReward ?? 25,
         sourceType: data.sourceType ?? 'user',
+        /* The catalog identity, same contract as Habit — see the note there.
+           Ladder rungs are keyed by their own titles, so most missions that
+           came from the app resolve; anything hand-written stays null. */
+        sourceKey: data.sourceKey ?? catalogKeyFor(String(data.title ?? '')),
       },
     });
   }
@@ -143,6 +165,27 @@ export class MissionsService {
     await this.analytics.track(userId, 'mission_completed', {
       domainType: mission.domainType,
       relationship: !!mission.relationshipId,
+      /**
+       * Which catalog entry was kept, and how starved the domain was when it
+       * was proposed.
+       *
+       * Not a metric anybody reads today. It is the only way the catalog ever
+       * stops being editorial: with the identity and the deficit band on the
+       * same row, six months of this answers "does `family.call` outperform
+       * `family.hour` when the family domain is badly neglected" — which is a
+       * question about this app's own users rather than about anybody's
+       * literature, and the one thing a competitor cannot copy.
+       *
+       * Banded rather than exact, because the risk score drifts continuously
+       * and a band is what a comparison can actually group by.
+       */
+      sourceKey: mission.sourceKey ?? null,
+      neglectBand: neglectBandFor(
+        (await this.prisma.lifeDomain.findFirst({
+          where: { userId, domainType: mission.domainType },
+          select: { neglectRiskScore: true },
+        }))?.neglectRiskScore ?? null,
+      ),
     });
     // The adaptive loop: one meaningful action done → the engine reads the
     // refreshed life-graph and lines up the next one. Today never runs dry.

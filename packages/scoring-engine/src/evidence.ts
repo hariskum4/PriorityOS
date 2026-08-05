@@ -52,6 +52,8 @@
  */
 
 import { recognizeHabit } from './commonHabits';
+import { rhythmDomains, rhythmsFor } from './rhythms';
+import { domainLadder } from './domainLadder';
 
 export type EvidenceGrade = 'A' | 'B' | 'C' | 'folk';
 
@@ -684,6 +686,38 @@ export const EVIDENCE: Record<string, Evidence> = {
  */
 export function evidenceFor(idOrTitle: string): Evidence | null {
   return EVIDENCE[idOrTitle] ?? PROPOSED[idOrTitle] ?? null;
+}
+
+/**
+ * Which catalog entry a title actually is — the identity behind the wording.
+ *
+ * The same identity space the receipts are keyed on, which is the point: if
+ * this can name the thing, the bank can cite it, and the telemetry can count
+ * it. Three ways in, tried in order of how sure each one is:
+ *
+ *   1. A rhythm's own title, matched exactly. Titles are contractually
+ *      stable, which is what makes this safe.
+ *   2. A ladder rung's title, which *is* the rung's identity.
+ *   3. The recognizer, for the phrasings people write themselves — "Yoga",
+ *      "hydrate", "meal prep Sundays".
+ *
+ * Null for anything hand-written that resolves to nothing, and null is a
+ * perfectly good answer: it means somebody invented their own commitment,
+ * which the app should record faithfully and never pretend to have authored.
+ */
+export function catalogKeyFor(title: string): string | null {
+  const want = title.trim().toLowerCase();
+  if (!want) return null;
+
+  for (const domain of rhythmDomains()) {
+    for (const r of rhythmsFor(domain)) {
+      if (r.title.trim().toLowerCase() === want) return r.key;
+    }
+    for (const rung of domainLadder(domain)) {
+      if (rung.title.trim().toLowerCase() === want) return rung.title;
+    }
+  }
+  return recognizeHabit(title)?.key ?? null;
 }
 
 /** What a generated entry may claim before anything is known about it. */

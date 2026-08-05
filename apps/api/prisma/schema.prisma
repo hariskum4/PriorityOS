@@ -367,6 +367,10 @@ model Mission {
   xpReward         Int           @default(25)
   status           String        @default("pending") // pending | completed | skipped | expired
   sourceType       String        @default("AI")      // AI | user | system
+  /// Which catalog entry this came from. Same contract as Habit.sourceKey —
+  /// a rhythm key, an exact ladder rung title, or `lever.<key>`; null for
+  /// anything a person wrote themselves.
+  sourceKey        String?
   aiRationale      String?       // LLM-generated "why this, why today"
   completedAt      DateTime?
   snoozeCount      Int           @default(0)
@@ -397,6 +401,19 @@ model Habit {
   xpReward           Int        @default(10)
   isActive           Boolean    @default(true)
   sourceType         String     @default("AI")
+  /// Which catalog entry this came from — a rhythm key, an exact ladder rung
+  /// title, or `lever.<key>`. Null for something typed by hand.
+  ///
+  /// Everything downstream of the catalog matched on *titles*, which works and
+  /// is brittle in a specific way the catalog's own comments admit: editing a
+  /// title re-offers it to everyone who already has it. It also makes the one
+  /// question worth asking in six months unanswerable — which entries people
+  /// actually keep at week six, and for which kind of deficit. Titles get
+  /// rephrased per person by the AI layer; identities do not.
+  ///
+  /// Nullable and best-effort. Title matching stays as the fallback, because
+  /// hand-typed habits have no catalog identity and never will.
+  sourceKey          String?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
