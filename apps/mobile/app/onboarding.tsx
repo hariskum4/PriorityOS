@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   deriveGoalTitle,
   namesAThing,
+  countryFromTimezone,
   momentOptionsFor,
   relationshipSanity,
   relationshipBlocked,
@@ -31,6 +32,7 @@ import { api } from '@/services/api';
 import { track } from '@/services/analytics';
 import { Button, Card, DomainDot, GapBar, Input, Label } from '@/components/ui';
 import { ShareRevealButton } from '@/components/ShareReveal';
+import { CountryField } from '@/components/CountryField';
 import { colors, type, space, domainColor, alpha } from '@/theme';
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -214,6 +216,16 @@ export default function Onboarding() {
   const [city, setCity] = useState('');
   /** Computed once — the device's zone does not change mid-form. */
   const deviceCity = React.useMemo(cityFromDeviceTimezone, []);
+  /**
+   * Seeded from the same zone signup used, so the common case needs no tap
+   * and the uncommon one needs exactly one. Left as a real answer rather than
+   * a silent default: whatever is showing when they move on is what gets
+   * written, which is the point — before this, nothing they did on this
+   * screen could change it.
+   */
+  const [country, setCountry] = useState<string>(
+    () => countryFromTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone) ?? '',
+  );
   const [marital, setMarital] = useState('');
   const [children, setChildren] = useState<string>('0');
   const [awayFromParents, setAwayFromParents] = useState<string>('');
@@ -289,6 +301,23 @@ export default function Onboarding() {
     locationType, callFrequency, desired, visitFrequency,
   ]);
   const personBlocked = relationshipBlocked(personFindings);
+  /**
+   * Which screen each finding belongs to, now that the person is two screens.
+   *
+   * Splitting the nine-input page into 6 and 6.5 left this list rendered only
+   * under step 6 — while three of the four inputs it reasons about (where
+   * they live, how often you talk, how often you visit) moved to 6.5. So
+   * every rule keyed on those became unreachable: a third of them, including
+   * both cadence notes and both location notes. A father who said his
+   * daughter lives in the same home and that he sees her monthly generated
+   * three findings and was shown one.
+   *
+   * `age` findings are decided by the name, relation and age on this screen
+   * and nothing else, so they stay. The rest are only true once the next
+   * screen has been answered, and belong there.
+   */
+  const ageFindings = personFindings.filter((f) => f.field === 'age');
+  const cadenceFindings = personFindings.filter((f) => f.field !== 'age');
 
   const [postponing, setPostponing] = useState('');
   const [postponingDomain, setPostponingDomain] = useState('');
@@ -377,7 +406,7 @@ export default function Onboarding() {
    */
   const [hydrated, setHydrated] = useState(false);
   const draft = {
-    step, lane, futureSelf, eulogy, userAge, workType, workHours, profession, city,
+    step, lane, futureSelf, eulogy, userAge, workType, workHours, profession, city, country,
     marital, children, awayFromParents, ranking, reality, alsoSlipping,
     person, personAge, locationType, healthStatus, callFrequency, desired,
     visitFrequency, moments, postponing, postponingDomain, feeling, style, touched,
@@ -405,6 +434,7 @@ export default function Onboarding() {
         if (typeof d.workHours === 'string') setWorkHours(d.workHours);
         if (typeof d.profession === 'string') setProfession(d.profession);
         if (typeof d.city === 'string') setCity(d.city);
+        if (typeof d.country === 'string') setCountry(d.country);
         if (typeof d.marital === 'string') setMarital(d.marital);
         if (typeof d.children === 'string') setChildren(d.children);
         if (typeof d.awayFromParents === 'string') setAwayFromParents(d.awayFromParents);
@@ -488,6 +518,13 @@ export default function Onboarding() {
              empty string over a column the AI reads as "their words". */
           profession: profession.trim() || undefined,
           city: city.trim() || undefined,
+          /* The one field on that screen that decides an arithmetic rather
+             than a vocabulary, so it is sent whenever the screen was shown —
+             including when they cleared it, which is a real answer meaning
+             "use the world average" and must be able to overwrite the
+             timezone's guess. The fast lane never shows it, and a lane that
+             did not ask must not answer. */
+          ...(lane === 'fast' ? {} : { country: country.trim().toUpperCase() || null }),
           // Not working means 0, not "unspecified" — leaving this undefined
           // let the Time tab's ?? 45 fallback quietly assume a 45h work
           // week for retired/non-working users, wrecking their free-time math.
@@ -793,7 +830,7 @@ export default function Onboarding() {
                           onPress={() => setProfession(on ? '' : p)}
                           accessibilityRole="button"
                           accessibilityLabel={p}
-                          accessibilityState={{ selected: on }}
+                          aria-selected={on}
                           style={({ pressed }) => [
                             s.chip,
                             on && s.chipOn,
@@ -845,6 +882,22 @@ export default function Onboarding() {
                       />
                     </View>
                   </View>
+                  {/* The country, asked rather than assumed.
+                      It was never asked here at all — signup derived it from
+                      the device timezone and that stood for good. So somebody
+                      who typed "Vigo" one line above this was still filed
+                      under India by a phone that had not been reset since the
+                      flight, and the Reveal two screens later counted his
+                      daughter's remaining visits over fourteen years instead
+                      of twenty-two. The city question is exactly where the
+                      contradiction becomes visible, so it is where the
+                      correction belongs. Pre-filled with the guess, because
+                      the guess is usually right. */}
+                  <CountryField
+                    value={country}
+                    onPick={(code) => { setTouched((t) => ({ ...t, country: true })); setCountry(code ?? ''); }}
+                    footer="Only used to pick the life-expectancy figure behind your Time numbers."
+                  />
                 </View>
               </>
             )}
@@ -916,7 +969,7 @@ export default function Onboarding() {
                   onPress={() => toggle(ranking, setRanking, d)}
                   accessibilityRole="button"
                   accessibilityLabel={on ? `${DOMAIN_LABELS[d] ?? d}, ranked ${idx + 1}` : DOMAIN_LABELS[d] ?? d}
-                  accessibilityState={{ selected: on }}
+                  aria-selected={on}
                   style={({ pressed }) => [
                     s.chip,
                     on && { borderColor: c, backgroundColor: `${c}1F` },
@@ -990,7 +1043,7 @@ export default function Onboarding() {
                         onPress={() => setReality({ ...reality, [d]: n })}
                         accessibilityRole="button"
                         accessibilityLabel={`${domainLabel(d)}: ${n} out of 5`}
-                        accessibilityState={{ selected: score === n }}
+                        aria-selected={score === n}
                         style={({ pressed }) => [
                           s.scoreDot,
                           n <= score && { backgroundColor: c, borderColor: c },
@@ -1025,7 +1078,7 @@ export default function Onboarding() {
                       onPress={() => toggle(alsoSlipping, setAlsoSlipping, d, 2)}
                       accessibilityRole="button"
                       accessibilityLabel={DOMAIN_LABELS[d]}
-                      accessibilityState={{ selected: on }}
+                      aria-selected={on}
                       style={({ pressed }) => [
                         s.chip,
                         on && s.chipRisk,
@@ -1111,10 +1164,19 @@ export default function Onboarding() {
             {/* Why the app is asking a stranger's age on screen five.
                 Health below has carried a reassurance since it was written;
                 age never did, and age is the more startling of the two to be
-                asked for. It costs one line to say what it buys. */}
+                asked for. It costs one line to say what it buys.
+
+                It said "Leave it blank if you'd rather" — and `age.missing`
+                is a blocking finding, so Next stays dead until a number is
+                typed. A reader who took the invitation was stuck on 6 of 8
+                with two sentences on screen contradicting each other, one of
+                them promising the field was optional and the other saying
+                Priority could not proceed without it. This line says what the
+                age buys; the finding below says it is required, in the only
+                moment that is worth saying — when it is empty. */}
             <Text style={type.faint}>
               Their age is what lets Priority count the time you have left
-              together instead of guessing at it. Leave it blank if you'd rather.
+              together instead of guessing at it.
             </Text>
             <PickRow label="They are your" options={RELATIONS} value={person.relationType} onPick={pickRelation} />
             <PickRow label="How often do you wish you talked?" options={CADENCES} value={desired} onPick={own('desired', setDesired)} />
@@ -1124,20 +1186,7 @@ export default function Onboarding() {
                 allowed and worth hearing now rather than in six weeks: asking
                 for less than you already do is a correct calculation with a
                 surprising result, and it switches this person off. */}
-            {personFindings.map((f) => (
-              <Text
-                key={f.key}
-                style={[
-                  type.faint,
-                  /* An empty field is not a mistake, it is a thing still to
-                     do. Only something typed and wrong is drawn in red. */
-                  f.level === 'block' && f.key !== 'age.missing' && { color: colors.rose },
-                  f.level === 'good' && { color: colors.amber },
-                ]}
-              >
-                {f.message}
-              </Text>
-            ))}
+            <Findings items={ageFindings} />
 
             {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
             <Button title={nextTitle} onPress={next} disabled={busy || !person.name.trim() || personBlocked} />
@@ -1203,7 +1252,7 @@ export default function Onboarding() {
                       ))}
                       accessibilityRole="button"
                       accessibilityLabel={m}
-                      accessibilityState={{ selected: on }}
+                      aria-selected={on}
                       style={[s.chip, on && s.chipOn]}
                     >
                       <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
@@ -1225,6 +1274,12 @@ export default function Onboarding() {
                 onPick={(v) => setHealthStatus(healthStatus === v ? '' : v)}
               />
             </View>
+            {/* The notes that only became true on this screen — you already
+                talk more often than you asked for, you share a roof but
+                answered monthly. Worth hearing while the answer is still
+                under your thumb rather than in six weeks of quiet arithmetic
+                built on it. */}
+            <Findings items={cadenceFindings} />
             {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
             <Button title={nextTitle} onPress={next} disabled={busy} />
           </View>
@@ -1244,7 +1299,7 @@ export default function Onboarding() {
                   onPress={() => setFeeling(f)}
                   accessibilityRole="button"
                   accessibilityLabel={f}
-                  accessibilityState={{ selected: on }}
+                  aria-selected={on}
                   style={({ pressed }) => [s.chip, on && s.chipOn, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>{f}</Text>
@@ -1300,6 +1355,33 @@ export default function Onboarding() {
   );
 }
 
+/**
+ * What the answers so far add up to, said in place.
+ *
+ * Shared by both halves of the person, because both halves have something to
+ * say and only one of them used to.
+ */
+function Findings({ items }: { items: Array<{ key: string; level: string; message: string }> }) {
+  return (
+    <>
+      {items.map((f) => (
+        <Text
+          key={f.key}
+          style={[
+            type.faint,
+            /* An empty field is not a mistake, it is a thing still to
+               do. Only something typed and wrong is drawn in red. */
+            f.level === 'block' && f.key !== 'age.missing' && { color: colors.rose },
+            f.level === 'good' && { color: colors.amber },
+          ]}
+        >
+          {f.message}
+        </Text>
+      ))}
+    </>
+  );
+}
+
 function PickRow({ label, options, value, onPick, display }: {
   label: string; options: readonly string[]; value: string; onPick: (v: string) => void;
   display?: Record<string, string>;
@@ -1316,7 +1398,7 @@ function PickRow({ label, options, value, onPick, display }: {
               onPress={() => onPick(o)}
               accessibilityRole="button"
               accessibilityLabel={display?.[o] ?? o}
-              accessibilityState={{ selected: on }}
+              aria-selected={on}
               style={[s.chip, on && s.chipOn]}
             >
               <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>{display?.[o] ?? o}</Text>
@@ -1645,7 +1727,8 @@ function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, per
                 disabled={!!chosen || adding}
                 accessibilityRole="button"
                 accessibilityLabel={`Start with this: ${f.title}`}
-                accessibilityState={{ selected: isChosen, disabled: !!chosen || adding }}
+                aria-selected={isChosen}
+                accessibilityState={{ disabled: !!chosen || adding }}
                 style={({ pressed }) => [
                   s.priorityRow,
                   isChosen && { borderColor: colors.green, backgroundColor: colors.greenSoft },

@@ -154,11 +154,29 @@ export default function People() {
   const daysSince = (iso: string | null) =>
     iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000) : null;
 
+  /**
+   * How far past their rhythm somebody is — counted from a moment that
+   * actually happened.
+   *
+   * "Never logged" used to return a flat 2, which is above the 1.5 bar, so
+   * every relationship was overdue from the instant it was created. The one
+   * person onboarding adds arrived on this screen wearing a rose chip before
+   * the reader had been anywhere they could log anything — under a line, on
+   * the same card, reading "Nothing logged with them yet. A short call
+   * counts — and starts the record." The person's own page, meanwhile, showed
+   * no such badge, so the two screens disagreed about the same relationship
+   * thirty seconds after it existed.
+   *
+   * Adding someone is the moment the clock starts. Before their first
+   * cadence has run out there is nothing to be late for — the same argument
+   * `isWaiting` in the stacking engine already makes for the daily cadences:
+   * a reproach for a lapse that has not happened is still a reproach.
+   */
   function overdueRatio(r: any): number {
-    const d = daysSince(r.lastContactAt);
+    const since = daysSince(r.lastContactAt ?? r.createdAt);
     const target = cadenceDays[r.desiredCallFrequency] ?? 30;
-    if (d === null) return 2;
-    return d / target;
+    if (since === null) return 0;
+    return since / target;
   }
 
   const people = [...(data ?? [])].sort((a, b) => overdueRatio(b) - overdueRatio(a));

@@ -175,7 +175,7 @@ function GoalForm({ goal, onClose }: { goal?: any; onClose: () => void }) {
             key={o.label}
             onPress={() => setWhenDays(o.days)}
             accessibilityRole="button"
-            accessibilityState={{ selected: whenDays === o.days }}
+            aria-selected={whenDays === o.days}
             style={[s.chip, whenDays === o.days && s.chipOn]}
           >
             <Text style={[type.faint, whenDays === o.days && { color: colors.amber, fontWeight: '700' }]}>

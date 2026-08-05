@@ -7,6 +7,8 @@ import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { useAuth } from '@/store/auth';
 import { Button, Card, Chip, ErrorNote, Input, Label, XpBar } from '@/components/ui';
+import { CountryField } from '@/components/CountryField';
+import { canonicalTimezone } from '@priority/scoring-engine';
 import {
   colors, type, space, levelProgress, themeMode, setThemeMode, isLight,
 } from '@/theme';
@@ -21,23 +23,6 @@ const BADGE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   sunday_ritualist: 'telescope-outline',
   getting_clear: 'sunny-outline',
 };
-
-/**
- * The countries offered as taps, not the whole table.
- *
- * `lifeExpectancyForRegion` knows about sixty; sixty chips is a wall, and the
- * ones below cover the overwhelming majority of who opens this. Anything the
- * timezone derived that is not here is added to the list at render rather
- * than dropped — a country that vanishes because it was not popular enough is
- * worse than a longer row.
- */
-const COUNTRY_BASE: Array<{ code: string; name: string }> = [
-  { code: 'IN', name: 'India' }, { code: 'US', name: 'United States' },
-  { code: 'GB', name: 'United Kingdom' }, { code: 'CA', name: 'Canada' },
-  { code: 'AU', name: 'Australia' }, { code: 'SG', name: 'Singapore' },
-  { code: 'AE', name: 'UAE' }, { code: 'DE', name: 'Germany' },
-  { code: 'JP', name: 'Japan' },
-];
 
 const LEVEL_TITLES: Array<[number, string]> = [
   [1, 'Waking up'], [11, 'Getting clear'], [26, 'Building'],
@@ -149,14 +134,11 @@ export default function You() {
    * Time tab's numbers. Country especially needs a door — it is derived
    * from the device timezone at signup, and a derivation someone cannot
    * fix is a guess wearing a fact's clothes.
+   *
+   * The door used to be nine chips wide, which is a door for the people the
+   * guess was already right about. `CountryField` keeps the nine and puts
+   * every country behind them.
    */
-  /* Whatever the timezone derived stays offered, popular or not. */
-  const countryChoices = React.useMemo(() => {
-    const code = me?.country;
-    if (!code || COUNTRY_BASE.some((c) => c.code === code)) return COUNTRY_BASE;
-    return [...COUNTRY_BASE, { code, name: code }];
-  }, [me?.country]);
-
   const saveProfile = useMutation({
     mutationFn: (patch: Record<string, string | null>) =>
       api('/me', { method: 'PATCH', body: patch }),
@@ -279,43 +261,11 @@ export default function You() {
           disabled={saveProfile.isPending}
           onCommit={(v) => saveProfile.mutate({ city: v })}
         />
-        {/* Country is a code, and a code is the one thing nobody should be
-            asked to type. It is also not free text to the engine — only
-            listed countries change the arithmetic — so the honest control is
-            a named list, not a box that accepts "Bharat" and silently means
-            nothing. Read as a sentence, and shown with what it actually
-            decides, since a lone "IN" explains none of itself. */}
-        <View style={{ gap: space(2) }}>
-          <Text style={type.dim}>Country</Text>
-          <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-            {countryChoices.map((c) => {
-              const on = (me?.country ?? '') === c.code;
-              return (
-                <Pressable
-                  key={c.code}
-                  onPress={() => saveProfile.mutate({ country: on ? null : c.code })}
-                  disabled={saveProfile.isPending}
-                  accessibilityRole="button"
-                  accessibilityLabel={c.name}
-                  accessibilityState={{ selected: on }}
-                  style={[s.modeChip, on && { borderColor: colors.amber, backgroundColor: colors.amberFaint }]}
-                >
-                  <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
-                    {c.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          {/* The name, never the code. This line exists to explain what a
-              two-letter code means, so printing "IN's life expectancy" in it
-              explains nothing and reads like a leaked database value. */}
-          <Text style={type.faint}>
-            {me?.country
-              ? `Time numbers use ${countryChoices.find((c) => c.code === me.country)?.name ?? me.country}'s life expectancy. Not listed? Leave it unset — Priority uses a world average.`
-              : 'Sets the life-expectancy figure behind every number on the Time tab.'}
-          </Text>
-        </View>
+        <CountryField
+          value={me?.country}
+          disabled={saveProfile.isPending}
+          onPick={(code) => saveProfile.mutate({ country: code })}
+        />
         <ErrorNote error={saveProfile.error} onRetry={() => saveProfile.reset()} />
       </Card>
 
@@ -369,19 +319,23 @@ export default function You() {
       <Card style={{ gap: space(3) }}>
         <Label>Your days</Label>
         <Text style={type.body}>
-          Measured in <Text style={{ color: colors.amber }}>{me?.timezone ?? 'UTC'}</Text>
+          {/* The current name, not the one the tz database keeps for
+              compatibility — onboarding already offers "Kolkata" as a city
+              chip, and printing "Asia/Calcutta" here had the app disagreeing
+              with itself about where somebody lives. */}
+          Measured in <Text style={{ color: colors.amber }}>{canonicalTimezone(me?.timezone) ?? 'UTC'}</Text>
         </Text>
         {zoneMoved ? (
           <>
             <Text style={type.faint}>
-              This device says {deviceZone}. If you have moved, updating this files your days
+              This device says {canonicalTimezone(deviceZone)}. If you have moved, updating this files your days
               and weeks against where you actually live. Your past record is re-read through
               the new zone, so a day logged near midnight can shift by one.
             </Text>
             <View style={{ flexDirection: 'row', gap: space(2) }}>
               <View style={{ flex: 1 }}>
                 <Button
-                  title={setZone.isPending ? 'Updating…' : `Use ${deviceZone}`}
+                  title={setZone.isPending ? 'Updating…' : `Use ${canonicalTimezone(deviceZone)}`}
                   small
                   onPress={() => setZone.mutate(deviceZone!)}
                   disabled={setZone.isPending}

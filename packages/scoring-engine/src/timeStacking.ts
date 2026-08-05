@@ -410,8 +410,17 @@ function normalise(s: string): string {
  * scores because "friends is getting 1% of your attention" is a sentence and
  * "friends has a neglect risk of 7.2" is a readout.
  */
+/**
+ * "You asked for 40%" and "you say 88" sat two lines apart on Today, about
+ * the same domain, and there was no way to read them as anything but a
+ * contradiction. They are different quantities — one a share of a week's
+ * attention, the other an importance score out of a hundred — and only one of
+ * them said which it was. Naming the basis costs three words and removes the
+ * only thing on that screen a reader could catch the app apparently getting
+ * wrong about itself.
+ */
 function reasonFor(worst: DomainShare, person: StackPerson | null): string {
-  const base = `${worst.domainType} is getting ${pct(worst.received)} of your attention — you asked for ${pct(worst.claimed)}`;
+  const base = `${worst.domainType} is getting ${pct(worst.received)} of your attention — your ranking asks for ${pct(worst.claimed)} of it`;
   if (!person || !isWaiting(person)) return `${base}.`;
   if (person.daysSince == null) return `${base}. You have not logged ${person.name} yet.`;
   const d = person.daysSince;

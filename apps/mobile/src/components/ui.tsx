@@ -83,7 +83,22 @@ export function Chip({ label, color, onPress, active }: {
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected: !!active }}
+      /**
+       * `aria-selected`, not `accessibilityState={{ selected }}`.
+       *
+       * react-native-web 0.19 forwards the flat accessibility props and the
+       * `aria-*` ones; it has no handling for the nested `accessibilityState`
+       * object at all, so eighteen controls across six screens were declaring
+       * a selected state that never reached the DOM. A screen reader walking
+       * onboarding heard eighteen identical buttons and could not tell which
+       * chip was already chosen — including the domain preselected on the
+       * someday screen, where the app relies on the highlight alone to say
+       * what it is about to do on the reader's behalf.
+       *
+       * React Native 0.74 maps `aria-selected` onto the native accessibility
+       * state itself, so this is the one spelling that works on both.
+       */
+      aria-selected={!!active}
       style={({ pressed }) => pressed && { opacity: 0.7 }}
     >
       {inner}

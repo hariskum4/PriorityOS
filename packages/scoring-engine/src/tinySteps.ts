@@ -19,11 +19,31 @@ export interface TinyStepInput {
   personName?: string | null;
 }
 
+/**
+ * Whose chat it is.
+ *
+ * These templates were written around their own fallbacks and then had names
+ * dropped into the same slot, which is not the same grammar: `${p ?? 'their'}
+ * chat` reads correctly as "their chat" and incorrectly as "Amma chat" — and
+ * a name is the normal case here, not the exception. "Call Amma this evening"
+ * is the archetypal mission in this product's own documentation, so the
+ * broken version is the one almost everybody saw.
+ *
+ * Plain `'s` for every name, including those already ending in s. Chicago
+ * sets "Lucas's"; the alternative needs a rule about sibilants that would be
+ * wrong about as often as it was right.
+ */
+function possessive(name: string): string {
+  return /['’]s?$/.test(name) ? name : `${name}'s`;
+}
+
 const BY_DOMAIN: Record<string, (p?: string | null) => string> = {
-  family: (p) => `Open ${p ?? 'their'} chat. Type one line. That's the whole task.`,
+  family: (p) => `Open ${p ? possessive(p) : 'their'} chat. Type one line. That's the whole task.`,
   partner: (p) => `Put your phone in the other room for ten minutes with ${p ?? 'them'}.`,
   friends: (p) => `Send ${p ?? 'them'} one meme or one memory. Nothing more.`,
-  children: (p) => `Sit down where ${p ?? 'they'} are playing. Just sit down.`,
+  /* Same trap, the other way round: the verb was conjugated for the "they"
+     fallback, so every named child got "Sit down where Lucía are playing". */
+  children: (p) => `Sit down where ${p ?? 'they'} ${p ? 'is' : 'are'} playing. Just sit down.`,
   health: () => 'Put on your shoes. You are allowed to stop there.',
   career: () => 'Open the document and write one bad sentence.',
   finance: () => 'Open the account and just look. Looking counts.',
@@ -70,7 +90,7 @@ export function tinyStep(input: TinyStepInput): string {
   if (input.missionType === 'relationship' || input.personName) {
     const domainFn = BY_DOMAIN[input.domainType];
     if (domainFn) return domainFn(input.personName);
-    return `Open ${input.personName ?? 'their'} chat. Type one line. That's the whole task.`;
+    return `Open ${input.personName ? possessive(input.personName) : 'their'} chat. Type one line. That's the whole task.`;
   }
   const fn = BY_DOMAIN[input.domainType];
   if (fn) return fn(null);

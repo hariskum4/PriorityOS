@@ -52,9 +52,38 @@ function firstClause(raw: string): string {
   return flatten(clause);
 }
 
+/**
+ * The comma boundary, used only when the alternative is a truncation.
+ *
+ * `firstClause` stops at hard punctuation, and people answering "the thing
+ * you keep postponing" mostly do not use any: they write one long breath with
+ * commas in it. "Take Lucia sailing for a proper week, just the two of us,
+ * before she stops wanting to come" has no full stop, so it was clipped at
+ * seventy-two characters into "…just the two of us, before she…" — a title
+ * that stops mid-thought, printed as a mission on the reveal with the whole
+ * untruncated sentence two lines underneath it.
+ *
+ * The first comma clause is a better title than a cut ("Take Lucia sailing
+ * for a proper week"), but only where a cut was going to happen anyway.
+ * Splitting unconditionally would wreck the short answers this must not
+ * touch — "Call Amma, Dad, and my sister every week" is already a title, and
+ * "Call Amma" is a different promise. So: only over the limit, and only when
+ * what precedes the comma is long enough to stand on its own.
+ */
+const MIN_COMMA_CLAUSE = 20;
+
+function commaClause(s: string, max: number): string | null {
+  if (s.length <= max) return null;
+  const comma = s.indexOf(',');
+  if (comma < MIN_COMMA_CLAUSE || comma > max) return null;
+  return s.slice(0, comma).trim();
+}
+
 /** Cut to `max` characters without splitting a word; add an ellipsis. */
 function clip(s: string, max: number): string {
   if (s.length <= max) return s;
+  const whole = commaClause(s, max);
+  if (whole) return whole;
   const cut = s.slice(0, max);
   const lastSpace = cut.lastIndexOf(' ');
   // Only respect the word boundary if it isn't absurdly early (one long word).

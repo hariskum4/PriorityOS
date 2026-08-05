@@ -2533,7 +2533,7 @@ export default function TimeReality() {
                                 onPress={() => saveDay.mutate({ commuteMinutes: n })}
                                 accessibilityRole="button"
                                 accessibilityLabel={`Commute ${n === 0 ? 'none' : `${n} minutes`} each way`}
-                                accessibilityState={{ selected: on }}
+                                aria-selected={on}
                                 style={[s.chip, on && s.chipOn]}
                               >
                                 <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
@@ -2693,7 +2693,7 @@ export default function TimeReality() {
                                   disabled={holdDay.isPending}
                                   hitSlop={6}
                                   accessibilityRole="button"
-                                  accessibilityState={{ selected: r.done }}
+                                  aria-selected={r.done}
                                   accessibilityLabel={r.done ? `${r.title}, held today — tap to undo` : `${r.title} — held today?`}
                                   style={({ pressed }) => [
                                     s.heldChip,
@@ -2925,7 +2925,7 @@ export default function TimeReality() {
                         onPress={() => setFoundMinutes(on ? null : m)}
                         accessibilityRole="button"
                         accessibilityLabel={m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? 's' : ''}`}
-                        accessibilityState={{ selected: on }}
+                        aria-selected={on}
                         style={[s.chip, on && s.chipOn]}
                       >
                         <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
@@ -2947,7 +2947,7 @@ export default function TimeReality() {
                             onPress={() => setFoundWhere(k)}
                             accessibilityRole="button"
                             accessibilityLabel={SETTING_LABELS[k]}
-                            accessibilityState={{ selected: on }}
+                            aria-selected={on}
                             style={[s.chip, on && s.chipOn]}
                           >
                             <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
@@ -3001,7 +3001,7 @@ export default function TimeReality() {
                       onPress={() => setFoundWindow(foundWindow ? null : foundMinutes)}
                       accessibilityRole="button"
                       accessibilityLabel={foundWindow ? 'Take it back out of my day' : 'Put it in my day'}
-                      accessibilityState={{ selected: !!foundWindow }}
+                      aria-selected={!!foundWindow}
                       style={({ pressed }) => [
                         s.chip,
                         { alignSelf: 'flex-start' },
@@ -3102,7 +3102,7 @@ export default function TimeReality() {
                               onPress={() => toggleRhythmDay(row.key, d, row.days)}
                               accessibilityRole="button"
                               accessibilityLabel={`${row.title}, ${WEEKDAY_NAMES[d]}`}
-                              accessibilityState={{ selected: planned }}
+                              aria-selected={planned}
                               style={({ pressed }) => [
                                 s.weekCell,
                                 planned && { borderColor: c, backgroundColor: alpha(c, 0.14) },

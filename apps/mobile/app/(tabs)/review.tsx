@@ -315,7 +315,7 @@ export default function Review() {
                         onPress={() => setPulse({ ...pulse, [d.domainType]: i + 1 })}
                         accessibilityRole="button"
                         accessibilityLabel={`${d.domainType} ${i + 1} out of 10`}
-                        accessibilityState={{ selected: i < v }}
+                        aria-selected={i < v}
                         style={[s.pulseSeg, i < v && { backgroundColor: c, borderColor: c }]}
                       >
                         <Text

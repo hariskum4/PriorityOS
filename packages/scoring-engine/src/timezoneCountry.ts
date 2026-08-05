@@ -106,3 +106,52 @@ export function countryFromTimezone(timezone?: string | null): string | null {
   if (!timezone) return null;
   return TZ_COUNTRY[timezone.trim()] ?? null;
 }
+
+/**
+ * Every code this table can produce. Exists so the country picker can be
+ * checked against it: a value the app is capable of storing but not of
+ * displaying or choosing is the defect this whole area had.
+ */
+export function timezoneCountryCodes(): string[] {
+  return [...new Set(Object.values(TZ_COUNTRY))].sort();
+}
+
+/**
+ * The name a place currently goes by.
+ *
+ * The tz database keeps its original spellings forever for compatibility, so
+ * a great many devices still report `Asia/Calcutta` and `Europe/Kiev`, and
+ * both are already in this database from real signups. Onboarding takes care
+ * to offer a city chip reading "Kolkata" — and then the You tab printed
+ * "Measured in Asia/Calcutta" underneath it, which is the app using a name
+ * the city stopped using in 2001 and disagreeing with itself while it does.
+ *
+ * Only for display and for deriving a city label. Storage keeps whatever the
+ * device said, because both spellings resolve to the same zone and rewriting
+ * somebody's stored zone is a bigger act than renaming a label.
+ */
+const RENAMED: Record<string, string> = {
+  'Asia/Calcutta': 'Asia/Kolkata',
+  'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+  'Asia/Rangoon': 'Asia/Yangon',
+  'Asia/Dacca': 'Asia/Dhaka',
+  'Asia/Katmandu': 'Asia/Kathmandu',
+  'Asia/Thimbu': 'Asia/Thimphu',
+  'Asia/Ashkhabad': 'Asia/Ashgabat',
+  'Asia/Macao': 'Asia/Macau',
+  'Asia/Ulan_Bator': 'Asia/Ulaanbaatar',
+  'Europe/Kiev': 'Europe/Kyiv',
+  'Europe/Uzhgorod': 'Europe/Kyiv',
+  'Europe/Zaporozhye': 'Europe/Kyiv',
+  'Africa/Asmera': 'Africa/Asmara',
+  'America/Godthab': 'America/Nuuk',
+  'Atlantic/Faeroe': 'Atlantic/Faroe',
+  'Pacific/Ponape': 'Pacific/Pohnpei',
+  'Pacific/Truk': 'Pacific/Chuuk',
+};
+
+export function canonicalTimezone(timezone?: string | null): string | null {
+  const tz = (timezone ?? '').trim();
+  if (!tz) return null;
+  return RENAMED[tz] ?? tz;
+}

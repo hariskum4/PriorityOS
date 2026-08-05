@@ -104,7 +104,7 @@ describe('time-stacking', () => {
 
   it('states the reason in shares the person can check', () => {
     const [top] = suggestStacks(REAL_LIFE, PEOPLE, 3);
-    expect(top.reason).toMatch(/is getting \d+% of your attention — you asked for \d+%/);
+    expect(top.reason).toMatch(/is getting \d+% of your attention — your ranking asks for \d+% of it/);
     expect(top.reason).toContain(top.reasonDomain!);
   });
 
@@ -322,7 +322,7 @@ describe('domains that lend the hour rather than gain one', () => {
 
   it('does not offer a walking meeting to a starving career', () => {
     // "Take one work call as a walking meeting" was the top suggestion,
-    // justified by "career is getting 33% of your attention — you asked for
+    // justified by "career is getting 33% of your attention — your ranking asks for
     // 47%". The call was happening either way and is the same call: career
     // gains nothing. Health gains the hour, and health is not what is short.
     const out = suggestStacks(CAREER_SHORT, [], 3);

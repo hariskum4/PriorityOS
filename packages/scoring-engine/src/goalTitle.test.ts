@@ -69,6 +69,43 @@ describe('goal titles', () => {
     expect(r.description).toBe(raw);
   });
 
+  /**
+   * People answer "the thing you keep postponing" in one breath with commas
+   * in it and no full stop at all, which is the one shape `firstClause` could
+   * not see. The reveal printed "…just the two of us, before she…" as a
+   * mission title, directly above the same sentence in full.
+   */
+  describe('a comma is a clause boundary when the alternative is a cut', () => {
+    it('takes the first clause instead of truncating mid-thought', () => {
+      const raw = 'Take Lucia sailing for a proper week, just the two of us, '
+        + 'before she stops wanting to come';
+      const r = deriveGoalTitle(raw);
+      expect(r.title).toBe('Take Lucia sailing for a proper week');
+      expect(r.title).not.toContain('…');
+      expect(r.description).toBe(raw);
+    });
+
+    it('leaves a comma list alone when it already fits — "Call Amma" is a different promise', () => {
+      const r = deriveGoalTitle('Call Amma, Dad, and my sister every week');
+      expect(r.title).toBe('Call Amma, Dad, and my sister every week');
+      expect(r.description).toBeNull();
+    });
+
+    it('still truncates when the first clause is too short to be a title', () => {
+      const raw = 'Honestly, I want to rebuild the entire way I spend my weekday '
+        + 'evenings so that they belong to my family again';
+      const r = deriveGoalTitle(raw);
+      expect(r.title).not.toBe('Honestly');
+      expect(r.title.endsWith('…')).toBe(true);
+    });
+
+    it('prefers a hard stop over a comma when the answer has both', () => {
+      const raw = 'Get back to the gym, properly this time. I have said it for three '
+        + 'years and done nothing about it whatsoever';
+      expect(deriveGoalTitle(raw).title).toBe('Get back to the gym, properly this time');
+    });
+  });
+
   it('never overwrites a description the caller already supplied', () => {
     const r = deriveGoalTitle(
       'Get my health fully in order this year — properly, not casually, with a real plan',

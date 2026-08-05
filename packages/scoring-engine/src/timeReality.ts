@@ -205,6 +205,16 @@ export function lifeExpectancyForRegion(region?: string): number {
   return LIFE_EXPECTANCY[region.trim().toUpperCase()] ?? DEFAULT_LIFE_EXPECTANCY;
 }
 
+/**
+ * The keys this table answers for — alpha-2 codes only, not the spelled-out
+ * aliases. Exported so the country picker can be tested against it rather
+ * than drifting away from it, which is how "Japan" came to mean 84 in the
+ * engine and be unreachable in the interface.
+ */
+export function lifeExpectancyRegions(): string[] {
+  return Object.keys(LIFE_EXPECTANCY).filter((k) => /^[A-Z]{2}$/.test(k)).sort();
+}
+
 export function workConstraintModifier(hoursPerWeek?: number): number {
   if (hoursPerWeek == null || hoursPerWeek < 40) return 1.0;
   if (hoursPerWeek <= 50) return 0.8;

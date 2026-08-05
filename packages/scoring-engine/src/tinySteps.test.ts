@@ -83,6 +83,38 @@ describe('tiny steps', () => {
     });
   });
 
+  /**
+   * The templates were written around their fallbacks and then had names
+   * dropped into the same slot. "Open Amma chat" and "Sit down where Lucía
+   * are playing" both shipped, on the Reveal, on Today and on Missions — the
+   * three places a new account looks first.
+   */
+  describe('a name is not a pronoun', () => {
+    it("gives the chat an owner", () => {
+      expect(tinyStep({ title: 'Call Amma this evening', domainType: 'family', personName: 'Amma' }))
+        .toContain("Open Amma's chat");
+      expect(tinyStep({ title: 'Check in on Sam', domainType: 'unknown_domain', personName: 'Sam' }))
+        .toContain("Open Sam's chat");
+    });
+
+    it('keeps "their" when there is no name to own it', () => {
+      expect(tinyStep({ title: 'One meaningful action in family', domainType: 'family' }))
+        .toContain('Open their chat');
+    });
+
+    it('conjugates for the child it just named', () => {
+      expect(tinyStep({ title: 'Fifteen minutes with Lucía', domainType: 'children', personName: 'Lucía' }))
+        .toBe('Sit down where Lucía is playing. Just sit down.');
+      expect(tinyStep({ title: 'x', domainType: 'children' }))
+        .toBe('Sit down where they are playing. Just sit down.');
+    });
+
+    it('does not double an apostrophe a name already carries', () => {
+      expect(tinyStep({ title: 'x', domainType: 'family', personName: "Nas'" }))
+        .toContain("Open Nas' chat");
+    });
+  });
+
   it('never uses obligation language', () => {
     const forbidden = /\bmust\b|\bshould\b|\bhave to\b|\bdon'?t forget\b|\bfail/i;
     for (const d of ['family', 'health', 'career', 'finance', 'nope']) {
