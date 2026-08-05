@@ -288,3 +288,59 @@ describe('what one change actually adds', () => {
     }
   });
 });
+
+/**
+ * A visit needs both people. The window used to be the other person's alone —
+ * invisible when the user is the younger one, and wildly wrong when they are
+ * not: an 87-year-old was told "~14 meaningful visits ahead" with his
+ * 58-year-old son, an arithmetic that assumed he would be there at 101.
+ */
+describe('the shared window is the shorter of the two', () => {
+  it('caps the horizon by the user\'s own age', () => {
+    const capped = estimateTimeReality({
+      personAge: 58, personLabel: 'Kenji', personLocationType: 'abroad',
+      currentVisitsPerYear: 1, region: 'Japan', userAge: 87,
+    });
+    const uncapped = estimateTimeReality({
+      personAge: 58, personLabel: 'Kenji', personLocationType: 'abroad',
+      currentVisitsPerYear: 1, region: 'Japan',
+    });
+    expect(capped.qualityYears).toBeLessThan(uncapped.qualityYears);
+    expect(capped.currentTrajectory).toBeLessThan(uncapped.currentTrajectory);
+  });
+
+  it('changes nothing when the user is the younger one', () => {
+    const a = estimateTimeReality({
+      personAge: 66, personLabel: 'Amma', currentVisitsPerYear: 2,
+      region: 'India', userAge: 34,
+    });
+    const b = estimateTimeReality({
+      personAge: 66, personLabel: 'Amma', currentVisitsPerYear: 2, region: 'India',
+    });
+    expect(a.qualityYears).toBe(b.qualityYears);
+    expect(a.currentTrajectory).toBe(b.currentTrajectory);
+  });
+
+  it('the user\'s own unknown health never darkens the estimate', () => {
+    // Same ages: the user-side window uses the neutral modifier, so a
+    // declining *person* is still the binding constraint, not the user.
+    const r = estimateTimeReality({
+      personAge: 70, personLabel: 'P', personHealthStatus: 'declining',
+      currentVisitsPerYear: 2, userAge: 70,
+    });
+    const personOnly = estimateTimeReality({
+      personAge: 70, personLabel: 'P', personHealthStatus: 'declining',
+      currentVisitsPerYear: 2,
+    });
+    expect(r.qualityYears).toBe(personOnly.qualityYears);
+  });
+
+  it('still never returns zero or a negative number, whatever the ages', () => {
+    const r = estimateTimeReality({
+      personAge: 98, personLabel: 'P', personHealthStatus: 'serious',
+      currentVisitsPerYear: 1, userAge: 99,
+    });
+    expect(r.qualityYears).toBeGreaterThan(0);
+    expect(r.currentTrajectory).toBeGreaterThanOrEqual(1);
+  });
+});

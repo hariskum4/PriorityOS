@@ -439,3 +439,33 @@ describe('a suggestion has to fit the life it lands in', () => {
     }
   });
 });
+
+/**
+ * A by-phone stack needs somebody at the other end of a phone line. A
+ * full-time carer was offered "Take your walk while calling Halima" about
+ * the mother she lives with and looks after all day — a call to her own flat.
+ */
+describe('a call-shaped stack never dials the reader\'s own home', () => {
+  const starving = shares([['health', 60, 0], ['family', 60, 0]]);
+
+  it('skips a same-home person, and the stack with them', () => {
+    const out = suggestStacks(starving, [
+      { name: 'Halima', relationType: 'mother', locationType: 'same_home', overdue: 2 },
+    ]);
+    expect(out.map((s) => s.action).join(' | ')).not.toMatch(/calling Halima/);
+  });
+
+  it('still calls the parent who actually lives elsewhere', () => {
+    const out = suggestStacks(starving, [
+      { name: 'Halima', relationType: 'mother', locationType: 'same_home', overdue: 3 },
+      { name: 'Baba', relationType: 'father', locationType: 'different_city', overdue: 1 },
+    ]);
+    const call = out.find((s) => /Take your walk while calling/.test(s.action));
+    expect(call?.action).toBe('Take your walk while calling Baba');
+  });
+
+  it('keeps the generic wording when nobody has been recorded at all', () => {
+    const out = suggestStacks(starving, []);
+    expect(out.some((s) => /Take your walk while calling a parent/.test(s.action))).toBe(true);
+  });
+});

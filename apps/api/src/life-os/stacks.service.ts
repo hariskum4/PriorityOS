@@ -81,7 +81,10 @@ export class StacksService {
       }),
       this.prisma.relationship.findMany({
         where: { userId },
-        select: { id: true, name: true, relationType: true, lastContactAt: true, desiredCallFrequency: true },
+        select: {
+          id: true, name: true, relationType: true, lastContactAt: true,
+          desiredCallFrequency: true, locationType: true,
+        },
       }),
       this.prisma.mission.findMany({
         where: { userId, status: 'pending' },
@@ -125,6 +128,8 @@ export class StacksService {
         daysSince: days,
         // Never logged counts as well over — the reading the People tab uses.
         overdue: days === null ? 2 : days / (CADENCE_DAYS[r.desiredCallFrequency ?? 'monthly'] ?? 30),
+        // So a by-phone stack never dials someone in the reader's own flat.
+        locationType: r.locationType,
       };
     });
 

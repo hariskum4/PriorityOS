@@ -328,6 +328,8 @@ export class LifeOsService {
           personLabel: r.name,
           personHealthStatus: (r.healthStatus as HealthStatus) ?? undefined,
           personLocationType: (r.locationType as LocationType) ?? undefined,
+          // Shared time has two ends; the shorter window is the real one.
+          userAge: age ?? undefined,
           userWorkHoursPerWeek: user.workHoursPerWeek ?? undefined,
           currentVisitsPerYear: 1,
           region: user.country ?? undefined,

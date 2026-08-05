@@ -412,7 +412,20 @@ export class OnboardingService {
     const currentReality = (get('values', 'currentReality') ?? {}) as Record<string, number>;
     const postponing = String(get('reflection', 'postponing') ?? '').trim();
     const feeling = String(get('values', 'firstWeekFeeling') ?? '').trim();
-    const person = relationships[0]?.name;
+    /**
+     * The person for the plan is the one they are missing, not the one they
+     * are with.
+     *
+     * `relationships[0]` alone is ranked by closeness, and closeness is the
+     * wrong axis: a full-time carer's closest person is the mother she is
+     * with every waking hour and said she does NOT want more time with — and
+     * the reveal answered "Fifteen minutes with Halima this week", while
+     * Mona, marked wantsMoreTime and slipping from monthly toward never, went
+     * unmentioned. `wantsMoreTime` is the field that literally says who is
+     * being postponed, so it decides; closeness only orders within it.
+     */
+    const focusPerson = relationships.find((r) => r.wantsMoreTime) ?? relationships[0];
+    const person = focusPerson?.name;
     /* The goal written from their postponing answer already carries a domain
        they chose. Reading it back is more honest than guessing one from the
        sentence, and it is what the mission should be filed under. */
@@ -487,13 +500,13 @@ export class OnboardingService {
         firstWeekFocus: this.firstWeekOptions({
           top3,
           person,
-          personDomain: relationships[0]
-            ? domainForRelationType(relationships[0].relationType)
+          personDomain: focusPerson
+            ? domainForRelationType(focusPerson.relationType)
             : null,
-          personId: relationships[0]?.id ?? null,
-          personAge: relationships[0]?.age ?? null,
-          personLocation: relationships[0]?.locationType ?? null,
-          personRelation: relationships[0]?.relationType ?? null,
+          personId: focusPerson?.id ?? null,
+          personAge: focusPerson?.age ?? null,
+          personLocation: focusPerson?.locationType ?? null,
+          personRelation: focusPerson?.relationType ?? null,
           postponing,
           postponingDomain: postponingGoalDomain,
           postponingGoalId: postponingGoal?.id ?? null,

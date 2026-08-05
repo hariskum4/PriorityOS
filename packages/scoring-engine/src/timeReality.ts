@@ -40,6 +40,19 @@ export interface TimeRealityInput {
   /** Default 'good' — absence of information must not darken the estimate. */
   personHealthStatus?: HealthStatus;
   personLocationType?: LocationType;
+  /**
+   * The user's own age, when known. A visit needs both people.
+   *
+   * The window used to be the other person's alone, which is invisible when
+   * the user is the younger one — the usual case, a 34-year-old asking about
+   * their mother — and wildly wrong the moment they are not. An 87-year-old
+   * with a 58-year-old son was told "~14 meaningful visits ahead", his son's
+   * window, an arithmetic that quietly assumed he would be there at 101. For
+   * a product whose whole claim is honest finite numbers, overcounting shared
+   * time at the far end of a life is the worst possible place to be wrong.
+   * The shared window is the shorter of the two.
+   */
+  userAge?: number;
   userWorkHoursPerWeek?: number;
   /** Visits (or meaningful in-person moments) per year at current pace. */
   currentVisitsPerYear: number;
@@ -211,17 +224,25 @@ export function estimateTimeReality(input: TimeRealityInput): TimeRealityResult 
   const personAge = finite(Number(input.personAge), 0);
 
   const expectancy = lifeExpectancyForRegion(input.region);
-  const conditionalYears =
-    (CONDITIONAL_HORIZON_AGE - personAge) * CONDITIONAL_SURVIVAL_FACTOR;
+  /** One person's remaining window, by the same arithmetic for either of them. */
+  const windowFor = (age: number, mod: number): number => {
+    const conditional = (CONDITIONAL_HORIZON_AGE - age) * CONDITIONAL_SURVIVAL_FACTOR;
+    const remaining = Math.max(expectancy - age, conditional, MIN_YEARS_REMAINING);
+    return Math.max((remaining - QUALITY_CUTOFF_YEARS) * mod, MIN_QUALITY_YEARS);
+  };
+
   const yearsRemaining = Math.max(
     expectancy - personAge,
-    conditionalYears,
+    (CONDITIONAL_HORIZON_AGE - personAge) * CONDITIONAL_SURVIVAL_FACTOR,
     MIN_YEARS_REMAINING,
   );
-  const qualityYears = Math.max(
-    (yearsRemaining - QUALITY_CUTOFF_YEARS) * HEALTH_MODIFIER[health],
-    MIN_QUALITY_YEARS,
-  );
+  /* The shared window is the shorter of the two. The user's own health is
+     not asked about anywhere, so their window uses the neutral modifier —
+     absence of information must not darken the estimate, on either side. */
+  const userAge = Number(input.userAge);
+  const qualityYears = Number.isFinite(userAge) && userAge > 0
+    ? Math.min(windowFor(personAge, HEALTH_MODIFIER[health]), windowFor(userAge, 1.0))
+    : windowFor(personAge, HEALTH_MODIFIER[health]);
 
   const capacityPerYear = LOCATION_CAPACITY[location] * workConstraintModifier(input.userWorkHoursPerWeek);
 

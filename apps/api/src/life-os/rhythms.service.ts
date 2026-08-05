@@ -106,6 +106,15 @@ export class RhythmsService {
       habits.filter((h) => h.isActive !== false).map((h) => h.domainType),
     );
     const takenTitles = habits.map((h) => h.title);
+    /* "Call home, the same day every week" is written for somebody whose
+       family is a phone call away. Offered to a reader who told us they live
+       with their parents — a full-time carer got it about the mother in the
+       next room — it reads as the app not knowing the one thing it was told
+       about their family. Marking it taken slides the offer to the domain's
+       next rhythm, which works face to face. */
+    if (user?.livesAwayFromParents === false) {
+      takenTitles.push('Call home, the same day every week');
+    }
 
     const ranked = domains
       .filter((d) => Number(d.importanceScore) > 0 && !held.has(d.domainType))

@@ -88,6 +88,14 @@ export interface Stack {
    * was invented by the catalog, not lived by her.
    */
   needs?: Array<keyof LifeShape>;
+  /**
+   * The action reaches the person down a phone line, so it needs somebody
+   * who is actually at the other end of one. A full-time carer was offered
+   * "Take your walk while calling Halima" about the mother she lives with
+   * and looks after all day — a call to her own flat. Same rule as `role`
+   * again: a person under the same roof does not fill a by-phone slot.
+   */
+  byPhone?: boolean;
 }
 
 /** Someone real, and how far past the rhythm they asked for. */
@@ -100,6 +108,8 @@ export interface StackPerson {
   daysSince?: number | null;
   /** Multiples of their own desired cadence: 1 means due, 2 means twice over. */
   overdue?: number;
+  /** Where they live relative to the reader — `same_home` matters here. */
+  locationType?: string | null;
 }
 
 export interface StackSuggestion {
@@ -152,7 +162,7 @@ const ANONYMOUS: Record<PersonRole, string> = {
 };
 
 const CATALOG: Stack[] = [
-  { key: 'walk_call_parent', action: 'Take your walk while calling {who}', domains: ['health', 'family'], framing: 'Movement and a real conversation in the same 20 minutes.', role: 'parent', setting: ['canMove', 'canSpeakFreely'] },
+  { key: 'walk_call_parent', action: 'Take your walk while calling {who}', domains: ['health', 'family'], framing: 'Movement and a real conversation in the same 20 minutes.', role: 'parent', byPhone: true, setting: ['canMove', 'canSpeakFreely'] },
   { key: 'cook_with_kid', action: 'Cook dinner with {who}, no screens', domains: ['children', 'health'], framing: 'A shared ritual that also feeds you both well.', role: 'child', setting: ['canMove'] },
   { key: 'commute_learn', action: 'Turn your commute into an audiobook or course', domains: ['growth', 'experiences'], framing: 'Reclaimed dead time becomes the skill you keep postponing.', needs: ['hasCommute'], setting: ['canMove'] },
   { key: 'chore_learn', action: 'Put an audiobook on while cooking or folding', domains: ['growth', 'experiences'], framing: 'The chores take the hour either way; you keep the ideas.', setting: ['canMove'] },
@@ -227,8 +237,12 @@ function gainsOf(st: Stack): string[] {
 }
 
 /** The person in a role who most needs the time — the most overdue, then the longest unseen. */
-function pickPerson(role: PersonRole, people: StackPerson[]): StackPerson | null {
-  const inRole = people.filter((p) => ROLE_OF[p.relationType?.toLowerCase()] === role);
+function pickPerson(role: PersonRole, people: StackPerson[], byPhone?: boolean): StackPerson | null {
+  const inRole = people.filter((p) =>
+    ROLE_OF[p.relationType?.toLowerCase()] === role
+    // A by-phone slot needs somebody at the other end of a line, and a
+    // person under the same roof is not — you walk WITH them instead.
+    && (!byPhone || p.locationType !== 'same_home'));
   if (!inRole.length) return null;
   return [...inRole].sort((a, b) =>
     (b.overdue ?? 0) - (a.overdue ?? 0)
@@ -290,9 +304,9 @@ export function suggestStacks(
    */
   const available = [...extra, ...CATALOG]
     .filter((st) => !st.needs || !shape || st.needs.every((c) => shape[c]))
-    .filter((st) => !st.role || !knowPeople || pickPerson(st.role, people))
+    .filter((st) => !st.role || !knowPeople || pickPerson(st.role, people, st.byPhone))
     .map((st) => {
-      const person = st.role ? pickPerson(st.role, people) : null;
+      const person = st.role ? pickPerson(st.role, people, st.byPhone) : null;
       return {
         st,
         person,

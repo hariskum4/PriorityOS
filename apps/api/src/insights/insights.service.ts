@@ -82,6 +82,12 @@ export class InsightsService {
                 personLabel: rel.name,
                 personHealthStatus: (rel.healthStatus as HealthStatus) ?? undefined,
                 personLocationType: (rel.locationType as LocationType) ?? undefined,
+                /* A visit needs both people. Without this an 87-year-old was
+                   told "~14 meaningful visits ahead" with his 58-year-old
+                   son — the son's window, assuming the father reaches 101. */
+                userAge: user?.dob
+                  ? Math.floor((Date.now() - user.dob.getTime()) / (365.25 * 86_400_000))
+                  : undefined,
                 userWorkHoursPerWeek: user?.workHoursPerWeek ?? undefined,
                 currentVisitsPerYear: visitsPerYear,
                 region: user?.country ?? (user?.timezone?.startsWith('Asia/') ? 'IN' : undefined),

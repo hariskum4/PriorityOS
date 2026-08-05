@@ -53,10 +53,28 @@ export class DashboardService {
     if (topMission) {
       const domain = domains.find((d) => d.domainType === topMission.domainType);
       const personName = (topMission as any).relationship?.name as string | undefined;
-      const gap = Math.max(
-        0,
-        Number(domain?.importanceScore ?? 0) - Number(domain?.attentionScore ?? 0),
-      );
+      /**
+       * "X points behind" is a measurement, and a measurement needs a week.
+       *
+       * Attention starts at zero, so on day one the gap equals the whole
+       * importance score and every domain is maximally "behind". A carer who
+       * had just rated family 5/5 — and been told by the Reveal, minutes
+       * earlier, that it was worth protecting rather than fixing — opened
+       * Today to "family is 60 points behind where you said it should be".
+       * Both sentences from the same app, an hour apart. Until one thing has
+       * actually been done, there is no "do" side to compare, and the copy
+       * says something true instead of something measured.
+       */
+      const watched = await this.prisma.mission.count({
+        where: { userId, status: 'completed' },
+        take: 1,
+      }) > 0 || habits.some((h) => (h._count?.logs ?? 0) > 0);
+      const gap = watched
+        ? Math.max(
+          0,
+          Number(domain?.importanceScore ?? 0) - Number(domain?.attentionScore ?? 0),
+        )
+        : 0;
       /**
        * A gap is only worth naming when there is one.
        *
