@@ -213,7 +213,11 @@ export function framingFor(estimate: number, personLabel: string): string {
   if (estimate > 20) {
     return `Each visit with ${personLabel} now carries the weight of real meaning.`;
   }
-  return `Precious time with ${personLabel}. This changes how every visit feels — in a good way.`;
+  /* Not "this changes how every visit feels — in a good way": shown under a
+   * headline that already says the count, that body repeated the number's
+   * message and then prescribed a feeling about it. The reader decides how
+   * it feels; the app's job is what to do with the fact. */
+  return `Precious time with ${personLabel} — few enough to plan each one on purpose.`;
 }
 
 export function estimateTimeReality(input: TimeRealityInput): TimeRealityResult {

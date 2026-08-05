@@ -82,7 +82,11 @@ export class JobsService {
         rel.userId,
         'relationship_drift',
         nudge?.title ?? `Time with ${rel.name}?`,
-        nudge?.body ?? `It\u2019s been a while since you connected with ${rel.name}. A short call counts.`,
+        // Claims nothing about elapsed time: this last-resort fallback can
+        // fire for someone who has never logged a contact, and "it's been a
+        // while" is a fact the app doesn't hold. ensureReachOutLine carries
+        // the honest per-case wording; this line just has to not lie.
+        nudge?.body ?? `A short call with ${rel.name} counts.`,
         new Date(),
         `drift:${rel.id}:${week}`,
       );

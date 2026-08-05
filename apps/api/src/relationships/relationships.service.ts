@@ -302,11 +302,17 @@ export class RelationshipsService {
           : null,
       },
       // Fallback still delivers the "with something" promise when possible.
+      // "It's been a while" is only said when the data can back it: with no
+      // contact ever logged, the app has no idea how long it has been, and
+      // claiming otherwise sat directly above a row reading "nothing logged
+      // yet" — an invented fact on the screen meant to earn trust.
       {
         title: `Time with ${rel.name}?`,
         body: memory
           ? `Last time you saved a moment together: "${memory.title.slice(0, 60)}". Ask ${rel.name} about it.`
-          : `It's been a while since you connected with ${rel.name}. A short call counts.`,
+          : days !== null
+            ? `It's been a while since you connected with ${rel.name}. A short call counts.`
+            : `Nothing logged with ${rel.name} yet. A short call counts — and starts the record.`,
       },
     );
 

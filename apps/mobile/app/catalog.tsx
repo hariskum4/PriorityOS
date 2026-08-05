@@ -226,21 +226,33 @@ export default function Catalog() {
                 style={({ pressed }) => [s.head, pressed && { opacity: 0.6 }]}
               >
                 <DomainDot domain={d} size={10} />
-                <Label>{name}</Label>
-                <View style={{ flex: 1 }} />
-                {/* Only when there is something to say. Twelve rows each
-                    reading "3 rhythms" is noise repeated twelve times; a
-                    green count is the one fact worth carrying while shut. */}
+                {/* The name yields (wrapping if it must); the count never
+                    does — "PURPOSE / CREATIVE WORK" was squeezing its own
+                    subtitle into "3 rhyth…", and a truncated count is worse
+                    than none. */}
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Label>{name}</Label>
+                </View>
+                {/* A closed door still says what's behind it. The counts
+                    differ per domain (three rhythms to six), so they are
+                    information, not repetition — and for the new account
+                    with nothing held yet, twelve bare name+chevron rows
+                    were a wall of doors with nothing written on them.
+                    Green stays reserved for the earned fact. */}
                 {kept ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                     {tightHead ? (
                       <Ionicons name="checkmark-circle" size={13} color={colors.green} />
                     ) : null}
-                    <Text style={[type.faint, { color: colors.green }]} numberOfLines={1}>
-                      {tightHead ? kept : `${kept} in your week`}
+                    <Text style={[type.faint, { color: colors.green }]}>
+                      {tightHead ? `${kept}/${list.length}` : `${kept} of ${list.length} in your week`}
                     </Text>
                   </View>
-                ) : null}
+                ) : (
+                  <Text style={[type.faint, { flexShrink: 0 }]}>
+                    {tightHead ? list.length : `${list.length} rhythms`}
+                  </Text>
+                )}
                 <Ionicons
                   name={shown ? 'chevron-up' : 'chevron-down'}
                   size={16}

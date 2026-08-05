@@ -144,18 +144,21 @@ export default function You() {
 
       {profile && lvl && (
         <Card style={{ gap: space(3) }}>
+          {/* Zeros greeted every new account — a report card of failure for
+              somebody who hadn't been given a chance to do anything yet.
+              Same rule as the GapBar: an absence is a dash, not a zero. */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <View style={{ alignItems: 'center', flex: 1 }}>
-              <Text style={type.stat}>{profile.totalXp}</Text>
+              <Text style={type.stat}>{profile.totalXp || '—'}</Text>
               <Text style={type.faint}>life XP</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1 }}>
-              <Text style={type.stat}>{profile.dailyStreak}</Text>
+              <Text style={type.stat}>{profile.dailyStreak || '—'}</Text>
               <Text style={type.faint}>day streak</Text>
             </View>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={type.stat}>{profile.graceRemaining}</Text>
-              <Text style={type.faint}>grace left</Text>
+              <Text style={type.faint}>{profile.graceRemaining === 1 ? 'grace day' : 'grace days'}</Text>
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -163,6 +166,11 @@ export default function You() {
             <XpBar into={lvl.intoLevel} needed={lvl.neededForNext} />
             <Text style={type.faint}>{lvl.intoLevel}/{lvl.neededForNext}</Text>
           </View>
+          {/* "Grace left" was the one number on this card wearing jargon —
+              a term the app never explains anywhere. One line pays for it. */}
+          <Text style={type.faint}>
+            A grace day is a missed day your streak survives.
+          </Text>
         </Card>
       )}
 

@@ -48,6 +48,14 @@ export const obsType = {
   strong: { ...baseType.body, fontWeight: '600' as const },
   dim: baseType.dim,
   tick: baseType.label,
+  /**
+   * For microcopy that outgrew the tick. The letterspaced mono cap is an
+   * instrument marking — at 10.5px with 1.6 tracking it holds about two
+   * words on a phone before it wraps mid-thought or truncates mid-word
+   * ("NEVER LOGGED · D…"). Anything sentence-shaped is set quiet and
+   * lowercase instead; the rule is two words or fewer for a tick.
+   */
+  note: baseType.faint,
   stat: baseType.stat,
 };
 

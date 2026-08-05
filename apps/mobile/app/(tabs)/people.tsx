@@ -216,14 +216,15 @@ export default function People() {
                   <Text style={type.title} numberOfLines={1}>{r.name}</Text>
                   <Text style={[type.faint, { textTransform: 'capitalize' }]}>{r.relationType}</Text>
                 </View>
-                {/* Elapsed time is measured, so it's set as an instrument tick —
-                    which also keeps it on one line beside the overdue chip. */}
+                {/* Not a tick: at mono-cap tracking this line lost its race
+                    with the overdue chip and truncated mid-word ("NEVER
+                    LOGGED · D…"). Set quiet and lowercase, it fits. */}
                 <Text
-                  style={[type.label, { letterSpacing: 1 }, overdue && { color: colors.rose }]}
+                  style={[type.faint, overdue && { color: colors.rose }]}
                   numberOfLines={1}
                 >
                   {d === null
-                    ? 'never logged'
+                    ? 'nothing yet'
                     : d === 0
                       ? 'talked today'
                       : `${d}d ago`}
@@ -233,10 +234,13 @@ export default function People() {
               {overdue && <View style={{ flexShrink: 0 }}><Chip label="overdue" color={colors.rose} /></View>}
               <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
             </Pressable>
-            {/* Something to reach out WITH — memory-grounded, not a guilt ping */}
+            {/* Something to reach out WITH — memory-grounded, not a guilt
+                ping. The icon was a gift box, after the intent ("the nudge is
+                a gift"); beside "call your mother" it read as a birthday
+                reminder. A heart says the sentiment without the date. */}
             {overdueRatio(r) >= 1 && r.reachOutLine && !just && (
               <View style={s.reachOutRow}>
-                <Ionicons name="gift-outline" size={14} color={colors.amber} style={{ marginTop: 2 }} />
+                <Ionicons name="heart-outline" size={14} color={colors.amber} style={{ marginTop: 2 }} />
                 <Text style={[type.dim, { flex: 1 }]}>{r.reachOutLine}</Text>
               </View>
             )}

@@ -25,7 +25,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { Input, DomainDot } from '@/components/ui';
-import { levelProgress } from '@/theme';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
@@ -243,9 +242,22 @@ function ProposalCard({ proposal, onAccept, onDismiss }: {
         >
           <Text style={{ color: obs.inkDim, fontWeight: '600', fontSize: 13.5 }}>Not this</Text>
         </Pressable>
+        {/* Same words as the Now Card's lead-in ("Too big right now?") —
+            the one concept wore two costumes, static text there and a mono
+            cap here that didn't look tappable. And a role, so this is a
+            button to assistive tech rather than an anonymous div. */}
         {proposal.tinyStep ? (
-          <Pressable onPress={() => setShowTiny((v) => !v)} hitSlop={8} style={{ marginLeft: 'auto' }}>
-            <Tick>{showTiny ? 'hide' : 'too big?'}</Tick>
+          <Pressable
+            onPress={() => setShowTiny((v) => !v)}
+            hitSlop={8}
+            style={{ marginLeft: 'auto' }}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showTiny }}
+            accessibilityLabel={showTiny ? 'Hide the smaller version' : 'Too big right now? Show a smaller version'}
+          >
+            <Text style={[obsType.note, { color: obs.ink }]}>
+              {showTiny ? 'hide' : 'Too big right now?'}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -426,16 +438,7 @@ export default function Today() {
   const complete = useMutation({
     mutationFn: (m: any) => api<any>(`/missions/${m.id}/complete`, { method: 'POST' }),
     onSuccess: (res, m) => {
-      // The row's `xpReward` and what the server actually banks are two
-      // different numbers: awards go by event type, so a relationship mission
-      // pays 40 whatever the column says. Only the response is authoritative —
-      // and it arrives as the award record, not a bare number.
-      const awarded = typeof res?.xp === 'number' ? res.xp : res?.xp?.amount;
-      setJustCompleted({
-        ...m,
-        xpAwarded: typeof awarded === 'number' ? awarded : null,
-        next: res?.next ?? null,
-      });
+      setJustCompleted({ ...m, next: res?.next ?? null });
       invalidate();
     },
   });
@@ -733,7 +736,6 @@ export default function Today() {
   const score = reading.score;
 
   const gam = data.gamification;
-  const lvl = gam ? levelProgress(gam.totalXp ?? 0) : null;
   const dateLine = new Date().toLocaleDateString(undefined, {
     weekday: 'long', month: 'long', day: 'numeric',
   });
@@ -868,7 +870,9 @@ export default function Today() {
               </Text>
               <Text style={obsType.dim}>Today matters. Here's what it's asking for.</Text>
             </View>
-            {gam ? (
+            {/* A flame holding a zero is a verdict, not a greeting. The chip
+                earns its place on the first kept day and not before. */}
+            {gam && gam.dailyStreak > 0 ? (
               <View style={s.streak}>
                 <Ionicons name="flame" size={13} color={obs.brass} />
                 <Text style={{ color: obs.brass, fontWeight: '600', fontSize: 13 }}>{gam.dailyStreak}</Text>
@@ -882,11 +886,10 @@ export default function Today() {
           <View style={s.doneBanner}>
             <Ionicons name="checkmark-circle" size={17} color={obs.brass} />
             <Text style={[obsType.dim, { flex: 1 }]}>
-              <Text style={{ color: obs.ink }}>
-                {justCompleted.xpAwarded != null
-                  ? `Done, +${justCompleted.xpAwarded} XP. `
-                  : 'Done. '}
-              </Text>
+              {/* "Done, +30 XP" was the arcade speaking at the app's most
+                  human moment. The earn still lands — the You tab keeps the
+                  ledger; this banner keeps the sentiment. */}
+              <Text style={{ color: obs.ink }}>Done — that counted. </Text>
               {justCompleted.next
                 ? 'The engine lined up what comes next.'
                 : 'Your plate already holds what matters.'}
@@ -1117,9 +1120,11 @@ export default function Today() {
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                 <Ionicons name="git-merge-outline" size={13} color={obs.brass} />
-                <Tick color={obs.brass}>
+                {/* Sentence-shaped, so not a tick — as a mono cap this wrapped
+                    at phone width and orphaned "LIFE" onto its own line. */}
+                <Text style={[obsType.note, { color: obs.brass }]}>
                   one move · {topStack.covers.length} parts of your life
-                </Tick>
+                </Text>
                 <View style={{ flex: 1 }} />
                 <View style={{ flexDirection: 'row', gap: 4 }}>
                   {topStack.domains.map((d: string) => (
@@ -1228,18 +1233,19 @@ export default function Today() {
                 <View style={s.lensClear}><Tick>Show all</Tick></View>
               </Pressable>
             ) : (
-              <Tick>
+              <Text style={obsType.note}>
                 {/* One instruction, not three clauses of notation.
                     "Outward = neglected · rings show where you started · tap a
                     domain" asked someone to hold a legend in their head before
                     the picture meant anything; a diagram needing that much
                     caption is encoding more than its shape can say. The rings
                     still mean what they meant — the invitation is what leads,
-                    and the reading is what the tap teaches. */}
+                    and the reading is what the tap teaches. Set as a note, not
+                    a tick: as a mono cap this whole sentence wrapped twice. */}
                 {pastDomains && driftSpan
                   ? `Tap a domain · the faint ring is ${driftSpan}`
                   : 'Tap a domain · the further out, the more it has been waiting'}
-              </Tick>
+              </Text>
             )}
           </View>
         </Rise>
@@ -1381,12 +1387,14 @@ export default function Today() {
                     rather than under the score on the right — where, as a
                     caption to a number, "a gap" made 67 read as the size of
                     the gap when it is the opposite measure. */}
-                <Tick>
+                {/* Three measurements and a verdict don't fit in a tick at
+                    phone width — "DRIFTING" wrapped onto its own line. */}
+                <Text style={obsType.note} numberOfLines={1}>
                   {active.importance <= 0
                     ? 'not in your plan yet'
                     : `you say ${Math.round(active.importance)} · you do ${Math.round(active.attention)}`
                       + (activeDrift > 0.55 ? ' · drifting' : activeDrift > 0.25 ? ' · a gap' : '')}
-                </Tick>
+                </Text>
               </View>
               {/* Where it has been, beside where it is. */}
               <View style={{ flexShrink: 0 }}>
@@ -1468,7 +1476,13 @@ export default function Today() {
         <Rise delay={280}>
           <View style={s.glance}>
             <View style={s.tile}>
-              <Text style={[obsType.stat, { color: obs.brass }]}>{Math.round(score)}</Text>
+              {/* Zero here means "attention unmeasured anywhere yet" —
+                  lifeAlignment returns 0 only when totalAttention is 0. The
+                  GapBar has always rendered unmeasured as a dash rather than
+                  a zero; the app's own summary number follows its own rule. */}
+              <Text style={[obsType.stat, { color: obs.brass }]}>
+                {score > 0 ? Math.round(score) : '—'}
+              </Text>
               <Tick>alignment</Tick>
             </View>
             {/* `waiting` sat at 0 most days, holding a third of the fold to say
@@ -1486,8 +1500,12 @@ export default function Today() {
               </Pressable>
             )}
             <View style={s.tile}>
+              {/* A streak of zero is not a measurement, it is an absence —
+                  shown as one, per the same rule as alignment above. */}
               <Text style={[obsType.stat, { color: obs.ink }]}>
-                {habitsTotal > 0 ? `${habitsDone}/${habitsTotal}` : (gam?.dailyStreak ?? 0)}
+                {habitsTotal > 0
+                  ? `${habitsDone}/${habitsTotal}`
+                  : (gam?.dailyStreak ? gam.dailyStreak : '—')}
               </Text>
               <Tick>{habitsTotal > 0 ? 'habits today' : 'day streak'}</Tick>
             </View>
@@ -1524,20 +1542,10 @@ export default function Today() {
               </Text>
             </Pressable>
           ) : null}
-          {gam && lvl ? (
-            <View style={s.levelRow}>
-              <Tick>Level {lvl.level}</Tick>
-              <View style={s.xpTrack}>
-                <View
-                  style={[
-                    s.xpFill,
-                    { width: `${Math.min(100, (lvl.intoLevel / Math.max(1, lvl.neededForNext)) * 100)}%` },
-                  ]}
-                />
-              </View>
-              <Tick>{lvl.intoLevel}/{lvl.neededForNext} XP</Tick>
-            </View>
-          ) : null}
+          {/* The level strip lived here uncarded — "LEVEL 1 ── 0/100 XP"
+              floating between an observatory's readings in an arcade's
+              vocabulary. The instrument still exists in full on the You tab,
+              which is where a profile statistic belongs. */}
         </Rise>
 
         {/* ── worth knowing ────────────────────────────────────────── */}
@@ -1762,9 +1770,6 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: obs.ruleSoft, borderRadius: 16,
     backgroundColor: obs.sunken,
   },
-  levelRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
-  xpTrack: { flex: 1, height: 3, borderRadius: 2, backgroundColor: obs.rule, overflow: 'hidden' },
-  xpFill: { height: 3, borderRadius: 2, backgroundColor: obs.brass },
 
   quiet: {
     borderWidth: 1, borderColor: obs.ruleSoft, borderRadius: 18,

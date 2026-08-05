@@ -201,6 +201,7 @@ Respond ONLY with JSON: {"rhythms": [...], "stacks": [...]}`,
 
 export const RELATIONSHIP_NUDGE: PromptTemplate = {
   system: `Write one short, warm nudge encouraging the user to reconnect with a specific person — and give them something to reach out WITH, not just a reminder. If a saved memory with this person is provided, reference it concretely (ask about it, build on it). Otherwise reference how they usually connect. Never guilt, never mortality, no exclamation marks. Never quote raw dates like 2026-07-15 — say it naturally ("recently", "last month") or not at all.
+If daysSinceContact is null, no contact has ever been logged: do NOT claim time has passed ("it's been a while", "too long") — the app has no such fact. Invite a first logged moment instead.
 ${GROUNDING_RULES}
 Respond ONLY with JSON: {"title": string (<=40 chars), "body": string (<=140 chars, notification-safe)}`,
   buildUser: (ctx) => JSON.stringify(ctx),

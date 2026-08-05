@@ -300,8 +300,17 @@ function Reflect() {
             </View>
           </>
         ) : (
-          <Pressable onPress={() => setMore(true)} hitSlop={8}>
-            <Text style={[type.label, { color: colors.amber }]}>+ gratitude, what you didn't postpone, tags</Text>
+          <Pressable
+            onPress={() => setMore(true)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Add gratitude, what you didn't postpone, or tags"
+          >
+            {/* Seven words can't be an instrument tick — as letterspaced mono
+                caps this wrapped onto two lines and read as shouting. */}
+            <Text style={[type.faint, { color: colors.amber }]}>
+              + gratitude, what you didn't postpone, tags
+            </Text>
           </Pressable>
         )}
 
@@ -309,7 +318,9 @@ function Reflect() {
         {saved ? (
           <View style={s.savedRow}>
             <Ionicons name="checkmark-circle" size={18} color={colors.green} />
-            <Text style={[type.dim, { color: colors.green }]}>Saved — +10 XP</Text>
+            {/* Not "+10 XP" — a journal entry is the least arcade moment in
+                the app. The ledger on the You tab still banks it. */}
+            <Text style={[type.dim, { color: colors.green }]}>Saved — it counts toward today.</Text>
           </View>
         ) : (
           <Button

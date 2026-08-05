@@ -505,9 +505,12 @@ export default function Missions() {
                   {m.relationship ? ` · ${m.relationship.name}` : ''}
                 </Text>
               </View>
+              {/* The "+30 XP" chip priced every mission in arcade currency —
+                  a bounty tag on "call your mother". The minutes chip stays:
+                  cost is a fact the reader plans with; reward is the app
+                  talking about itself. The ledger still banks it on You. */}
               <View style={{ flexDirection: 'row', gap: 6, flexShrink: 0 }}>
                 {m.estimatedMinutes ? <Chip label={`${m.estimatedMinutes} min`} /> : null}
-                <Chip label={`+${m.xpReward} XP`} color={colors.amber} />
               </View>
             </View>
             <Text style={type.title}>{m.title}</Text>
@@ -523,14 +526,17 @@ export default function Missions() {
                 {/* Guarded, because two taps used to mean two completions and
                     double XP — and on a slow connection nothing moved to say
                     the first tap had landed. */}
+                {/* Same verbs as the Now Card on Today. One action, one
+                    vocabulary: "Complete / Later" here beside "Done / Not
+                    today" there made the same two buttons read as four. */}
                 <Button
-                  title={busy ? 'Saving…' : 'Complete'}
+                  title={busy ? 'Saving…' : 'Done'}
                   small
                   onPress={() => complete.mutate(m.id)}
                   disabled={busy}
                 />
               </View>
-              <Button title="Later" kind="ghost" small onPress={() => snooze.mutate(m)} disabled={busy} />
+              <Button title="Not today" kind="ghost" small onPress={() => snooze.mutate(m)} disabled={busy} />
             </View>
           </Card>
         );
