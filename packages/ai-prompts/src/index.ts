@@ -17,10 +17,22 @@ const TONE_GUIDE = `Tone rules:
 
 // Groundedness is non-negotiable: one invented person or misread number and
 // the user's trust in "it heard me" is gone. Appended to every system prompt.
+/**
+ * The rules every prompt inherits.
+ *
+ * The fourth one exists because the third used to name its own field. It read
+ * "A neglectRisk below 40 is NOT neglect", which taught the model a variable
+ * name and then got it repeated back to readers verbatim: "with a neglectRisk
+ * of 0, there's no urgent gap" and "given a neglect risk of 20 and importance
+ * of 40" both shipped onto the Now card — the first thing a new account sees.
+ * The constraint is kept; the jargon is described rather than spelled, and the
+ * internals are named once, in the one place that forbids them.
+ */
 const GROUNDING_RULES = `Grounding rules (CRITICAL):
 - Use ONLY the facts, numbers, and names present in the provided context JSON.
 - NEVER invent people, conversations, events, or memories. If no person is named in the context, do not name one.
-- Quote numbers exactly as given. A neglectRisk below 40 is NOT neglect — do not describe it as skipping, avoiding, or neglecting.
+- Quote numbers exactly as given. Where the context scores an area out of 100, a score under 40 is NOT neglect — do not describe it as skipping, avoiding, or neglecting.
+- Write for a person, never about the system. Never name a field, key, or internal metric from the context (for example: neglectRisk, importanceScore, attentionScore, priorityScore, magnitude, domainType, perWeek). Never quote a raw score as a bare number out of nowhere. Say what it means in ordinary words, or say nothing.
 - If the context is too thin to say something specific, say something short and true instead of something specific and false.`;
 
 export const VALUES_EXTRACTION: PromptTemplate = {

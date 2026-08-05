@@ -119,6 +119,21 @@ export class AiService {
       if (!text) throw new Error('Empty completion');
 
       const parsed = parseStrictJson<T>(restore(text, pseudonyms));
+      /**
+       * A generation that talks about the machine is not usable copy.
+       *
+       * The prompt asks for this and asking is not enough — "with a
+       * neglectRisk of 0, there's no urgent gap" and "given a neglect risk of
+       * 20 and importance of 40" both reached the Now card, which is the first
+       * thing a new account reads. A model repeating a field name has not
+       * written a worse sentence, it has written a different kind of thing,
+       * and the deterministic fallback is always a real sentence. So this
+       * falls back rather than tries to clean it up.
+       */
+      if (leaksInternals(parsed)) {
+        this.logger.warn(`AI generation for ${kind} named internals; using fallback`);
+        return this.persist(userId, kind, fallback, 'fallback', opts?.cacheKey);
+      }
       return this.persist(userId, kind, parsed, model, opts?.cacheKey);
     } catch (err) {
       this.logger.warn(`AI generation failed for ${kind}: ${String(err)}`);
@@ -143,6 +158,25 @@ export class AiService {
     });
     return content;
   }
+}
+
+/**
+ * Field names and internal metrics, as they escape into prose.
+ *
+ * Matched with a space allowed where the camelCase hump is, because that is
+ * how a model renders one when it is trying to sound natural: `neglectRisk`
+ * becomes "neglect risk" and reads as English until you notice it is a column.
+ * Whole words only — "importance" on its own is an ordinary word and belongs
+ * in this app's vocabulary; "importance score of 40" does not.
+ */
+const INTERNAL_TERMS = /\b(neglect\s?risk|importance\s?score|attention\s?score|priority\s?score|neglect\s?score|domain\s?type|per\s?week|life\s?domain|magnitude of|cache\s?key|user\s?id)\b/i;
+
+/** Every string anywhere in a generation, however the shape nests. */
+export function leaksInternals(value: unknown): boolean {
+  if (typeof value === 'string') return INTERNAL_TERMS.test(value);
+  if (Array.isArray(value)) return value.some(leaksInternals);
+  if (value && typeof value === 'object') return Object.values(value).some(leaksInternals);
+  return false;
 }
 
 /**
