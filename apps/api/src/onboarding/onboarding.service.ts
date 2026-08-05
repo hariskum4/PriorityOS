@@ -6,7 +6,7 @@ import { AiService } from '../ai/ai.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { BlueprintService } from '../life-os/blueprint.service';
 import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
-import { deriveGoalTitle } from '@priority/scoring-engine';
+import { deriveGoalTitle, suggestCountables, countKeyOf } from '@priority/scoring-engine';
 import { ALL_DOMAINS, domainForRelationType } from '@priority/types';
 
 /** The names people and integrations use for domains, mapped to the slugs the rows use. */
@@ -83,6 +83,86 @@ export class OnboardingService {
    * no first mission at all. Copy is not a data channel. The domain travels
    * as a field.
    */
+  /**
+   * The countable life, started from what they already told us.
+   *
+   * "~75 Diwalis at home", "~150 movie nights with the kids" — the most
+   * affecting thing this app produces, and on day one the section was empty
+   * for everybody, because a count only exists once somebody opens the Time
+   * tab, finds the ritual card and taps a suggestion. The strongest ones were
+   * sitting in the answers already: `meaningfulMomentTypes` is the reader's
+   * own phrase for what matters with a particular person — "long calls" with
+   * Vikram, "temple visits" with Amma — collected during onboarding and, as
+   * the Time tab's own comment says, never read until the card was opened.
+   *
+   * Except no screen in this app has ever asked for that field. Onboarding
+   * does not collect it and neither does the People tab; the only writers are
+   * the test harnesses. So seeding from it alone would be a feature that never
+   * fires, and the sources that do exist are the next ones down: a person the
+   * reader said they want more time with, which onboarding asks about plainly.
+   * "days out with Ines" is the app's phrasing rather than theirs — but it is
+   * about a named person they named for a reason they gave, and the card shows
+   * that reason back.
+   *
+   * The `domain` source stays out. "Long walks outdoors, because you rate
+   * health 60" is inferred from a slider and attached to nobody; good enough
+   * to offer on a card, not good enough to write into a life unasked.
+   *
+   * A count is not a commitment — it asks for nothing and claims no hour. That
+   * is what makes seeding one defensible where seeding a habit would not be.
+   * Every row written here is an ordinary count: editable, removable, and
+   * identical to one added by hand, because it is the same record under the
+   * same key.
+   */
+  private async seedCountablesFromTheirWords(userId: string): Promise<void> {
+    const [people, existing] = await Promise.all([
+      this.prisma.relationship.findMany({
+        where: { userId },
+        select: {
+          id: true, name: true, relationType: true, closenessScore: true,
+          wantsMoreTime: true, desiredCallFrequency: true, meaningfulMomentTypes: true,
+        },
+      }),
+      this.prisma.onboardingAnswer.findMany({
+        where: { userId, section: 'counts' },
+        select: { key: true },
+      }),
+    ]);
+
+    const suggestions = suggestCountables({
+      existing: existing.map((a) => ({ key: a.key, label: a.key })),
+      people: people.map((p) => ({
+        id: p.id,
+        name: p.name,
+        relationType: p.relationType,
+        closenessScore: p.closenessScore ?? undefined,
+        wantsMoreTime: p.wantsMoreTime ?? undefined,
+        desiredCallFrequency: p.desiredCallFrequency ?? undefined,
+        meaningfulMomentTypes: (p.meaningfulMomentTypes ?? []) as string[],
+      })),
+      domains: [],
+      archiveThemes: [],
+      // Three is the card's own shape. More would be a list to manage rather
+      // than a life to look at.
+      limit: 3,
+    }).filter((s) => s.source === 'moment-type' || s.source === 'person');
+
+    const taken = new Set(existing.map((a) => a.key));
+    for (const s of suggestions) {
+      const key = countKeyOf(s.label);
+      if (taken.has(key)) continue;
+      taken.add(key);
+      await this.prisma.onboardingAnswer.upsert({
+        where: { userId_section_key: { userId, section: 'counts', key } },
+        create: {
+          userId, section: 'counts', key,
+          value: { label: s.label, perYear: s.perYear, people: s.peopleIds },
+        },
+        update: {},
+      });
+    }
+  }
+
   private firstWeekOptions(opts: {
     top3: string[];
     person?: string | null;
@@ -225,6 +305,11 @@ export class OnboardingService {
       await this.insights.regenerateForUser(userId);
     } catch (err) {
       this.logger.error(`regenerateForUser failed for ${userId}`, err as Error);
+    }
+    try {
+      await this.seedCountablesFromTheirWords(userId);
+    } catch (err) {
+      this.logger.error(`seedCountables failed for ${userId}`, err as Error);
     }
 
     // 3. Mark complete

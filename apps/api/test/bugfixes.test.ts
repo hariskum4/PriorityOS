@@ -318,4 +318,40 @@ describe('the reveal reads the number it quotes', () => {
     expect(drift!.title.split(' ').pop()).toBe('1/5');
     expect(drift!.domainType).toBe('health');
   });
+
+  /**
+   * The countable life, on day one.
+   *
+   * "~490 more evenings out with Carol" is the most affecting thing this app
+   * produces, and the section was empty for every new account — a count only
+   * existed once somebody found the ritual card in the Time tab and tapped a
+   * suggestion. The people were already named at onboarding.
+   */
+  it('starts the countables from the people they named', async () => {
+    await people.create(userId, { ...AMMA } as never);
+    await reveal({ health: 3, family: 4, career: 3 });
+
+    const counts = await prisma.onboardingAnswer.findMany({
+      where: { userId, section: 'counts' },
+    });
+    expect(counts.length).toBeGreaterThan(0);
+
+    const labels = counts.map((c) => (c.value as { label: string }).label);
+    // About a person they named, by name — not a domain-shaped guess.
+    expect(labels.some((l) => l.includes('Amma'))).toBe(true);
+    for (const c of counts) {
+      const v = c.value as { label: string; perYear: number };
+      expect(v.perYear).toBeGreaterThan(0);
+      expect(v.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('does not write a second copy when onboarding completes twice', async () => {
+    await people.create(userId, { ...AMMA } as never);
+    await reveal({ health: 3, family: 4, career: 3 });
+    const first = await prisma.onboardingAnswer.count({ where: { userId, section: 'counts' } });
+    await reveal({ health: 3, family: 4, career: 3 });
+    const second = await prisma.onboardingAnswer.count({ where: { userId, section: 'counts' } });
+    expect(second).toBe(first);
+  });
 });
