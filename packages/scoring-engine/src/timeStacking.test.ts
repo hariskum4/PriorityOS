@@ -469,3 +469,72 @@ describe('a call-shaped stack never dials the reader\'s own home', () => {
     expect(out.some((s) => /Take your walk while calling a parent/.test(s.action))).toBe(true);
   });
 });
+
+/**
+ * Distance was only ever checked in one direction. `byPhone` kept a call
+ * away from somebody in the next room; nothing stopped an action that needs
+ * a shared kitchen being offered about somebody in another city. A father
+ * whose 25-year-old lives away and is seen quarterly was handed "Cook dinner
+ * with Sean, no screens" on his Today screen.
+ */
+describe('an action that needs the same room needs somebody in it', () => {
+  const starving = domainShares([
+    { domainType: 'children', importance: 90, attention: 5 },
+    { domainType: 'health', importance: 80, attention: 10 },
+    { domainType: 'friends', importance: 70, attention: 5 },
+    { domainType: 'purpose', importance: 60, attention: 5 },
+  ]);
+
+  it('does not propose cooking dinner with a child in another city', () => {
+    const out = suggestStacks(starving, [
+      { name: 'Sean', relationType: 'child', daysSince: 30, overdue: 2, locationType: 'different_city' },
+    ], 30);
+    expect(out.some((s) => /Cook dinner with Sean/.test(s.action))).toBe(false);
+    expect(out.some((s) => /Make something with Sean/.test(s.action))).toBe(false);
+    expect(out.some((s) => /Take Sean outdoors/.test(s.action))).toBe(false);
+  });
+
+  it('still proposes it for a child who is actually there', () => {
+    const out = suggestStacks(starving, [
+      { name: 'Meera', relationType: 'child', daysSince: 1, overdue: 1, locationType: 'same_home' },
+    ]);
+    expect(out.some((s) => /Meera/.test(s.action))).toBe(true);
+  });
+
+  it('an unrecorded address is not distance — behaviour is unchanged', () => {
+    const out = suggestStacks(starving, [
+      { name: 'Meera', relationType: 'child', daysSince: 1, overdue: 1 },
+    ]);
+    expect(out.some((s) => /Meera/.test(s.action))).toBe(true);
+  });
+
+  it('does not invent a school run for a 25-year-old', () => {
+    const grown = suggestStacks(starving, [
+      { name: 'Sean', relationType: 'child', daysSince: 30, overdue: 2, age: 25, locationType: 'same_home' },
+    ], 30);
+    expect(grown.some((s) => /school run/.test(s.action))).toBe(false);
+
+    /* A generous limit, so this asks whether the slot is *eligible* rather
+       than whether it outranks two others. */
+    const schoolAge = suggestStacks(starving, [
+      { name: 'Zoe', relationType: 'child', daysSince: 3, overdue: 1, age: 9, locationType: 'same_home' },
+    ], 30);
+    expect(schoolAge.some((s) => /school run/.test(s.action))).toBe(true);
+  });
+
+  it('an unrecorded age is not evidence of being grown', () => {
+    const unknown = suggestStacks(starving, [
+      { name: 'Zoe', relationType: 'child', daysSince: 3, overdue: 1, locationType: 'same_home' },
+    ], 30);
+    expect(unknown.some((s) => /school run/.test(s.action))).toBe(true);
+  });
+
+  it('picks a nearer person for the slot over a remote one', () => {
+    const out = suggestStacks(starving, [
+      { name: 'Sean', relationType: 'child', daysSince: 60, overdue: 4, locationType: 'abroad' },
+      { name: 'Meera', relationType: 'child', daysSince: 2, overdue: 0.5, locationType: 'same_city' },
+    ]);
+    const cook = out.find((s) => /Cook dinner with/.test(s.action));
+    if (cook) expect(cook.action).toContain('Meera');
+  });
+});

@@ -33,6 +33,7 @@
 import type { DomainShare } from './alignment';
 import type { LifeShape } from './lifeShape';
 import type { Setting } from './setting';
+import { isRemoteLocation } from './remote';
 
 /** The relationships a stack can be built around. */
 export type PersonRole = 'parent' | 'child' | 'partner' | 'friend';
@@ -96,6 +97,33 @@ export interface Stack {
    * again: a person under the same roof does not fill a by-phone slot.
    */
   byPhone?: boolean;
+  /**
+   * The mirror of `byPhone`, and the half that was missing.
+   *
+   * These actions need a shared kitchen, pavement or afternoon — you cannot
+   * cook dinner down a phone line. Only `byPhone` was ever enforced, so
+   * distance was checked in one direction: a father whose 25-year-old son
+   * lives in another city and is seen quarterly was offered "Cook dinner
+   * with Sean, no screens" on his Today screen, two lines under a mission
+   * that correctly told him a message was enough.
+   *
+   * Marked per entry rather than inferred from `!byPhone`, because plenty of
+   * the catalog travels fine: a money review, a gratitude at night and
+   * telling a friend what you are building all work down a line, and
+   * blanking them for everyone remote would take away the stacks that
+   * distance makes *more* valuable, not less.
+   */
+  inPerson?: boolean;
+  /**
+   * The oldest this person can be for the action to make any sense.
+   *
+   * One entry needs it and needs it badly: a school run assumes somebody who
+   * still goes to school. Offered about a 25-year-old — which it was, because
+   * `role: 'child'` matches a son of any age — it invents a school, a car and
+   * a shared morning. Age is only checked when the reader gave us one;
+   * unknown stays eligible, as everywhere else here.
+   */
+  maxPersonAge?: number;
 }
 
 /** Someone real, and how far past the rhythm they asked for. */
@@ -110,6 +138,8 @@ export interface StackPerson {
   overdue?: number;
   /** Where they live relative to the reader — `same_home` matters here. */
   locationType?: string | null;
+  /** Their age, when the reader gave one. Gates the age-bound entries. */
+  age?: number | null;
 }
 
 export interface StackSuggestion {
@@ -163,14 +193,14 @@ const ANONYMOUS: Record<PersonRole, string> = {
 
 const CATALOG: Stack[] = [
   { key: 'walk_call_parent', action: 'Take your walk while calling {who}', domains: ['health', 'family'], framing: 'Movement and a real conversation in the same 20 minutes.', role: 'parent', byPhone: true, setting: ['canMove', 'canSpeakFreely'] },
-  { key: 'cook_with_kid', action: 'Cook dinner with {who}, no screens', domains: ['children', 'health'], framing: 'A shared ritual that also feeds you both well.', role: 'child', setting: ['canMove'] },
+  { key: 'cook_with_kid', action: 'Cook dinner with {who}, no screens', domains: ['children', 'health'], framing: 'A shared ritual that also feeds you both well.', role: 'child', setting: ['canMove'], inPerson: true },
   { key: 'commute_learn', action: 'Turn your commute into an audiobook or course', domains: ['growth', 'experiences'], framing: 'Reclaimed dead time becomes the skill you keep postponing.', needs: ['hasCommute'], setting: ['canMove'] },
   { key: 'chore_learn', action: 'Put an audiobook on while cooking or folding', domains: ['growth', 'experiences'], framing: 'The chores take the hour either way; you keep the ideas.', setting: ['canMove'] },
-  { key: 'workout_friend', action: 'Train with {who} once a week', domains: ['health', 'friends'], framing: 'Accountability and the friendship, in one slot.', role: 'friend', setting: ['canMove'] },
+  { key: 'workout_friend', action: 'Train with {who} once a week', domains: ['health', 'friends'], framing: 'Accountability and the friendship, in one slot.', role: 'friend', setting: ['canMove'], inPerson: true },
   { key: 'weekend_trip_family', action: 'Plan a weekend trip with the family', domains: ['family', 'experiences'], framing: 'A memory and time together, from the same weekend.', setting: ['hasScreen'] },
   { key: 'gratitude_partner', action: 'Share one gratitude with {who} at night', domains: ['partner', 'reflection'], framing: 'Presence and inner practice in sixty seconds.', role: 'partner', setting: ['canSpeakFreely'] },
   { key: 'teach_skill', action: 'Teach someone the thing you are learning', domains: ['growth', 'impact'], framing: 'Learning sticks when you give it away.', setting: ['canSpeakFreely'] },
-  { key: 'creative_with_kid', action: 'Make something with {who} — draw, build, record', domains: ['purpose', 'children'], framing: 'Your creative practice, and their childhood, at once.', role: 'child', setting: ['canMove'] },
+  { key: 'creative_with_kid', action: 'Make something with {who} — draw, build, record', domains: ['purpose', 'children'], framing: 'Your creative practice, and their childhood, at once.', role: 'child', setting: ['canMove'], inPerson: true },
   { key: 'volunteer_family', action: 'Volunteer together as a family', domains: ['impact', 'family'], framing: 'Contribution that your kids will remember you for.', setting: ['canMove'] },
   { key: 'walk_meeting', action: 'Take one work call as a walking meeting', domains: ['career', 'health'], hosts: ['career'], framing: 'The work still happens; your body stops paying for it.', needs: ['hasDeskJob'], setting: ['canMove', 'canSpeakFreely'] },
   { key: 'money_date', action: 'A monthly money review with {who}', domains: ['finance', 'partner'], framing: 'Shared clarity beats separate anxiety.', role: 'partner', setting: ['canSpeakFreely', 'isPrivate'] },
@@ -182,10 +212,10 @@ const CATALOG: Stack[] = [
      those undersells the hour it costs. The pairs above are still here because
      a pair is often the honest count; these are the cases where it is not. */
   { key: 'family_outing', action: 'Walk somewhere new with the family, phones away', domains: ['family', 'health', 'experiences'], framing: 'One afternoon doing the work of three.', setting: ['canMove'] },
-  { key: 'partner_walk_month', action: 'Walk with {who} and talk through the month', domains: ['partner', 'health', 'reflection'], framing: 'The conversation you keep meaning to have, while moving.', role: 'partner', setting: ['canMove', 'canSpeakFreely'] },
-  { key: 'kid_outdoors', action: 'Take {who} outdoors instead of to a screen', domains: ['children', 'health', 'experiences'], framing: 'They remember the weather, not the tablet.', role: 'child', setting: ['canMove'] },
+  { key: 'partner_walk_month', action: 'Walk with {who} and talk through the month', domains: ['partner', 'health', 'reflection'], framing: 'The conversation you keep meaning to have, while moving.', role: 'partner', setting: ['canMove', 'canSpeakFreely'], inPerson: true },
+  { key: 'kid_outdoors', action: 'Take {who} outdoors instead of to a screen', domains: ['children', 'health', 'experiences'], framing: 'They remember the weather, not the tablet.', role: 'child', setting: ['canMove'], inPerson: true },
   { key: 'kid_money_choice', action: 'Let {who} help with one real money decision', domains: ['children', 'finance', 'growth'], hosts: ['finance'], framing: 'A lesson that lands because the money is real.', role: 'child', setting: ['canSpeakFreely'] },
-  { key: 'volunteer_with_friend', action: 'Volunteer somewhere with {who} once a month', domains: ['impact', 'friends', 'experiences'], framing: 'Contribution, company, and a day unlike the others.', role: 'friend', setting: ['canMove'] },
+  { key: 'volunteer_with_friend', action: 'Volunteer somewhere with {who} once a month', domains: ['impact', 'friends', 'experiences'], framing: 'Contribution, company, and a day unlike the others.', role: 'friend', setting: ['canMove'], inPerson: true },
   { key: 'build_in_public', action: 'Publish one small piece of the thing you are building', domains: ['purpose', 'career', 'impact'], framing: 'The work stops being private, and starts being useful.', setting: ['hasScreen'] },
   { key: 'trip_around_learning', action: 'Plan one trip around something you want to learn', domains: ['experiences', 'growth', 'purpose'], framing: 'Go somewhere to become someone, not just to be away.', setting: ['hasScreen'] },
   { key: 'mentor_hour', action: 'Mentor someone for one hour a month', domains: ['career', 'impact', 'growth'], framing: 'You get sharper by explaining what you already know.', setting: ['canSpeakFreely'] },
@@ -196,13 +226,13 @@ const CATALOG: Stack[] = [
      of them assume anyone you have not told us about. */
   { key: 'purpose_walk', action: 'Walk and think through the thing you keep postponing', domains: ['purpose', 'health'], framing: 'The work you never start gets its hour, and your body gets it too.', setting: ['canMove'] },
   { key: 'purpose_tell_friend', action: 'Tell {who} what you are actually trying to build', domains: ['purpose', 'friends'], framing: 'Saying it out loud is how it stops being a secret.', role: 'friend', setting: ['canSpeakFreely'] },
-  { key: 'friend_cook', action: 'Cook for {who} instead of meeting at a restaurant', domains: ['friends', 'health'], framing: 'Longer, cheaper, and you both eat better for it.', role: 'friend', setting: ['canMove'] },
+  { key: 'friend_cook', action: 'Cook for {who} instead of meeting at a restaurant', domains: ['friends', 'health'], framing: 'Longer, cheaper, and you both eat better for it.', role: 'friend', setting: ['canMove'], inPerson: true },
   { key: 'career_first_hour', action: 'Give the first thirty minutes of work to the skill, not the inbox', domains: ['career', 'growth'], framing: 'The compounding half of the job, before the day takes it.', needs: ['hasDeskJob'], setting: ['hasScreen'] },
   /* The same protected hour, for a life whose day answers to no employer —
      the homemaker who wrote "I will have my own business", the student, the
      founder. Career here is the thing being built, not a job being kept. */
   { key: 'build_first_hour', action: 'Give the first quiet hour of the day to the thing you want to build', domains: ['career', 'purpose'], framing: 'The plan you keep postponing starts as one protected hour, before the day fills.', needs: ['selfDirectedWork'], setting: ['hasScreen'] },
-  { key: 'school_run_talk', action: 'Make the school run a real conversation with {who}', domains: ['children', 'family'], framing: 'The trip happens anyway; the conversation is the upgrade.', role: 'child', setting: ['canMove', 'canSpeakFreely'] },
+  { key: 'school_run_talk', action: 'Make the school run a real conversation with {who}', domains: ['children', 'family'], framing: 'The trip happens anyway; the conversation is the upgrade.', role: 'child', setting: ['canMove', 'canSpeakFreely'], inPerson: true, maxPersonAge: 18 },
 
   /* Career, where the hour is actually career.
      Once a walking meeting stopped counting as career time, a life short on
@@ -237,12 +267,24 @@ function gainsOf(st: Stack): string[] {
 }
 
 /** The person in a role who most needs the time — the most overdue, then the longest unseen. */
-function pickPerson(role: PersonRole, people: StackPerson[], byPhone?: boolean): StackPerson | null {
+function pickPerson(
+  role: PersonRole,
+  people: StackPerson[],
+  byPhone?: boolean,
+  inPerson?: boolean,
+  maxPersonAge?: number,
+): StackPerson | null {
   const inRole = people.filter((p) =>
     ROLE_OF[p.relationType?.toLowerCase()] === role
     // A by-phone slot needs somebody at the other end of a line, and a
     // person under the same roof is not — you walk WITH them instead.
-    && (!byPhone || p.locationType !== 'same_home'));
+    && (!byPhone || p.locationType !== 'same_home')
+    // And the mirror: you cannot cook dinner with somebody in another city.
+    // Unknown stays eligible — absence of an address is not distance.
+    && (!inPerson || !isRemoteLocation(p.locationType))
+    // A school run needs somebody who still goes to school. Only checked
+    // when an age was given; unknown is not evidence of being grown.
+    && (maxPersonAge == null || p.age == null || p.age <= maxPersonAge));
   if (!inRole.length) return null;
   return [...inRole].sort((a, b) =>
     (b.overdue ?? 0) - (a.overdue ?? 0)
@@ -304,9 +346,9 @@ export function suggestStacks(
    */
   const available = [...extra, ...CATALOG]
     .filter((st) => !st.needs || !shape || st.needs.every((c) => shape[c]))
-    .filter((st) => !st.role || !knowPeople || pickPerson(st.role, people, st.byPhone))
+    .filter((st) => !st.role || !knowPeople || pickPerson(st.role, people, st.byPhone, st.inPerson, st.maxPersonAge))
     .map((st) => {
-      const person = st.role ? pickPerson(st.role, people, st.byPhone) : null;
+      const person = st.role ? pickPerson(st.role, people, st.byPhone, st.inPerson, st.maxPersonAge) : null;
       return {
         st,
         person,

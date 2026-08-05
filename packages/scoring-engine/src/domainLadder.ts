@@ -166,8 +166,32 @@ const LADDERS: Record<string, LadderRung[]> = {
   ],
 };
 
+/**
+ * The children ladder for children who live somewhere else.
+ *
+ * The standard children ladder starts at "One undivided hour with them this
+ * week" and climbs through afternoons that need a shared address. For a
+ * parent whose children are grown and away, every rung the page offered was
+ * one they could not take without a flight — so the domain read as finished
+ * advice for a life the reader does not lead. Rungs that work at distance
+ * survive unchanged; the ones that needed the same room become the call,
+ * the plan, and the standing weekly thing.
+ */
+const CHILDREN_REMOTE_LADDER: LadderRung[] = [
+  { title: 'A call where they pick the topic', label: 'A call, their topic', minutes: 30 },
+  { title: 'Ask what they are actually into right now', label: 'Ask what they are into', minutes: 20 },
+  { title: 'Let them teach you something over a call', label: 'Let them teach you', minutes: 30 },
+  { title: 'Write down one thing they said this month', label: 'Write down what they said', minutes: 10 },
+  { title: 'Plan the next visit and put a date on it', label: 'Put a date on a visit', minutes: 20 },
+  { title: 'Make the call a standing weekly thing', label: 'Make the call weekly', minutes: 15, recurring: { perWeek: 1 } },
+];
+
 /** Everything the ladder for a domain contains, in order. */
-export function domainLadder(domainType: string): LadderRung[] {
+export function domainLadder(
+  domainType: string,
+  opts?: { remoteChildren?: boolean },
+): LadderRung[] {
+  if (domainType === 'children' && opts?.remoteChildren) return CHILDREN_REMOTE_LADDER;
   return LADDERS[domainType] ?? LADDERS.reflection;
 }
 
@@ -193,8 +217,9 @@ export function nextDomainAction(
   domainType: string,
   done: Iterable<string> = [],
   open: Iterable<string> = [],
+  opts?: { remoteChildren?: boolean },
 ): LadderPosition {
-  const ladder = domainLadder(domainType);
+  const ladder = domainLadder(domainType, opts);
   const norm = (s: string) => s.trim().toLowerCase();
   const doneSet = new Set([...done].map(norm));
   const openSet = new Set([...open].map(norm));

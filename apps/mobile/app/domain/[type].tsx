@@ -11,6 +11,7 @@ import {
   matchRitual,
   costOfDelay,
   nextDomainAction,
+  childrenAreRemote,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
@@ -195,6 +196,17 @@ export default function DomainDetail() {
   });
 
   /**
+   * Whether every child on this page lives away. The children ladder and
+   * prompt switch on it: "One undivided hour with them this week" is not a
+   * rung a parent in Vigo can take toward a 25-year-old in Madrid, and a
+   * page of untakeable rungs reads as advice for a different life.
+   */
+  const remoteChildren = React.useMemo(
+    () => childrenAreRemote(relationships ?? []),
+    [relationships],
+  );
+
+  /**
    * Where this domain stands on its ladder — the first action not already
    * done and not already waiting on the list. When the ladder runs out the
    * card says so instead of starting again from the top.
@@ -208,7 +220,8 @@ export default function DomainDetail() {
       // the ladder would offer it again every single time this screen opened.
       ...(allHabits ?? []).filter((h: any) => h.domainType === domainType).map((h: any) => h.title),
     ],
-  ), [domainType, doneMissions, missions, allHabits]);
+    { remoteChildren },
+  ), [domainType, doneMissions, missions, allHabits, remoteChildren]);
 
   const domain = (dashboard?.domains ?? []).find((d: any) => d.domainType === domainType);
   const domainGoals = (goals ?? []).filter((g) => g.domainType === domainType && g.status !== 'done');
@@ -294,6 +307,7 @@ export default function DomainDetail() {
           rung={rung}
           busy={addStarter.isPending}
           ownCount={ownCount}
+          remoteChildren={remoteChildren}
         />
 
         {/* Cost of delay — this domain compounds; starting now beats starting later */}
@@ -408,13 +422,15 @@ export default function DomainDetail() {
  * finally with a home. Everything is estimate-framed and offers one
  * concrete action.
  */
-function SignatureFeature({ domainType, age, color, onAdd, rung, busy, ownCount }: {
+function SignatureFeature({ domainType, age, color, onAdd, rung, busy, ownCount, remoteChildren }: {
   domainType: string; age: number | null; color: string;
   onAdd: (title: string, minutes: number, recurring?: { perWeek: number }) => void;
   rung: ReturnType<typeof nextDomainAction>;
   busy: boolean;
   /** Their own ritual for this domain, or null when they keep none. */
   ownCount: { label: string; remaining: number; detailText: string } | null;
+  /** Every child on file lives away — the children prompt switches on it. */
+  remoteChildren?: boolean;
 }) {
   const [monthly, setMonthly] = React.useState('10000');
   const [minutes, setMinutes] = React.useState(30);
@@ -586,7 +602,12 @@ function SignatureFeature({ domainType, age, color, onAdd, rung, busy, ownCount 
     career: { label: 'Career, on your terms', icon: 'briefcase-outline', text: 'The goal is not more hours — it is that the hours point somewhere you chose.', starter: 'Block two hours of focused work' },
     family: { label: 'Show up', icon: 'heart-outline', text: 'The research is blunt: close relationships are the strongest predictor of a long, happy life.', starter: 'Call someone in your family today' },
     partner: { label: 'Presence over logistics', icon: 'heart-outline', text: 'Partnership erodes in the admin and rebuilds in the small, undivided moments.', starter: 'Plan a phone-free evening together' },
-    children: { label: 'The concentrated years', icon: 'happy-outline', text: 'Ordinary days are where childhood actually happens.', starter: 'One undivided hour with them this week' },
+    children: remoteChildren
+      /* Written for the parent whose children are grown or away — the
+         co-located line names ordinary shared days this reader does not
+         have, and reads as a page that never looked at the addresses. */
+      ? { label: 'The distance years', icon: 'happy-outline', text: 'Distance sets the medium, not the closeness. The calls are where the ordinary days live now.', starter: 'A call where they pick the topic' }
+      : { label: 'The concentrated years', icon: 'happy-outline', text: 'Ordinary days are where childhood actually happens.', starter: 'One undivided hour with them this week' },
     friends: { label: 'Against the drift', icon: 'people-outline', text: 'Friendships rarely end in a fight. They end in a slow quiet no one decided on.', starter: 'Message a friend you have been meaning to' },
   };
   const p = prompts[domainType] ?? prompts.reflection;

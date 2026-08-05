@@ -34,6 +34,7 @@ import {
   lifeShape,
   suggestStacks,
   shortfallsCovered,
+  isRemoteLocation,
   type StackPerson,
   type StackSuggestion,
 } from '@priority/scoring-engine';
@@ -84,6 +85,9 @@ export class StacksService {
         select: {
           id: true, name: true, relationType: true, lastContactAt: true,
           desiredCallFrequency: true, locationType: true,
+          /* Sent to the wording pass, so a rewrite can respect the age and
+             the distance instead of inventing a life around a bare name. */
+          age: true, inPersonFrequency: true,
         },
       }),
       this.prisma.mission.findMany({
@@ -130,8 +134,14 @@ export class StacksService {
         overdue: days === null ? 2 : days / (CADENCE_DAYS[r.desiredCallFrequency ?? 'monthly'] ?? 30),
         // So a by-phone stack never dials someone in the reader's own flat.
         locationType: r.locationType,
+        // And so a school run is never proposed about a 25-year-old.
+        age: r.age,
       };
     });
+
+    /* Looked up by the id the engine carries, so the wording pass can be
+       told who a slot is actually about. */
+    const peopleById = new Map(people.map((r) => [r.id, r]));
 
     const exclude = [...pending, ...done].map((m) => m.title);
     // Same gate the catalog's `role` applies to people, applied to the life:
@@ -164,16 +174,35 @@ export class StacksService {
       STACK_CRAFT,
       {
         // Slots the model may phrase but not change.
-        slots: engine.map((s) => ({
-          key: s.key,
-          domains: s.domains,
-          person: s.person,
-          baseAction: s.action,
-          baseFraming: s.framing,
-          // Stated so the wording can lean on the reason, never so the model
-          // can recompute it.
-          why: s.reason,
-        })),
+        slots: engine.map((s) => {
+          /* The person this slot is about, in enough detail to be phrased
+             without being invented. The name alone was all this ever sent,
+             and a name is not a life: asked to reword a money-decision stack
+             about a 25-year-old who lives in another city and is seen
+             quarterly, the model returned "Make the school run a real
+             conversation with Sean" — a school, a car and a shared morning,
+             none of which exist. It had no way to know better. */
+          const p = s.personId ? peopleById.get(s.personId) : null;
+          return {
+            key: s.key,
+            domains: s.domains,
+            person: s.person,
+            ...(p ? {
+              personAgeYears: p.age ?? null,
+              personRelation: p.relationType,
+              /* The two facts that decide whether a shared morning is even
+                 possible. Stated plainly so the wording can respect them. */
+              personLivesWithYou: p.locationType === 'same_home',
+              personIsRemote: isRemoteLocation(p.locationType),
+              personSeenInPerson: p.inPersonFrequency ?? null,
+            } : {}),
+            baseAction: s.action,
+            baseFraming: s.framing,
+            // Stated so the wording can lean on the reason, never so the model
+            // can recompute it.
+            why: s.reason,
+          };
+        }),
         profile: {
           profession: user?.profession ?? null,
           workType: user?.workType ?? null,

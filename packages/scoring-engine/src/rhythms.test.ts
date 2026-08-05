@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   rhythmsFor, rhythmFor, rhythmByKey, rhythmDomains, availableRhythms,
-  rhythmForHabit,
+  rhythmForHabit, REMOTE_CHILDREN_RHYTHMS, IN_PERSON_CHILDREN_TITLES,
 } from './rhythms';
 import { PROMOTED } from './commonHabits';
 
@@ -270,5 +270,37 @@ describe('lookup by key', () => {
   it('returns nothing for a key that was never issued', () => {
     expect(rhythmByKey('career.invented')).toBeNull();
     expect(rhythmByKey('')).toBeNull();
+  });
+});
+
+/**
+ * The arrangement the host uses for children who live away: the in-person
+ * titles go into `taken`, the remote variants ride the `extra` slot. The two
+ * lists are exported together so this test can hold them to each other.
+ */
+describe('children rhythms at a distance', () => {
+  it('the retired titles are real catalog titles — the lists cannot drift', () => {
+    const titles = rhythmsFor('children').map((r) => r.title);
+    for (const t of IN_PERSON_CHILDREN_TITLES) expect(titles).toContain(t);
+  });
+
+  it('a remote household is offered the call, not the shared room', () => {
+    const offered = rhythmFor('children', IN_PERSON_CHILDREN_TITLES, REMOTE_CHILDREN_RHYTHMS);
+    expect(offered?.key).toBe('children.call');
+    expect(offered?.because).toMatch(/call is the room/);
+  });
+
+  it('every remote rhythm passes the catalog bars — standalone title, honest cadence', () => {
+    for (const r of REMOTE_CHILDREN_RHYTHMS) {
+      expect(r.title.length).toBeGreaterThan(10);
+      expect(Number.isInteger(r.perWeek)).toBe(true);
+      expect(r.perWeek).toBeGreaterThanOrEqual(1);
+      expect(r.because.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('a co-located household never sees the remote variants — they ride extra, not the catalog', () => {
+    const titles = rhythmsFor('children').map((r) => r.title);
+    for (const r of REMOTE_CHILDREN_RHYTHMS) expect(titles).not.toContain(r.title);
   });
 });

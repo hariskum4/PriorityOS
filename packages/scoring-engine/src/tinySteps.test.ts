@@ -81,6 +81,51 @@ describe('tiny steps', () => {
       expect(tinyStep({ title: 'Call Amma this evening', domainType: 'family', personName: 'Amma' }))
         .toMatch(/one line/i);
     });
+
+    /**
+     * A phone-shaped mission downgrades to the chat, never to the room. The
+     * children default is "sit down where they are playing" — which, under
+     * "A call where they pick the topic" (written for a child in another
+     * city), was a step for a different life.
+     */
+    /**
+     * The mission can be right and the step still wrong. "Reach out to Sean
+     * this week — one message is enough" is correct for an adult in another
+     * city; under it sat "Sit down where Sean is playing", so the card
+     * contradicted itself in two consecutive lines.
+     */
+    it('does not put you in the room of somebody in another city', () => {
+      const remote = tinyStep({
+        title: 'Reach out to Sean this week — one message is enough',
+        domainType: 'children', missionType: 'relationship',
+        personName: 'Sean', locationType: 'different_city',
+      });
+      expect(remote).not.toMatch(/sit down/i);
+      expect(remote).toContain("Open Sean's chat");
+
+      const partner = tinyStep({
+        title: 'Reach out to Mira this week', domainType: 'partner',
+        personName: 'Mira', locationType: 'abroad',
+      });
+      expect(partner).not.toMatch(/other room/i);
+    });
+
+    it('leaves the co-located step alone when they are near, or unknown', () => {
+      for (const locationType of ['same_home', 'same_city', null, undefined]) {
+        expect(tinyStep({
+          title: 'Fifteen minutes with Zoe', domainType: 'children',
+          personName: 'Zoe', locationType,
+        })).toMatch(/sit down where Zoe is playing/i);
+      }
+    });
+
+    it('does not answer a call-shaped children mission with the floor', () => {
+      const s = tinyStep({ title: 'A call where they pick the topic', domainType: 'children', personName: 'Sean' });
+      expect(s).not.toMatch(/sit down/i);
+      expect(s).toContain("Open Sean's chat");
+      expect(tinyStep({ title: 'Send a voice note about your ordinary day', domainType: 'children' }))
+        .toMatch(/one line/i);
+    });
   });
 
   /**

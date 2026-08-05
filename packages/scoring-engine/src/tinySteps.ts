@@ -12,11 +12,23 @@
  * sentences isn't tiny.
  */
 
+import { isRemoteLocation } from './remote';
+
 export interface TinyStepInput {
   title: string;
   domainType: string;
   missionType?: string | null;
   personName?: string | null;
+  /**
+   * Where this person lives, when the mission is about one.
+   *
+   * The children and partner steps put you in the same room — "sit down where
+   * they are playing", "phone in the other room" — which is the right first
+   * move only if you are already there. Handed to a father whose 25-year-old
+   * lives in another city, under a mission that correctly said "one message
+   * is enough", the step contradicted the mission directly above it.
+   */
+  locationType?: string | null;
 }
 
 /**
@@ -80,7 +92,27 @@ const BY_SHAPE: Array<{ test: RegExp; step: (p?: string | null) => string }> = [
     test: /^(?:plan|book|schedule|arrange)\b/i,
     step: () => 'Open the calendar and pick the day. Nothing else today.',
   },
+  {
+    /* Anything already phone-shaped downgrades to the chat, not to the room.
+       The children default is "sit down where they are playing", which for
+       "A call where they pick the topic" — a mission written for a child in
+       another city — is a step for a different life. Anchored to the opening
+       word so "Take your walk while calling Jai" keeps its shoes. */
+    test: /^(?:a\s+)?(?:video\s+)?call\b|^send (?:a\s+)?(?:photo|voice note)\b/i,
+    step: (p) => `Open ${p ? possessive(p) : 'their'} chat. Type one line. That's the whole task.`,
+  },
 ];
+
+/**
+ * The domains whose default step assumes you are already in the room.
+ *
+ * `children` sits you down where they are playing; `partner` puts your phone
+ * in the other room "with them". Both are the right first move for somebody
+ * within reach and impossible for somebody who is not — and the mission above
+ * them will already have said so ("one message is enough"), which is how the
+ * card came to contradict itself in two consecutive lines.
+ */
+const NEEDS_SAME_ROOM = new Set(['children', 'partner']);
 
 export function tinyStep(input: TinyStepInput): string {
   const title = (input.title ?? '').trim();
@@ -88,6 +120,10 @@ export function tinyStep(input: TinyStepInput): string {
   if (shape) return shape.step(input.personName);
 
   if (input.missionType === 'relationship' || input.personName) {
+    /* Distance beats the domain: the chat is the room you have. */
+    if (isRemoteLocation(input.locationType) && NEEDS_SAME_ROOM.has(input.domainType)) {
+      return `Open ${input.personName ? possessive(input.personName) : 'their'} chat. Type one line. That's the whole task.`;
+    }
     const domainFn = BY_DOMAIN[input.domainType];
     if (domainFn) return domainFn(input.personName);
     return `Open ${input.personName ? possessive(input.personName) : 'their'} chat. Type one line. That's the whole task.`;

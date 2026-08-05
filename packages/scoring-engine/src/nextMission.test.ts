@@ -177,4 +177,49 @@ describe('the adaptive next-mission loop', () => {
       if (s) expect(`${s.title} ${s.rationale}`).not.toMatch(forbidden);
     }
   });
+
+  /**
+   * The children templates are written for a child within reach — "Read one
+   * more chapter than usual at bedtime" handed to the father of a 25-year-old
+   * in another city is proof the app never read the addresses it holds.
+   */
+  describe('children who live somewhere else', () => {
+    const driftingChildren: NextMissionContext = {
+      ...base,
+      domains: [{ domainType: 'children', importance: 90, attention: 10, neglectRisk: 70 }],
+      goalsWithoutSteps: [],
+      relationships: [
+        // Not overdue — so selection falls through to the domain templates.
+        { id: 'c1', name: 'Sean', relationType: 'child', daysSinceContact: 1, desiredCadenceDays: 7, locationType: 'different_city' },
+      ],
+    };
+
+    it('offers the call, not the bedtime chapter, when every child is away', () => {
+      const s = suggestNextMission(driftingChildren)!;
+      expect(s.domainType).toBe('children');
+      expect(s.title).not.toMatch(/bedtime|game tonight|undivided hour/i);
+      expect(s.title).toMatch(/call|voice note|message|visit/i);
+    });
+
+    it('keeps the co-located templates while any child is still at home', () => {
+      const s = suggestNextMission({
+        ...driftingChildren,
+        relationships: [
+          ...driftingChildren.relationships,
+          { id: 'c2', name: 'Zoe', relationType: 'daughter', daysSinceContact: 1, desiredCadenceDays: 7, locationType: 'same_home' },
+        ],
+      })!;
+      expect(s.title).toMatch(/undivided hour/i);
+    });
+
+    it('keeps the co-located templates when location was never recorded', () => {
+      const s = suggestNextMission({
+        ...driftingChildren,
+        relationships: [
+          { id: 'c1', name: 'Sean', relationType: 'child', daysSinceContact: 1, desiredCadenceDays: 7 },
+        ],
+      })!;
+      expect(s.title).toMatch(/undivided hour/i);
+    });
+  });
 });

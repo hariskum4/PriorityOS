@@ -23,7 +23,10 @@
  */
 import { Injectable } from '@nestjs/common';
 import { RHYTHM_CRAFT } from '@priority/ai-prompts';
-import { rhythmFor, type Rhythm } from '@priority/scoring-engine';
+import {
+  rhythmFor, childrenAreRemote, IN_PERSON_CHILDREN_TITLES,
+  REMOTE_CHILDREN_RHYTHMS, type Rhythm,
+} from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { BlueprintService } from './blueprint.service';
@@ -64,7 +67,7 @@ export class RhythmsService {
   ) {}
 
   async forUser(userId: string): Promise<RhythmsResponse> {
-    const [domains, habits, user, answers, goals, personal] = await Promise.all([
+    const [domains, habits, user, answers, goals, personal, relationships] = await Promise.all([
       this.prisma.lifeDomain.findMany({
         where: { userId },
         select: { domainType: true, importanceScore: true, attentionScore: true },
@@ -97,6 +100,11 @@ export class RhythmsService {
          blueprint has not run, been switched off, or produced nothing the
          judge would keep — in which case everything below is unchanged. */
       this.blueprint.rhythmsFor(userId),
+      /* Where the people live — the children rhythms switch vocabulary on it. */
+      this.prisma.relationship.findMany({
+        where: { userId },
+        select: { relationType: true, locationType: true },
+      }),
     ]);
 
     /* Domains that already hold a rhythm are not asking for one. Ranked by how
@@ -137,6 +145,17 @@ export class RhythmsService {
         'Ask one thing you have never asked',
       );
     }
+    /**
+     * The same rule, for the other direction of distance. "One undivided
+     * hour a week" and its 'because' — "Children measure attention by
+     * whether the phone is in the room" — are written for a child down the
+     * hall. Offered to a father whose 25-year-old lives in another city,
+     * they name a room the two of them do not share. When every child on
+     * file is remote, the in-person rhythms retire and the call-shaped ones
+     * take the extra slot the blueprint already uses.
+     */
+    const remoteKids = childrenAreRemote(relationships);
+    if (remoteKids) takenTitles.push(...IN_PERSON_CHILDREN_TITLES);
 
     const ranked = domains
       .filter((d) => Number(d.importanceScore) > 0 && !held.has(d.domainType))
@@ -151,7 +170,12 @@ export class RhythmsService {
          one argument. A domain with a generated rhythm offers that; a domain
          without one offers what it always did. */
       const mine = personal.filter((p) => p.domainType === d.domainType);
-      const r = rhythmFor(d.domainType, takenTitles, mine);
+      /* Blueprint first, then the remote children variants when they apply —
+         the catalog's in-person entries are already in takenTitles by then. */
+      const extra = d.domainType === 'children' && remoteKids
+        ? [...mine, ...REMOTE_CHILDREN_RHYTHMS]
+        : mine;
+      const r = rhythmFor(d.domainType, takenTitles, extra);
       if (r) engine.push({ ...r, domainType: d.domainType });
       if (engine.length >= MAX_SLOTS) break;
     }

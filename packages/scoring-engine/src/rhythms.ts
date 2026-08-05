@@ -398,6 +398,43 @@ export function rhythmsFor(domainType: string): Rhythm[] {
 }
 
 /**
+ * The children rhythms for a life where the children are somewhere else.
+ *
+ * The catalog's children entries are written for a child down the hall:
+ * "One undivided hour a week" needs a shared room, and "Children measure
+ * attention by whether the phone is in the room" is precisely backwards for
+ * a father whose 25-year-old is in another city — for him the phone is the
+ * room. Offered anyway, they read as the app not knowing the one thing it
+ * was told about where his son lives.
+ *
+ * Not in `RHYTHMS.children`, because the catalog is unconditional and these
+ * are not: the host decides who they are for (see `childrenAreRemote`) and
+ * hands them in through the `extra` slot, the same door blueprint rhythms
+ * use. The in-person titles it retires travel beside them, so the two lists
+ * cannot drift apart.
+ */
+export const REMOTE_CHILDREN_RHYTHMS: Rhythm[] = [
+  {
+    key: 'children.call',
+    title: 'A call where they pick the topic',
+    perWeek: 1, minutes: 30, when: 'evening', needs: ['canSpeakFreely'],
+    because: 'For a child in another city, the call is the room you share.',
+  },
+  {
+    key: 'children.note',
+    title: 'A photo or voice note, twice a week',
+    perWeek: 2, minutes: 5, when: 'any',
+    because: 'Distance grows in the gaps between calls. Small and often closes them.',
+  },
+];
+
+/** The catalog children rhythms that assume a shared roof, by exact title. */
+export const IN_PERSON_CHILDREN_TITLES: string[] = [
+  'One undivided hour a week',
+  'A thing only the two of you do',
+];
+
+/**
  * The rhythm a domain is still asking for, if it has one left to give.
  *
  * `taken` is habit titles, retired ones included: a rhythm somebody ended is

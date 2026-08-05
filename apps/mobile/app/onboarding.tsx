@@ -249,6 +249,19 @@ export default function Onboarding() {
   /** What is worth counting with this person, in their reader's own words. */
   const [moments, setMoments] = useState<string[]>([]);
   /**
+   * A moment in their own words, committed into `moments` on enter or blur.
+   * Transient by design: once committed it is an ordinary chip — visible,
+   * selected, removable — and the box empties for the second one. The cap
+   * of two is the same cap the chips enforce.
+   */
+  const [customMoment, setCustomMoment] = useState('');
+  const commitCustomMoment = () => {
+    const m = customMoment.trim().toLowerCase();
+    setCustomMoment('');
+    if (!m) return;
+    setMoments((prev) => (prev.includes(m) || prev.length >= 2 ? prev : [...prev, m]));
+  };
+  /**
    * Which of the person pickers the reader has actually touched.
    *
    * Picking "partner" should move the other answers somewhere plausible —
@@ -612,7 +625,12 @@ export default function Onboarding() {
             locationType,
             healthStatus: healthStatus || undefined,
             callFrequency: effectiveCall,
-            desiredCallFrequency: desired,
+            /* The wish is only asked where the call question is (see 6.5) —
+               a shared roof gets neither, and a question never shown must
+               not submit its default. The People tab measures overdue
+               against this field, so an unasked "weekly" would set a clock
+               nobody agreed to, against a person in the next room. */
+            ...(asksAboutCalls(locationType) ? { desiredCallFrequency: desired } : {}),
             inPersonFrequency: visitFrequency,
             closenessScore: 9,
             wantsMoreTime: true,
@@ -1178,8 +1196,13 @@ export default function Onboarding() {
               Their age is what lets Priority count the time you have left
               together instead of guessing at it.
             </Text>
+            {/* The wish question used to live here — one screen before the
+                app asked how often they actually talk, in nearly the same
+                words. Aspiration was collected before the reality it is an
+                aspiration about, and the pair read as the same question asked
+                twice. Both now sit together on the next screen, reality
+                first, so the second question is visibly the follow-up. */}
             <PickRow label="They are your" options={RELATIONS} value={person.relationType} onPick={pickRelation} />
-            <PickRow label="How often do you wish you talked?" options={CADENCES} value={desired} onPick={own('desired', setDesired)} />
             {/* What the answers add up to.
                 Blocks are arithmetic that cannot be true — a mother younger
                 than her child — and stated as the typos they are. Notes are
@@ -1218,9 +1241,20 @@ export default function Onboarding() {
             />
             {/* Not asked of someone in the next room, where the answer is
                 "constantly", carries nothing, and is three taps of
-                nothing. The People tab reads visits for these anyway. */}
+                nothing. The People tab reads visits for these anyway.
+
+                The wish rides directly under the reality it is a wish about.
+                It lived on the previous screen, before the app had asked how
+                often they actually talk — aspiration collected ahead of the
+                fact it aspires against, in nearly identical words, which
+                read as the same question twice. Here the order argues for
+                itself: this is what happens, and this is what you want. The
+                sanity notes underneath compare exactly these two answers. */}
             {asksAboutCalls(locationType) && (
-              <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={own('callFrequency', setCallFrequency)} />
+              <>
+                <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={own('callFrequency', setCallFrequency)} />
+                <PickRow label="And how often do you wish you talked?" options={CADENCES} value={desired} onPick={own('desired', setDesired)} />
+              </>
             )}
             <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={own('visitFrequency', setVisitFrequency)} />
 
@@ -1240,7 +1274,14 @@ export default function Onboarding() {
                 which turns out to be the number people remember.
               </Text>
               <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-                {momentOptionsFor(person.relationType).map((m) => {
+                {/* The union, not the catalog: a moment typed below renders
+                    here as a chip like any other, selected and removable —
+                    otherwise a custom answer would be held invisibly, which
+                    reads as it having been dropped. */}
+                {[
+                  ...momentOptionsFor(person.relationType),
+                  ...moments.filter((m) => !momentOptionsFor(person.relationType).includes(m)),
+                ].map((m) => {
                   const on = moments.includes(m);
                   return (
                     <Pressable
@@ -1262,6 +1303,23 @@ export default function Onboarding() {
                   );
                 })}
               </View>
+              {/* Their ritual, not ours. The chips are guesses from the
+                  relation type, and the whole point of this field is the
+                  reader's own phrase — "temple visits", "sunday cooking" —
+                  which `suggestCountables` scores far above anything
+                  inferred. A pick-list with no door for their own words
+                  collects only our vocabulary. */}
+              {moments.length < 2 && (
+                <Input
+                  placeholder="…or one of your own — e.g. sunday cooking"
+                  value={customMoment}
+                  onChangeText={setCustomMoment}
+                  onSubmitEditing={commitCustomMoment}
+                  onBlur={commitCustomMoment}
+                  returnKeyType="done"
+                  autoCapitalize="none"
+                />
+              )}
             </View>
             <View style={{ gap: space(2) }}>
               <Label>How is their health these days? (optional)</Label>

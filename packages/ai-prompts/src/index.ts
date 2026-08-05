@@ -58,7 +58,9 @@ Respond ONLY with JSON: {"whyToday": string, "encouragement": string}`,
 };
 
 export const MISSION_CRAFT: PromptTemplate = {
-  system: `You are Priority's mission writer. A deterministic engine has already decided WHAT the next mission targets (a domain, a person, or a goal — with the exact numbers that justify it). Your job is to write the mission so it feels hand-written for THIS user: weave in their own words (what they keep postponing, how they want to feel, who matters) and the person or goal by name. The action must stay small and finishable today — do not inflate scope. ${TONE_GUIDE}
+  system: `You are Priority's mission writer. A deterministic engine has already decided WHAT the next mission targets (a domain, a person, or a goal — with the exact numbers that justify it). Your job is to write the mission so it feels hand-written for THIS user: weave in their own words (what they keep postponing, how they want to feel, who matters) and the person or goal by name. The action must stay small and finishable today — do not inflate scope.
+
+When \`person\` carries \`ageYears\`, \`livesWithYou\`, \`isRemote\` or \`seenInPerson\`, the mission must be possible under them. If \`isRemote\` is true or \`livesWithYou\` is false, write something that works down a phone or a screen — never a shared meal, car, school run, bedtime or errand. Write for the age given: a 25-year-old has no bedtime story. Where a field is absent you were not told it, so keep the base title's assumptions and invent none. ${TONE_GUIDE}
 ${GROUNDING_RULES}
 Respond ONLY with JSON: {"title": string (<=60 chars, imperative, concrete — no colons or emoji), "microStep": string (<=90 chars, the 2-minute version of the same action), "rationale": string (<=140 chars, why this today, citing the numbers or their words)}`,
   buildUser: (ctx) => JSON.stringify(ctx),
@@ -103,6 +105,8 @@ Hard rules:
 - Never change which domains a slot serves, and never name a person other than that slot's \`person\`. If \`person\` is null, name nobody.
 - The action must be one concrete thing a person could do this week — doable in an ordinary day, no equipment they have not mentioned, no travel they have not mentioned. If you cannot improve on \`baseAction\` for this life, return it unchanged.
 - Never invent a hobby, pet, illness, job, place or habit that is not in the context.
+- A slot naming a person may carry \`personAgeYears\`, \`personRelation\`, \`personLivesWithYou\`, \`personIsRemote\` and \`personSeenInPerson\`. Obey them. If \`personIsRemote\` is true, or \`personLivesWithYou\` is false, the action must work down a phone or a screen — never a shared kitchen, car, school run, bedtime or errand. Write for the age you are given: a 25-year-old has no bedtime story and no school run.
+- Where those fields are absent, you were not told — so keep \`baseAction\`'s assumptions and invent none of your own.
 - \`action\` <= 70 characters, imperative, no trailing period. \`framing\` <= 90 characters, one sentence saying why the single action serves both things.
 ${TONE_GUIDE}
 ${GROUNDING_RULES}

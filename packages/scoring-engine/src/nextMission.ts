@@ -16,6 +16,8 @@
  * one at serious risk.
  */
 
+import { childrenAreRemote } from './remote';
+
 export interface NextMissionDomain {
   domainType: string;
   importance: number;   // 0..100
@@ -29,6 +31,13 @@ export interface NextMissionRelationship {
   relationType: string;
   daysSinceContact: number | null;
   desiredCadenceDays: number; // from desiredCallFrequency
+  /**
+   * Where they live, as the People tab stores it. Read so the children
+   * domain can stop prescribing bedtime chapters to a parent whose children
+   * are grown and in another city. Absent means unknown, and unknown means
+   * the co-located templates — the behaviour before this field existed.
+   */
+  locationType?: string | null;
 }
 
 export interface NextMissionGoal {
@@ -152,6 +161,22 @@ const DOMAIN_ACTIONS: Record<string, DomainAction[]> = {
   ],
 };
 
+/**
+ * The children actions for children who are not in the house.
+ *
+ * The standard list is written for a child within reach — "Read one more
+ * chapter than usual at bedtime" is not advice for the father of a
+ * 25-year-old in another city, it is proof the app never looked at the ages
+ * and addresses it holds. Same bar as the standard list: small, concrete,
+ * finishable today, from wherever the reader actually is.
+ */
+const CHILDREN_REMOTE_ACTIONS: DomainAction[] = [
+  { title: 'A call where they pick the topic', minutes: 20 },
+  { title: 'Send a voice note about your ordinary day', minutes: 5 },
+  { title: 'Ask what made them laugh this week — a message counts', minutes: 5 },
+  { title: 'Plan the next visit — put a date on it', minutes: 10 },
+];
+
 const SERIOUS_RISK = 60;   // variety guard yields to genuine danger
 const RISK_FLOOR = 40;     // below this, a domain isn't "drifting"
 const OVERDUE_RATIO = 1.5; // 50% past the desired cadence
@@ -174,8 +199,13 @@ export function suggestNextMission(
    *  - null when every variant is rejected — the user said "not this
    *    domain's actions", and the engine respects that instead of nagging.
    */
+  /* Whether every child on file lives away — decided once, from the same
+     relationship rows the overdue scan below already reads. */
+  const remoteChildren = childrenAreRemote(ctx.relationships);
   const pickAction = (domainType: string): DomainAction | null => {
-    const variants = DOMAIN_ACTIONS[domainType] ?? DOMAIN_ACTIONS.reflection;
+    const variants = domainType === 'children' && remoteChildren
+      ? CHILDREN_REMOTE_ACTIONS
+      : DOMAIN_ACTIONS[domainType] ?? DOMAIN_ACTIONS.reflection;
     const usable = variants.filter(
       (v) => !isTaken(v.title) && !dismissedTitles.has(norm(v.title)),
     );

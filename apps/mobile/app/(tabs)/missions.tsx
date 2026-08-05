@@ -518,7 +518,13 @@ export default function Missions() {
             <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
               <Ionicons name="footsteps-outline" size={13} color={colors.green} style={{ marginTop: 2 }} />
               <Text style={[type.faint, { flex: 1 }]}>
-                {tinyStep({ title: m.title, domainType: m.domainType, missionType: m.missionType, personName: m.relationship?.name })}
+                {tinyStep({
+                  title: m.title,
+                  domainType: m.domainType,
+                  missionType: m.missionType,
+                  personName: m.relationship?.name,
+                  locationType: m.relationship?.locationType,
+                })}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', gap: space(2) }}>

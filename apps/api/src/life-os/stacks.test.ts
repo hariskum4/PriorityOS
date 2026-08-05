@@ -215,10 +215,23 @@ describe('steal the time, with a model in the loop', () => {
 
     const ctx = context as any;
     expect(Array.isArray(ctx.slots)).toBe(true);
+    /**
+     * A slot carries its decision, not the arithmetic behind it — and, when it
+     * names somebody, the plain facts about that person a sentence has to obey.
+     *
+     * The person fields were added because sending a bare name let the model
+     * invent the rest: asked to reword a stack about a 25-year-old living in
+     * another city, it produced "Make the school run a real conversation with
+     * Sean". These are facts the reader gave us, not scores the model could
+     * recompute or re-rank, which is the line this allowlist actually guards.
+     */
+    const ALLOWED = [
+      'baseAction', 'baseFraming', 'domains', 'key', 'person', 'why',
+      'personAgeYears', 'personRelation', 'personLivesWithYou',
+      'personIsRemote', 'personSeenInPerson',
+    ];
     for (const slot of ctx.slots) {
-      // A slot carries its decision, not the arithmetic behind it.
-      expect(Object.keys(slot).sort())
-        .toEqual(['baseAction', 'baseFraming', 'domains', 'key', 'person', 'why'].sort());
+      for (const k of Object.keys(slot)) expect(ALLOWED).toContain(k);
     }
     // Every name sent belongs to someone actually in this record — the model
     // is never handed a person to write about who is not theirs.

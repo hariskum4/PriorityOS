@@ -22,6 +22,7 @@ function fakePrisma(over: {
   habits?: Habit[];
   domains?: Array<[string, number, number]>;
   user?: Record<string, unknown>;
+  relationships?: Array<{ relationType: string; locationType?: string | null }>;
 } = {}) {
   const domains = (over.domains ?? [
     ['purpose', 60, 0], ['friends', 40, 5], ['career', 50, 30], ['health', 70, 65],
@@ -32,6 +33,9 @@ function fakePrisma(over: {
   return {
     lifeDomain: { findMany: async () => domains },
     habit: { findMany: async () => over.habits ?? [] },
+    /* Where the people live — read so the children rhythms can tell a
+       child down the hall from one in another city. */
+    relationship: { findMany: async () => over.relationships ?? [] },
     user: {
       findUnique: async () => ({
         profession: 'Designer', workType: 'onsite', workHoursPerWeek: 40,

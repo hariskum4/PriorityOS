@@ -280,7 +280,10 @@ export default function People() {
                     : d === 0
                       ? 'talked today'
                       : `${d}d ago`}
-                  {' · '}{r.desiredCallFrequency}
+                  {/* Somebody in the same home is never asked for a call
+                      wish, so the field can be empty — and "6d ago · "
+                      with a dangling separator reads as a render bug. */}
+                  {r.desiredCallFrequency ? ` · ${r.desiredCallFrequency}` : ''}
                 </Text>
               </View>
               {overdue && <View style={{ flexShrink: 0 }}><Chip label="overdue" color={colors.rose} /></View>}

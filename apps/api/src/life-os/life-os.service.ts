@@ -349,6 +349,10 @@ export class LifeOsService {
         windowYears: window,
         healthConcern: r.healthStatus != null && r.healthStatus !== 'good',
         momentsRecent: r.contactLogs.length,
+        /* Already selected for the time window above; the engine needs it
+           for a different reason — an outing cannot be proposed to somebody
+           who would need a flight to attend it. */
+        locationType: r.locationType,
       };
     });
 

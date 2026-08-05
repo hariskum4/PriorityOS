@@ -12,6 +12,7 @@ import {
   MissionSuggestion,
   CADENCE_DAYS,
   Cadence,
+  isRemoteLocation,
 } from '@priority/scoring-engine';
 
 @Injectable()
@@ -35,13 +36,13 @@ export class MissionsService {
         where: { userId, status },
         orderBy: { completedAt: 'desc' },
         take: 30,
-        include: { relationship: { select: { id: true, name: true } } },
+        include: { relationship: { select: { id: true, name: true, locationType: true } } },
       });
     }
     return this.prisma.mission.findMany({
       where: { userId, ...(status ? { status } : {}) },
       orderBy: [{ priorityScore: 'desc' }, { dueDate: 'asc' }],
-      include: { relationship: { select: { id: true, name: true } } },
+      include: { relationship: { select: { id: true, name: true, locationType: true } } },
     });
   }
 
@@ -255,6 +256,9 @@ export class MissionsService {
           : null,
         desiredCadenceDays:
           CADENCE_DAYS[(r.desiredCallFrequency ?? 'weekly') as Cadence] ?? 7,
+        // The children templates switch on it — bedtime chapters are not a
+        // mission for the parent of a 25-year-old in another city.
+        locationType: r.locationType,
       })),
       goalsWithoutSteps: goals
         .filter((g) => g.missions.length === 0)
@@ -345,6 +349,14 @@ export class MissionsService {
               daysSinceContact: relationship.lastContactAt
                 ? Math.floor((Date.now() - relationship.lastContactAt.getTime()) / 86_400_000)
                 : null,
+              /* The same two facts the stack writer was missing. A name and a
+                 relation type let a model write "read one more chapter at
+                 bedtime" for a 25-year-old in another city — it is not a
+                 hallucination so much as a question nobody answered. */
+              ageYears: relationship.age ?? null,
+              livesWithYou: relationship.locationType === 'same_home',
+              isRemote: isRemoteLocation(relationship.locationType),
+              seenInPerson: relationship.inPersonFrequency ?? null,
             }
           : null,
         goal: goal ? { title: goal.title } : null,

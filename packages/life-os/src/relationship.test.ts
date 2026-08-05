@@ -124,6 +124,38 @@ describe('one person, with their name in it', () => {
     expect(friend.proposals[0].action).toMatch(/Call Ravi/);
   });
 
+  /**
+   * "Near" was decided by relation type alone, so a father whose 25-year-old
+   * son lives in another city and is seen quarterly was told to "Take Sean
+   * out of the house for an hour". Sean is not in the house. Distance vetoes
+   * the outing; the relation type only picks it when both are possible.
+   */
+  it('does not propose an outing to somebody who would need a flight', () => {
+    const remote = relationshipEngine.run(ctx([
+      person({
+        name: 'Sean', relationType: 'child', closeness: 9,
+        desiredCadence: 'weekly', lastContactAt: ago(30), locationType: 'different_city',
+      }),
+    ]));
+    expect(remote.proposals[0].action).not.toMatch(/out of the house/);
+    expect(remote.proposals[0].action).toMatch(/Call Sean/);
+
+    const abroad = relationshipEngine.run(ctx([
+      person({
+        name: 'Mira', relationType: 'spouse', closeness: 10,
+        desiredCadence: 'daily', lastContactAt: ago(20), locationType: 'abroad',
+      }),
+    ]));
+    expect(abroad.proposals[0].action).toMatch(/Call Mira/);
+  });
+
+  it('an unknown address keeps the old behaviour — co-located', () => {
+    const unknown = relationshipEngine.run(ctx([
+      person({ name: 'Divya', relationType: 'spouse', closeness: 10, desiredCadence: 'daily', lastContactAt: ago(20), locationType: null }),
+    ]));
+    expect(unknown.proposals[0].action).toMatch(/out of the house/);
+  });
+
   it('a closing window is the one thing not permanently dismissible', () => {
     const out = relationshipEngine.run(ctx([person({ windowYears: 7, lastContactAt: ago(60) })]));
     expect(out.proposals[0].dismissible).toBe(false);

@@ -1030,6 +1030,9 @@ export default function Today() {
                   domainType: m.domainType,
                   missionType: m.missionType,
                   personName: m.relationship?.name,
+                  // A step that puts you in their room is only a step when
+                  // you are in it. See NEEDS_SAME_ROOM in tinySteps.
+                  locationType: m.relationship?.locationType,
                 })}
               </Text>
 

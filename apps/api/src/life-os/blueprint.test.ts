@@ -192,6 +192,7 @@ describe('a database without the blueprint table', () => {
         user: { findUnique: async () => USER },
         onboardingAnswer: { findMany: async () => [] },
         goal: { findMany: async () => [] },
+        relationship: { findMany: async () => [] },
       } as any,
       fakeAi(true, { rhythms: [] }),
       svc,
@@ -254,6 +255,7 @@ describe('a personal rhythm in the pool', () => {
       user: { findUnique: async () => USER },
       onboardingAnswer: { findMany: async () => [] },
       goal: { findMany: async () => [] },
+      relationship: { findMany: async () => [] },
     } as any;
   }
 

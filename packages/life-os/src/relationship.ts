@@ -34,6 +34,7 @@
  * and window estimates, and hands them in.
  */
 
+import { isRemoteLocation } from '@priority/scoring-engine';
 import {
   Domain, Engine, EngineContext, EngineOutput, Evidence,
   Observation, Proposal, Pressure, Uncertainty, isMuted,
@@ -67,6 +68,14 @@ export interface RelationshipRecord {
   healthConcern?: boolean;
   /** Moments logged with them in the recent past. Evidence of a live tie. */
   momentsRecent?: number;
+  /**
+   * Where they live, as the People tab stores it. The action for a person
+   * depends on it: an outing is a proposal for somebody within reach, and a
+   * call is the honest version of the same intention for somebody who is
+   * not. Absent means unknown, and unknown behaves as within reach — the
+   * behaviour this engine had before it learned geography.
+   */
+  locationType?: string | null;
 }
 
 export interface RelationshipEngineData {
@@ -197,8 +206,22 @@ function statementFor(
   }
 }
 
+/**
+ * The action has to be possible from where both people actually are.
+ *
+ * "Near" used to be decided by relation type alone — spouse, partner, child —
+ * so a man whose 25-year-old son lives in another city and is seen quarterly
+ * was told to "Take Sean out of the house for an hour, no screens". Sean is
+ * not in the house. The proposal read as the app never having looked at the
+ * address it was given, on the one card whose entire claim is that it did.
+ *
+ * Relation type still matters — it picks the outing over the call when both
+ * are possible — but distance now vetoes it. Unknown location keeps the old
+ * behaviour: co-located is the common case and the safe wrong guess.
+ */
 function actionFor(rel: RelationshipRecord): { action: string; tiny: string; minutes: number } {
-  const near = ['spouse', 'partner', 'child', 'son', 'daughter'].includes(rel.relationType);
+  const near = ['spouse', 'partner', 'child', 'son', 'daughter'].includes(rel.relationType)
+    && !isRemoteLocation(rel.locationType);
   if (near) {
     return {
       action: `Take ${rel.name} out of the house for an hour, no screens`,
