@@ -11,6 +11,7 @@ import { useMemoryDraft } from '@/store/memoryDraft';
 import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
+import { supportLines } from '@priority/scoring-engine';
 import { colors, type, space, alpha, breakLongWords } from '@/theme';
 
 /**
@@ -133,6 +134,13 @@ function Reflect() {
     queryKey: ['journal'],
     queryFn: () => api<any[]>('/journal?take=30'),
   });
+  /* Only so the support card can offer lines somebody can actually reach.
+     Cached and shared with every other screen that asks for it. */
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api<any>('/me'),
+    staleTime: 10 * 60_000,
+  });
   const { data: older } = useQuery({
     queryKey: ['journal-older', pages],
     queryFn: async () => {
@@ -221,10 +229,21 @@ function Reflect() {
             Your entry is saved and private. And if things feel like too much right now,
             talking to a real person helps more than any app can.
           </Text>
+          {/* The lines for where this reader actually is, from the country
+              already on their profile. It used to be three fixed Indian
+              numbers with the international directory underneath — the right
+              default for this product, and the wrong thing to hand somebody
+              in Manchester at two in the morning, who would then have to read
+              past two numbers that cannot help them to reach the one that
+              can. Nobody in that state should be doing routing work for the
+              app. */}
           <View style={{ gap: space(1) }}>
-            <Text style={type.dim}>iCall (India): <Text style={{ color: colors.blue, fontWeight: '700' }}>+91 91529 87821</Text></Text>
-            <Text style={type.dim}>AASRA (India, 24×7): <Text style={{ color: colors.blue, fontWeight: '700' }}>+91 98204 66726</Text></Text>
-            <Text style={type.dim}>Elsewhere: <Text style={{ color: colors.blue, fontWeight: '700' }}>findahelpline.com</Text></Text>
+            {supportLines(me?.country).map((line) => (
+              <Text key={line.contact} style={type.dim}>
+                {line.name}{line.note ? ` (${line.note})` : ''}:{' '}
+                <Text style={{ color: colors.blue, fontWeight: '700' }}>{line.contact}</Text>
+              </Text>
+            ))}
           </View>
           <Text style={type.faint}>
             Priority is a planning tool, not a substitute for support from people who are trained for it.

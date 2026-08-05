@@ -8,6 +8,7 @@ import { BlueprintService } from '../life-os/blueprint.service';
 import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
 import {
   deriveGoalTitle, namesAThing, suggestCountables, countKeyOf,
+  detectCrisisLanguage,
 } from '@priority/scoring-engine';
 import { ALL_DOMAINS, domainForRelationType } from '@priority/types';
 
@@ -294,7 +295,24 @@ export class OnboardingService {
         update: { value: a.value as object },
       });
     }
-    return { saved: answers.length };
+    /**
+     * Onboarding is where the heaviest thing anybody types often lands.
+     *
+     * Crisis detection ran on journal entries and nowhere else, which quietly
+     * assumed the first honest disclosure comes after somebody has settled
+     * into the app. It does not. "What keeps sliding" and "what would you
+     * regret" are asked on day one, of a stranger, and they are exactly the
+     * questions that get answered truthfully — the journal is the *second*
+     * place this happens, not the first.
+     *
+     * Same contract as the journal path: local, deterministic, never blocks
+     * the save, and the flag is a boolean. What somebody wrote is not stored
+     * as evidence of anything, not logged, and not sent anywhere.
+     */
+    const supportSuggested = detectCrisisLanguage(
+      ...answers.map((a) => (typeof a.value === 'string' ? a.value : null)),
+    );
+    return { saved: answers.length, supportSuggested };
   }
 
   getAnswers(userId: string) {
