@@ -56,10 +56,23 @@ export class InsightsService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     const rels = await this.prisma.relationship.findMany({ where: { userId } });
     for (const rel of rels) {
-      if (!rel.inPersonFrequency) continue;
-      const visitsPerYear = cadenceToPerYear(rel.inPersonFrequency as Cadence);
+      /**
+       * One missing field used to cost a person every insight they had.
+       *
+       * `if (!rel.inPersonFrequency) continue` sat at the top of this loop and
+       * skipped the whole body — but only the visits estimate needs a visit
+       * cadence. Childhood windows need an age, and the call-cadence uplift
+       * needs the two call cadences. The field is optional on the DTO, so
+       * anybody added through the People tab rather than onboarding arrived
+       * with no insights at all: a seven-year-old daughter with no countdown,
+       * a friend you call monthly and meant to call weekly with nothing said
+       * about it. Each estimate now guards only on what it actually reads.
+       */
+      const visitsPerYear = rel.inPersonFrequency
+        ? cadenceToPerYear(rel.inPersonFrequency as Cadence)
+        : null;
       // Visits insight is for people the user wants more time with and sees infrequently.
-      if (rel.wantsMoreTime && visitsPerYear <= 12) {
+      if (visitsPerYear != null && rel.wantsMoreTime && visitsPerYear <= 12) {
         // Full Time Reality engine when we know the person's age; otherwise
         // the simple pace estimator (10-year planning horizon).
         const est = rel.age

@@ -1042,7 +1042,9 @@ function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, per
    * loud, because a first mission that did not save is the difference between
    * an app with something in it and an app with nothing.
    */
-  const pickPriority = async (f: { title: string; domainType: string }) => {
+  const pickPriority = async (f: {
+    title: string; domainType: string; relationshipId?: string; goalId?: string;
+  }) => {
     if (chosen || adding) return;
     setAdding(true);
     setPickFailed(false);
@@ -1054,6 +1056,11 @@ function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, per
           domainType: f.domainType,
           estimatedMinutes: 15,
           xpReward: 30,
+          /* An option about a person or a goal arrives linked to it. Without
+             this the mission only *mentions* Vikram, and everything that
+             reasons about Vikram carries on as though nothing were planned. */
+          ...(f.relationshipId ? { relationshipId: f.relationshipId } : {}),
+          ...(f.goalId ? { goalId: f.goalId } : {}),
         },
       });
       setChosen(f.title);

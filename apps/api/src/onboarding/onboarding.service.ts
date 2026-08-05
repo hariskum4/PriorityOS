@@ -87,22 +87,28 @@ export class OnboardingService {
     top3: string[];
     person?: string | null;
     personDomain?: string | null;
+    personId?: string | null;
     postponing: string;
     postponingDomain?: string | null;
+    postponingGoalId?: string | null;
     neglected: string[];
     currentReality: Record<string, number>;
-  }): Array<{ title: string; domainType: string }> {
+  }): Array<{ title: string; domainType: string; relationshipId?: string; goalId?: string }> {
     const {
-      top3, person, personDomain, postponing, postponingDomain,
-      neglected, currentReality,
+      top3, person, personDomain, personId, postponing, postponingDomain,
+      postponingGoalId, neglected, currentReality,
     } = opts;
     const fallback = top3[0] ?? 'family';
-    const out: Array<{ title: string; domainType: string }> = [];
+    const out: Array<{ title: string; domainType: string; relationshipId?: string; goalId?: string }> = [];
 
     if (person) {
       out.push({
         title: `Reach out to ${person} this week — one message is enough`,
         domainType: personDomain ?? 'family',
+        /* Linked, not merely named. An unlinked mission about Vikram is
+           invisible to everything that reasons about Vikram — which is how
+           the day came to ask for him twice, in contradictory words. */
+        ...(personId ? { relationshipId: personId } : {}),
       });
     }
 
@@ -114,6 +120,7 @@ export class OnboardingService {
       out.push({
         title: `One small step toward: ${goal}`,
         domainType: postponingDomain ?? fallback,
+        ...(postponingGoalId ? { goalId: postponingGoalId } : {}),
       });
     }
 
@@ -254,7 +261,16 @@ export class OnboardingService {
     const domains = await this.prisma.lifeDomain.findMany({ where: { userId } });
     const relationships = await this.prisma.relationship.findMany({
       where: { userId },
-      select: { name: true, relationType: true, wantsMoreTime: true, priorityScore: true },
+      select: { id: true, name: true, relationType: true, wantsMoreTime: true, priorityScore: true },
+      /**
+       * The person the Reveal names is `relationships[0]`, and this had no
+       * order at all — so which one it was came back to whatever Postgres
+       * happened to return. Two runs of the same onboarding named different
+       * people. `priorityScore` was already being selected and never read;
+       * ordering by it makes the headline the person they said mattered most,
+       * with creation order as the tie-break so it is at least stable.
+       */
+      orderBy: [{ priorityScore: 'desc' }, { createdAt: 'asc' }],
     });
     const top3 = ranked.slice(0, 3);
 
@@ -268,11 +284,12 @@ export class OnboardingService {
     /* The goal written from their postponing answer already carries a domain
        they chose. Reading it back is more honest than guessing one from the
        sentence, and it is what the mission should be filed under. */
-    const postponingGoalDomain = (await this.prisma.goal.findFirst({
+    const postponingGoal = await this.prisma.goal.findFirst({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      select: { domainType: true },
-    }))?.domainType ?? null;
+      select: { id: true, domainType: true },
+    });
+    const postponingGoalDomain = postponingGoal?.domainType ?? null;
     const topDomain = top3[0] ?? 'family';
     const topReality = currentReality[topDomain];
 
@@ -336,8 +353,10 @@ export class OnboardingService {
           personDomain: relationships[0]
             ? domainForRelationType(relationships[0].relationType)
             : null,
+          personId: relationships[0]?.id ?? null,
           postponing,
           postponingDomain: postponingGoalDomain,
+          postponingGoalId: postponingGoal?.id ?? null,
           neglected,
           currentReality,
         }),

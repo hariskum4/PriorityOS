@@ -509,15 +509,37 @@ export class LifeOsService {
     const now = opts.now ?? new Date();
     const persist = opts.persist ?? true;
 
-    const [context, state] = await Promise.all([
+    const [context, state, claimed] = await Promise.all([
       this.buildContext(userId, now),
       this.prisma.lifeOsState.findUnique({ where: { userId } }),
+      /**
+       * Who today already has a mission about.
+       *
+       * The kernel's one-nudge-per-person rule could only see its own cycle,
+       * and missions come from surfaces it never runs — the end of onboarding
+       * most of all. A new account that picked "Reach out to Vikram this week
+       * — one message is enough" met the kernel's "Call Vikram — not a text"
+       * directly beneath it: one screen, one person, two instructions, the
+       * second contradicting the first. Anything already on the plate now
+       * counts as addressed.
+       */
+      this.prisma.mission.findMany({
+        where: { userId, status: 'pending' },
+        select: { relationshipId: true, goalId: true },
+      }),
     ]);
 
     const result = runCycleWith(this.registry, {
       context,
       lastProfoundAt: state?.lastProfoundAt ?? null,
       seenObservationIds: (state?.seenObservationIds as string[]) ?? [],
+      // `person:<id>` is how the relationship engine tags a subject; goals tag
+      // themselves by bare id. Both shapes are matched as the engines write
+      // them, so this stays a lookup rather than a second convention.
+      addressedSubjects: claimed.flatMap((m) => [
+        ...(m.relationshipId ? [`person:${m.relationshipId}`] : []),
+        ...(m.goalId ? [m.goalId] : []),
+      ]),
     });
 
     /**

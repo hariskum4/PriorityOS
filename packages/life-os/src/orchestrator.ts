@@ -129,6 +129,21 @@ export interface CycleInput {
    * though it were news.
    */
   seenObservationIds?: readonly string[];
+  /**
+   * Subjects already spoken for outside this cycle — the people and goals
+   * today's pending missions are about.
+   *
+   * The one-nudge-per-person rule below was only ever enforced *within* a
+   * cycle, and missions are created by surfaces the cycle never sees. So a
+   * new account that picked "Reach out to Vikram this week — one message is
+   * enough" at the end of onboarding opened Today to that mission sitting
+   * directly above this kernel's own "Call Vikram — not a text". One screen,
+   * one person, two instructions, and the second contradicting the first.
+   *
+   * Same rule, wider scope: if something on this person's plate is already
+   * about Vikram, the day does not raise him again.
+   */
+  addressedSubjects?: readonly string[];
 }
 
 export interface CycleResult {
@@ -274,10 +289,11 @@ export function runCycleWith(
   const accepted: Proposal[] = [];
   const perDomain = new Map<Domain | 'none', number>();
   const usedActions = new Set<string>();
-  // One nudge per person, per goal, per book — per cycle. Two engines noticing
-  // the same friend is two engines agreeing, and a person nudged twice about
-  // Sam in one morning reads the app as broken, not thorough.
-  const addressedSubjects = new Set<string>();
+  // One nudge per person, per goal, per book — per cycle, and per anything
+  // already on the plate. Two engines noticing the same friend is two engines
+  // agreeing, and a person nudged twice about Sam in one morning reads the app
+  // as broken, not thorough. Seeded with what other surfaces already claimed.
+  const addressedSubjects = new Set<string>(input.addressedSubjects ?? []);
   let insistCount = 0;
 
   for (const p of ranked) {

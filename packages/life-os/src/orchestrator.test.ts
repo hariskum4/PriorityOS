@@ -281,6 +281,45 @@ describe('the reduction rules', () => {
     expect(r.suppressed.map((s) => s.reason)).toContain('subject-already-addressed');
   });
 
+  /**
+   * The same rule, against what other surfaces already put on the plate.
+   *
+   * A new account picks "Reach out to Vikram this week — one message is
+   * enough" at the end of onboarding, and Today opened with that mission
+   * sitting directly above this kernel's "Call Vikram — not a text". One
+   * screen, one person, two instructions, the second contradicting the first.
+   */
+  it('says nothing about a person today already has a mission about', () => {
+    const a: Observation = { ...obs('r1', 'regret'), subjects: ['person:vikram'] };
+    const reg = new EngineRegistry().register(fake('regret', {
+      observations: [a],
+      proposals: [prop({ id: 'x', engine: 'regret', action: 'Call Vikram — not a text', addresses: ['r1'] })],
+    }));
+    const r = runCycleWith(reg, {
+      context: ctx(),
+      addressedSubjects: ['person:vikram'],
+    });
+    expect(r.proposals).toHaveLength(0);
+    expect(r.suppressed.map((s) => s.reason)).toContain('subject-already-addressed');
+  });
+
+  it('still speaks about everybody else on the plate', () => {
+    const a: Observation = { ...obs('r1', 'regret'), subjects: ['person:vikram'] };
+    const b: Observation = { ...obs('r2', 'regret'), subjects: ['person:amma'] };
+    const reg = new EngineRegistry().register(fake('regret', {
+      observations: [a, b],
+      proposals: [
+        prop({ id: 'x', engine: 'regret', action: 'Call Vikram — not a text', addresses: ['r1'] }),
+        prop({ id: 'y', engine: 'regret', action: 'Call Amma — not a text', addresses: ['r2'] }),
+      ],
+    }));
+    const r = runCycleWith(reg, {
+      context: ctx(),
+      addressedSubjects: ['person:vikram'],
+    });
+    expect(r.proposals.map((p) => p.id)).toEqual(['y']);
+  });
+
   it('still nudges about two different people', () => {
     const a: Observation = { ...obs('r1', 'regret'), subjects: ['sam'] };
     const b: Observation = { ...obs('r2', 'regret'), subjects: ['dad'] };
