@@ -24,7 +24,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
-import { Input } from '@/components/ui';
+import { Input, DomainDot } from '@/components/ui';
 import { levelProgress } from '@/theme';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
@@ -829,6 +829,25 @@ export default function Today() {
   /** True when a lens is on and that part of the life is genuinely quiet. */
   const lensEmpty = Boolean(lensLife) && !missionInLens && openProposals.length === 0;
 
+  /**
+   * The best move that pays two parts of a life at once.
+   *
+   * Read here rather than only in the Time tab, where it has always been —
+   * and only ever the first one. A stack is a way to spend an hour, not a
+   * second to-do list, so the card below shows one and links to the rest.
+   * Covering two domains is the bar: a "stack" that helps a single one is
+   * an ordinary suggestion, and calling it a stack would be the overselling
+   * this feature exists to avoid.
+   */
+  const { data: stackData } = useQuery({
+    queryKey: ['life-stacks'],
+    queryFn: () => api<{ stacks: any[] }>('/life-os/stacks'),
+    staleTime: 5 * 60_000,
+  });
+  const topStack = (stackData?.stacks ?? []).find(
+    (st: any) => (st?.covers?.length ?? 0) >= 2,
+  ) ?? null;
+
   return (
     <View style={{ flex: 1, backgroundColor: obs.ground }}>
       <LinearGradient colors={obsSky()} style={s.skyWash} pointerEvents="none" />
@@ -1072,6 +1091,54 @@ export default function Today() {
             </View>
           )}
         </Rise>
+
+        {/**
+         * ── one move, two lives ───────────────────────────────────────
+         *
+         * The best thing this app does, and it lived three taps into the
+         * Time tab. Nothing else on the market merges a walk and a phone
+         * call to a friend into one thirty-minute action and can say, in
+         * the reader's own numbers, why that particular pair — and almost
+         * nobody using it had ever seen one, because the door to it was a
+         * card most of the way down a different screen.
+         *
+         * One, never a list. This sits under the Now Card and must not
+         * become a second one: the whole discipline of that card is that
+         * today has a single most important thing. A stack is offered as a
+         * way to *spend* an hour, and the rest stay where they were.
+         */}
+        {topStack ? (
+          <Rise delay={80}>
+            <Pressable
+              onPress={() => router.push('/time')}
+              accessibilityRole="button"
+              accessibilityLabel={`${topStack.action} — covers ${topStack.covers.join(' and ')}. Open Time to plan it.`}
+              style={({ pressed }) => [s.stackCard, pressed && { opacity: 0.75 }]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <Ionicons name="git-merge-outline" size={13} color={obs.brass} />
+                <Tick color={obs.brass}>
+                  one move · {topStack.covers.length} parts of your life
+                </Tick>
+                <View style={{ flex: 1 }} />
+                <View style={{ flexDirection: 'row', gap: 4 }}>
+                  {topStack.domains.map((d: string) => (
+                    <View key={d} style={topStack.covers.includes(d) ? undefined : { opacity: 0.3 }}>
+                      <DomainDot domain={d} size={8} />
+                    </View>
+                  ))}
+                </View>
+              </View>
+              <Text style={[obsType.said, { marginTop: 9, fontSize: 19 }]}>{topStack.action}</Text>
+              {/* The reason, in numbers they can check against their own
+                  dashboard. A suggestion that cannot say why it is one is
+                  a slogan. */}
+              {topStack.reason ? (
+                <Text style={[obsType.dim, { marginTop: 6 }]}>{topStack.reason}</Text>
+              ) : null}
+            </Pressable>
+          </Rise>
+        ) : null}
 
         {/* ── what happened while you were gone ────────────────────── */}
         {since && since.days >= 1
@@ -1668,6 +1735,14 @@ const s = StyleSheet.create({
   sinceRow: {
     borderLeftWidth: 2, borderLeftColor: obs.ruleSoft,
     paddingLeft: 12, paddingVertical: 2, marginTop: 14,
+  },
+  /* Quieter than the Now Card on purpose — a hairline and a wash rather
+     than the gradient and the pulse. Today still has one most important
+     thing, and this is a way to spend an hour, not a rival for it. */
+  stackCard: {
+    marginTop: 14, padding: 15, borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: alpha(obs.brass, 0.3),
+    backgroundColor: alpha(obs.brass, 0.05),
   },
   /* The growth line. A row, not a card: it is a sentence with dots, and
      making it a panel would turn an observation into an announcement. */

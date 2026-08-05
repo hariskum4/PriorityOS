@@ -45,6 +45,12 @@ export class GoalsService {
       patch.title = derived.title;
       patch.description = derived.description;
     }
+    /* Same normalisation as `create`. The client sends an ISO string, and
+       `null` is a real value here — it is how somebody takes a date back off
+       a goal, so it must survive rather than be treated as "not supplied". */
+    if ('targetDate' in patch) {
+      patch.targetDate = patch.targetDate ? new Date(patch.targetDate) : null;
+    }
     return this.prisma.goal.update({ where: { id }, data: patch });
   }
 

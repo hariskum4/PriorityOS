@@ -34,11 +34,83 @@ function completedRelative(iso: string): string {
  * model of the person, so correcting one has to be possible from inside the
  * app rather than only at the moment of creation.
  */
+/**
+ * By when, in the words people use for it.
+ *
+ * `Goal.targetDate` has been on the model since the beginning and nothing
+ * outside the test fixtures has ever written one — while the engine flags
+ * every goal with "No date, so nothing ever makes it urgent" and this very
+ * form's placeholder reads "Run a 10K by December". A whole risk rule and a
+ * whole column, with no way in.
+ *
+ * Offsets rather than a calendar. Somebody who has been putting off a doctor's
+ * appointment for a year is not choosing the 14th of March, they are deciding
+ * between soon and not yet — and a date picker asks a question this app does
+ * not need the answer to. "No date" stays first and stays legitimate; a
+ * deadline invented to satisfy a form is worse than none.
+ */
+/** Days until a target, or null when there is no date to count to. */
+function daysUntil(targetDate: string | null | undefined): number | null {
+  if (!targetDate) return null;
+  const t = new Date(targetDate).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.ceil((t - Date.now()) / 86_400_000);
+}
+
+function overdue(targetDate: string | null | undefined): boolean {
+  const d = daysUntil(targetDate);
+  return d != null && d < 0;
+}
+
+/**
+ * A deadline said the way somebody would say it.
+ *
+ * "14 Mar" is a fact to decode; "3 weeks" is a fact you already feel. Past
+ * dates say how long it has been rather than a negative number, because the
+ * point of showing it is the weight, not the arithmetic.
+ */
+function dueLabel(targetDate: string | null | undefined): string | null {
+  const d = daysUntil(targetDate);
+  if (d == null) return null;
+  if (d < 0) {
+    const over = Math.abs(d);
+    if (over < 14) return `${over}d over`;
+    if (over < 60) return `${Math.round(over / 7)}w over`;
+    return `${Math.round(over / 30)}mo over`;
+  }
+  if (d === 0) return 'today';
+  if (d < 14) return `${d}d left`;
+  if (d < 60) return `${Math.round(d / 7)}w left`;
+  return `${Math.round(d / 30)}mo left`;
+}
+
+const BY_WHEN: Array<{ label: string; days: number | null }> = [
+  { label: 'no date yet', days: null },
+  { label: 'this month', days: 30 },
+  { label: 'three months', days: 90 },
+  { label: 'six months', days: 182 },
+  { label: 'this year', days: 365 },
+];
+
 function GoalForm({ goal, onClose }: { goal?: any; onClose: () => void }) {
   const qc = useQueryClient();
   const [title, setTitle] = React.useState(goal?.title ?? '');
   const [domainType, setDomainType] = React.useState(goal?.domainType ?? 'health');
   const [horizon, setHorizon] = React.useState(goal?.horizon ?? '1y');
+  /* An existing date maps back to the offset closest to it, so reopening the
+     form shows what was chosen rather than resetting to "no date yet" and
+     quietly clearing a deadline on save. */
+  const [whenDays, setWhenDays] = React.useState<number | null>(() => {
+    if (!goal?.targetDate) return null;
+    const days = Math.round(
+      (new Date(goal.targetDate).getTime() - Date.now()) / 86_400_000,
+    );
+    return BY_WHEN.reduce<number | null>((best, o) => {
+      if (o.days == null) return best;
+      if (best == null) return o.days;
+      return Math.abs(o.days - days) < Math.abs(best - days) ? o.days : best;
+    }, null);
+  });
 
   const done = () => {
     qc.invalidateQueries({ queryKey: ['goals'] });
@@ -47,10 +119,19 @@ function GoalForm({ goal, onClose }: { goal?: any; onClose: () => void }) {
   };
 
   const save = useMutation({
-    mutationFn: () =>
-      goal
-        ? api(`/goals/${goal.id}`, { method: 'PATCH', body: { title: title.trim(), domainType, horizon } })
-        : api('/goals', { method: 'POST', body: { title: title.trim(), domainType, horizon } }),
+    mutationFn: () => {
+      const body = {
+        title: title.trim(),
+        domainType,
+        horizon,
+        targetDate: whenDays == null
+          ? null
+          : new Date(Date.now() + whenDays * 86_400_000).toISOString(),
+      };
+      return goal
+        ? api(`/goals/${goal.id}`, { method: 'PATCH', body })
+        : api('/goals', { method: 'POST', body });
+    },
     onSuccess: done,
   });
 
@@ -87,6 +168,27 @@ function GoalForm({ goal, onClose }: { goal?: any; onClose: () => void }) {
           </Pressable>
         ))}
       </View>
+      <Text style={type.faint}>By when?</Text>
+      <View style={s.chipWrap}>
+        {BY_WHEN.map((o) => (
+          <Pressable
+            key={o.label}
+            onPress={() => setWhenDays(o.days)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: whenDays === o.days }}
+            style={[s.chip, whenDays === o.days && s.chipOn]}
+          >
+            <Text style={[type.faint, whenDays === o.days && { color: colors.amber, fontWeight: '700' }]}>
+              {o.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={type.faint}>
+        {whenDays == null
+          ? 'Without one, nothing here ever becomes urgent — which is how a year goes by.'
+          : 'A date you can move. It is what lets this start asking.'}
+      </Text>
       <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
       <View style={{ flexDirection: 'row', gap: space(2) }}>
         <View style={{ flex: 1 }}>
@@ -155,12 +257,40 @@ function GoalRow({ goal, hasStep }: { goal: any; hasStep: boolean }) {
           {goal.title}
         </Text>
         <View style={{ flexShrink: 0 }}>
-          <Chip label={goal.horizon === '5y' ? '5 years' : 'this year'} />
+          {/* The date when there is one, the horizon when there is not. Two
+              chips saying "this year" and "three months" beside each other
+              is one fact too many for a row this narrow. */}
+          <Chip
+            label={dueLabel(goal.targetDate) ?? (goal.horizon === '5y' ? '5 years' : 'this year')}
+            color={overdue(goal.targetDate) ? colors.rose : undefined}
+          />
         </View>
-        <Pressable onPress={() => setEditing(true)} hitSlop={8}>
+        <Pressable
+          onPress={() => setEditing(true)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Edit goal: ${goal.title}`}
+        >
           <Ionicons name="create-outline" size={16} color={colors.textFaint} />
         </Pressable>
       </View>
+
+      {/* The engine has always flagged this — "No date, so nothing ever makes
+          it urgent" — and the reader was never shown it or given a way to
+          answer. A year of putting off a doctor's appointment is exactly the
+          shape of goal that never had a date. */}
+      {!goal.targetDate ? (
+        <Pressable
+          onPress={() => setEditing(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Set a date for: ${goal.title}`}
+          style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 5 }, pressed && { opacity: 0.6 }]}
+        >
+          <Ionicons name="calendar-outline" size={13} color={colors.textDim} />
+          <Text style={type.faint}>No date — nothing makes this urgent. </Text>
+          <Text style={[type.faint, { color: colors.amber }]}>Set one</Text>
+        </Pressable>
+      ) : null}
 
       {hasStep ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -298,6 +428,16 @@ export default function Missions() {
           <View style={{ gap: goalsOpen ? space(3) : 0 }}>
             <Pressable
               onPress={() => setGoalsOpen((v) => !v)}
+              // Without a role this renders as a bare div on web, so the one
+              // control that opens the goals was invisible to a screen reader
+              // and to anything else walking the page.
+              accessibilityRole="button"
+              accessibilityState={{ expanded: goalsOpen }}
+              accessibilityLabel={
+                goalsOpen
+                  ? 'Your goals — close'
+                  : `Your goals, ${openGoals.length} open — open`
+              }
               style={({ pressed }) => [s.sectionHead, pressed && { opacity: 0.6 }]}
             >
               <Ionicons name="flag-outline" size={14} color={goalsOpen ? colors.amber : colors.textDim} />
