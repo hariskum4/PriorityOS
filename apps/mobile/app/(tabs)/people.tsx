@@ -64,7 +64,12 @@ function AddPerson({ onDone }: { onDone: () => void }) {
 
   if (!open) {
     return (
-      <Pressable onPress={() => setOpen(true)} style={({ pressed }) => [s.addRow, pressed && { opacity: 0.6 }]}>
+      <Pressable
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Add someone"
+        style={({ pressed }) => [s.addRow, pressed && { opacity: 0.6 }]}
+      >
         <Ionicons name="add-circle-outline" size={18} color={colors.amber} />
         <Text style={[type.label, { color: colors.amber }]}>Add someone</Text>
       </Pressable>
@@ -76,9 +81,20 @@ function AddPerson({ onDone }: { onDone: () => void }) {
       <Label>Who?</Label>
       <Input placeholder="Their name" value={name} onChangeText={setName} autoFocus />
       <Text style={type.faint}>They are your…</Text>
+      {/* Fifteen chips whose only mark of being chosen is a background
+          colour, in the form that creates a person. `aria-selected` rather
+          than `accessibilityState`, for the reason set out on the Chip in
+          components/ui: react-native-web 0.19 drops the nested object. */}
       <View style={s.chipWrap}>
         {RELATION_TYPES.map((t) => (
-          <Pressable key={t} onPress={() => setRelationType(t)} style={[s.chip, relationType === t && s.chipOn]}>
+          <Pressable
+            key={t}
+            onPress={() => setRelationType(t)}
+            accessibilityRole="button"
+            accessibilityLabel={t}
+            aria-selected={relationType === t}
+            style={[s.chip, relationType === t && s.chipOn]}
+          >
             <Text style={[type.faint, relationType === t && { color: colors.amber, fontWeight: '700' }]}>{t}</Text>
           </Pressable>
         ))}
@@ -86,7 +102,14 @@ function AddPerson({ onDone }: { onDone: () => void }) {
       <Text style={type.faint}>How often do you want to be in touch?</Text>
       <View style={s.chipWrap}>
         {CADENCES.map((c) => (
-          <Pressable key={c} onPress={() => setDesired(c)} style={[s.chip, desired === c && s.chipOn]}>
+          <Pressable
+            key={c}
+            onPress={() => setDesired(c)}
+            accessibilityRole="button"
+            accessibilityLabel={c}
+            aria-selected={desired === c}
+            style={[s.chip, desired === c && s.chipOn]}
+          >
             <Text style={[type.faint, desired === c && { color: colors.amber, fontWeight: '700' }]}>{c}</Text>
           </Pressable>
         ))}
@@ -220,9 +243,20 @@ export default function People() {
         return (
           <Card accent={overdue ? colors.roseSoft : undefined} style={{ gap: space(3) }}>
             {/* The whole header opens the person — their history, the moments
-                kept with them, and the only place to correct or remove them. */}
+                kept with them, and the only place to correct or remove them.
+
+                Which is exactly why it needed a name. Without a role this
+                rendered as a bare focusable <div>: reachable by tab, announced
+                as nothing, and the only route to editing or removing somebody.
+                The call/message/visit buttons below were given roles when the
+                rest of this screen was fixed and this row was missed, so the
+                three cheap actions were reachable and the irreversible one was
+                not. The label carries the state the row shows visually, since
+                "overdue" is a red chip and a colour is not a name. */}
             <Pressable
               onPress={() => router.push(`/person/${r.id}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`${r.name}, ${r.relationType}${overdue ? ', overdue' : ''} — open their page`}
               style={({ pressed }) => [
                 { flexDirection: 'row', alignItems: 'center', gap: space(3) },
                 pressed && { opacity: 0.6 },
