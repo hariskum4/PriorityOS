@@ -16,6 +16,7 @@ import { RelationshipsService } from '../src/relationships/relationships.service
 import { MissionsService } from '../src/missions/missions.service';
 import { AuthJobsService } from '../src/auth/auth.jobs';
 import { normalizeDomains, OnboardingService } from '../src/onboarding/onboarding.service';
+import { ALL_DOMAINS } from '@priority/types';
 import { ttlToMs } from '../src/common/env';
 import { CreateRelationshipDto } from '../src/relationships/relationships.dto';
 import { CreateJournalEntryDto } from '../src/journal/journal.dto';
@@ -286,5 +287,35 @@ describe('the reveal reads the number it quotes', () => {
   it('a fully-lived top domain is never also the drift warning', async () => {
     const r = await reveal({ health: 5, family: 5, career: 5 });
     expect(r.driftWarning).not.toContain('health');
+  });
+
+  /**
+   * The first mission has to be postable.
+   *
+   * This screen is the only place a new account gets a mission, and the
+   * client used to read the domain off the end of the sentence. Once the
+   * options became personal their last words were "enough", "times" and
+   * "1/5"; every POST failed validation, a bare catch swallowed it, and the
+   * account arrived at an empty Today. So the assertion is not about wording
+   * — it is that every option carries a domain the API will actually accept.
+   */
+  it('every first-week option carries a real domain, not a parsed one', async () => {
+    const r = await reveal({ health: 1, family: 4, career: 3 }, ['health']) as any;
+    const options = r.firstWeekFocus as Array<{ title: string; domainType: string }>;
+
+    expect(options.length).toBeGreaterThan(0);
+    for (const o of options) {
+      expect(typeof o.title).toBe('string');
+      expect(o.title.length).toBeGreaterThan(0);
+      expect(ALL_DOMAINS).toContain(o.domainType);
+    }
+
+    /* The exact shape that broke it: copy ending in a score, filed correctly
+       anyway. A generic option may still end in its own domain name — that
+       is a coincidence of wording, and no longer something anything reads. */
+    const drift = options.find((o) => o.title.includes('you rated it'));
+    expect(drift).toBeTruthy();
+    expect(drift!.title.split(' ').pop()).toBe('1/5');
+    expect(drift!.domainType).toBe('health');
   });
 });

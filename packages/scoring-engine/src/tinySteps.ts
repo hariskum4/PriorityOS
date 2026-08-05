@@ -34,7 +34,39 @@ const BY_DOMAIN: Record<string, (p?: string | null) => string> = {
   impact: () => 'Think of one person you could help this month. Just name them.',
 };
 
+/**
+ * The few mission shapes whose first move is not their domain's default.
+ *
+ * The defect: "Take Priya out of the house for an hour, no screens" was
+ * answered with "Open their chat. Type one line." — a step for a different
+ * mission entirely, because the step was read off the domain and the domain
+ * said family. A step describing the wrong action is worse than a generic
+ * one; a generic step reads as modest, a wrong one reads as an app that did
+ * not look at what it just asked for.
+ *
+ * Deliberately few, and anchored the way `recognizeHabit` is, for the same
+ * reason: a pattern matching anywhere in a title matches the wrong titles.
+ * "Take your walk while calling Jai" is not an outing, and nothing here may
+ * decide that it is. When none of these fit, the domain answers as before.
+ */
+const BY_SHAPE: Array<{ test: RegExp; step: (p?: string | null) => string }> = [
+  {
+    /* Somewhere, together. The first move is agreeing on when — putting
+       your shoes on does nothing if the other person is not coming. */
+    test: /^(?:take|bring)\s+\S+\s+(?:out|to)\b|\bout of the house\b|\bsomewhere new\b/i,
+    step: (p) => `Ask ${p ?? 'them'} which evening works. That is the whole task.`,
+  },
+  {
+    test: /^(?:plan|book|schedule|arrange)\b/i,
+    step: () => 'Open the calendar and pick the day. Nothing else today.',
+  },
+];
+
 export function tinyStep(input: TinyStepInput): string {
+  const title = (input.title ?? '').trim();
+  const shape = BY_SHAPE.find((s) => s.test.test(title));
+  if (shape) return shape.step(input.personName);
+
   if (input.missionType === 'relationship' || input.personName) {
     const domainFn = BY_DOMAIN[input.domainType];
     if (domainFn) return domainFn(input.personName);

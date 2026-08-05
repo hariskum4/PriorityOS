@@ -57,10 +57,24 @@ export class DashboardService {
         0,
         Number(domain?.importanceScore ?? 0) - Number(domain?.attentionScore ?? 0),
       );
+      /**
+       * A gap is only worth naming when there is one.
+       *
+       * This branch asserted the domain was "where your say-do gap is widest
+       * right now (0 points)" — widest, and zero, in one sentence, on the
+       * first card a reader sees. `gap` is clamped at zero, so a domain
+       * already getting everything they asked of it was being reported as
+       * the worst thing in their life. The person is reason enough alone;
+       * the number joins in only when it says something, which is the same
+       * bar the branch below already applied.
+       */
+      const behind = gap > 20
+        ? ` — and ${topMission.domainType} is ${Math.round(gap)} points behind where you said it should be`
+        : '';
       // Fallback copy must not read like a template: name the person, name
       // the gap, vary the encouragement — deterministic but personal.
       const fallbackWhy = personName
-        ? `Because ${personName} is the person this week keeps postponing — and ${topMission.domainType} is where your say-do gap is widest right now (${Math.round(gap)} points).`
+        ? `Because ${personName} is the person this week keeps postponing${behind}.`
         : gap > 20
           ? `You rated ${topMission.domainType} as important, but this week it's ${Math.round(gap)} points behind where you said it should be. This one action closes the most of that.`
           : `Of everything pending, this moves the needle most on what you said matters.`;

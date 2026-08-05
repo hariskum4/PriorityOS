@@ -253,6 +253,7 @@ export default function Missions() {
   const busyId = complete.isPending ? complete.variables : snooze.isPending ? snooze.variables?.id : null;
 
   const openGoals = (goals ?? []).filter((g) => g.status !== 'achieved' && g.status !== 'done');
+  const stepped = openGoals.filter((g) => (data ?? []).some((m) => m.goalId === g.id)).length;
 
   return (
     <FlatList
@@ -303,8 +304,14 @@ export default function Missions() {
               <Label color={goalsOpen ? colors.amber : undefined}>Your goals</Label>
               <View style={{ flex: 1 }} />
               {!goalsOpen ? (
+                /* "4 open · 0 with a step" advertised an unused feature as a
+                   deficiency, in a collapsed header, to somebody who has not
+                   been told what a step is. The count of goals is the fact
+                   worth carrying; the second half joins in only when it has
+                   a number that means something. */
                 <Text style={type.faint}>
-                  {openGoals.length} open · {openGoals.filter((g) => (data ?? []).some((m) => m.goalId === g.id)).length} with a step
+                  {openGoals.length} open
+                  {stepped > 0 ? ` · ${stepped} with a step` : ''}
                 </Text>
               ) : null}
               <Ionicons name={goalsOpen ? 'chevron-up' : 'chevron-down'} size={14} color={colors.textFaint} />

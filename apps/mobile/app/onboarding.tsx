@@ -1025,18 +1025,40 @@ function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, per
 
   const [chosen, setChosen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const pickPriority = async (title: string) => {
+  const [pickFailed, setPickFailed] = useState(false);
+
+  /**
+   * The one tap that decides whether the app has anything in it.
+   *
+   * This is the only place a new account gets a mission, and it was reading
+   * the domain out of the sentence with `title.split(' ').pop()` — fine while
+   * every option ended in a domain name, fatal the moment they became
+   * personal. "…one message is enough" posted `domainType: "enough"`, the API
+   * rejected it, and the bare `catch {}` below swallowed the 400 without a
+   * word. The row stayed unselected, so it read as an unresponsive button,
+   * and every one of those accounts arrived at an empty Today screen.
+   *
+   * The domain now travels beside the title as a field. A failure is said out
+   * loud, because a first mission that did not save is the difference between
+   * an app with something in it and an app with nothing.
+   */
+  const pickPriority = async (f: { title: string; domainType: string }) => {
     if (chosen || adding) return;
     setAdding(true);
+    setPickFailed(false);
     try {
-      const domain = title.split(' ').pop() ?? 'family';
       await api('/missions', {
         method: 'POST',
-        body: { title, domainType: domain, estimatedMinutes: 15, xpReward: 30 },
+        body: {
+          title: f.title,
+          domainType: f.domainType,
+          estimatedMinutes: 15,
+          xpReward: 30,
+        },
       });
-      setChosen(title);
+      setChosen(f.title);
     } catch {
-      // leave selectable on failure
+      setPickFailed(true);
     } finally {
       setAdding(false);
     }
@@ -1165,12 +1187,20 @@ function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, per
             <Label color={colors.amber}>Choose your first priority</Label>
           </View>
           <Text style={type.dim}>Pick one. It becomes your first mission — small, this week, yours.</Text>
-          {reveal.firstWeekFocus?.map((f: string) => {
-            const isChosen = chosen === f;
+          {(reveal.firstWeekFocus ?? []).map((raw: any) => {
+            /* Objects now; strings are what an older API build sends, and a
+               reveal that arrives mid-deploy should still be pickable rather
+               than crash on `.title`. The domain is never parsed back out of
+               the copy — an option without one is filed under the reader's
+               own first priority, which is at least a domain that exists. */
+            const f = typeof raw === 'string'
+              ? { title: raw, domainType: top3[0] ?? 'family' }
+              : raw;
+            const isChosen = chosen === f.title;
             const dimmed = !!chosen && !isChosen;
             return (
               <Pressable
-                key={f}
+                key={f.title}
                 onPress={() => pickPriority(f)}
                 disabled={!!chosen || adding}
                 style={({ pressed }) => [
@@ -1185,10 +1215,15 @@ function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, per
                   size={20}
                   color={isChosen ? colors.green : colors.textFaint}
                 />
-                <Text style={[type.body, { flex: 1 }]}>{f}</Text>
+                <Text style={[type.body, { flex: 1 }]}>{f.title}</Text>
               </Pressable>
             );
           })}
+          {pickFailed ? (
+            <Text style={[type.faint, { color: colors.rose }]}>
+              That didn’t save — tap it again. Your answers are already stored.
+            </Text>
+          ) : null}
           {chosen && (
             <View style={{ gap: space(2) }}>
               <Text style={[type.dim, { color: colors.green, textAlign: 'center' }]}>

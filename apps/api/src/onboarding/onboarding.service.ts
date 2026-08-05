@@ -7,7 +7,7 @@ import { AnalyticsService } from '../analytics/analytics.service';
 import { BlueprintService } from '../life-os/blueprint.service';
 import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
 import { deriveGoalTitle } from '@priority/scoring-engine';
-import { ALL_DOMAINS } from '@priority/types';
+import { ALL_DOMAINS, domainForRelationType } from '@priority/types';
 
 /** The names people and integrations use for domains, mapped to the slugs the rows use. */
 const DOMAIN_ALIASES: Record<string, string> = {
@@ -73,19 +73,37 @@ export class OnboardingService {
    *
    * Each string becomes a real mission title verbatim, so each is phrased as
    * one small action, not a theme.
+   *
+   * **Each option carries its own domain, and this is not decoration.** The
+   * client used to derive one with `title.split(' ').pop()` — the last word
+   * of the sentence — which worked only because every option used to end in
+   * a domain name ("One meaningful action in family"). The moment these
+   * became personal, the last words became "enough", "times" and "1/5", the
+   * POST failed validation, and a silent catch left every new account with
+   * no first mission at all. Copy is not a data channel. The domain travels
+   * as a field.
    */
   private firstWeekOptions(opts: {
     top3: string[];
     person?: string | null;
+    personDomain?: string | null;
     postponing: string;
+    postponingDomain?: string | null;
     neglected: string[];
     currentReality: Record<string, number>;
-  }): string[] {
-    const { top3, person, postponing, neglected, currentReality } = opts;
-    const out: string[] = [];
+  }): Array<{ title: string; domainType: string }> {
+    const {
+      top3, person, personDomain, postponing, postponingDomain,
+      neglected, currentReality,
+    } = opts;
+    const fallback = top3[0] ?? 'family';
+    const out: Array<{ title: string; domainType: string }> = [];
 
     if (person) {
-      out.push(`Reach out to ${person} this week — one message is enough`);
+      out.push({
+        title: `Reach out to ${person} this week — one message is enough`,
+        domainType: personDomain ?? 'family',
+      });
     }
 
     const goal = deriveGoalTitle(postponing).title;
@@ -93,7 +111,10 @@ export class OnboardingService {
       // Their sentence, reduced to a title, offered as a first step rather
       // than as the whole mountain — the postponing answer is by definition
       // the thing that feels too big to start.
-      out.push(`One small step toward: ${goal}`);
+      out.push({
+        title: `One small step toward: ${goal}`,
+        domainType: postponingDomain ?? fallback,
+      });
     }
 
     // The domain they rated lowest, named with the number they gave it, so the
@@ -101,17 +122,19 @@ export class OnboardingService {
     const drifting = neglected[0] ?? top3.find((d) => (currentReality[d] ?? 5) <= 2) ?? null;
     if (drifting) {
       const score = currentReality[drifting];
-      out.push(
-        typeof score === 'number'
+      out.push({
+        title: typeof score === 'number'
           ? `Give ${drifting} one hour this week — you rated it ${score}/5`
           : `Give ${drifting} one deliberate hour this week`,
-      );
+        domainType: drifting,
+      });
     }
 
     for (const d of top3) {
       if (out.length >= 3) break;
-      const line = `One meaningful action in ${d}`;
-      if (!out.some((o) => o.includes(d))) out.push(line);
+      if (!out.some((o) => o.title.includes(d))) {
+        out.push({ title: `One meaningful action in ${d}`, domainType: d });
+      }
     }
 
     return out.slice(0, 3);
@@ -242,6 +265,14 @@ export class OnboardingService {
     const postponing = String(get('reflection', 'postponing') ?? '').trim();
     const feeling = String(get('values', 'firstWeekFeeling') ?? '').trim();
     const person = relationships[0]?.name;
+    /* The goal written from their postponing answer already carries a domain
+       they chose. Reading it back is more honest than guessing one from the
+       sentence, and it is what the mission should be filed under. */
+    const postponingGoalDomain = (await this.prisma.goal.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: { domainType: true },
+    }))?.domainType ?? null;
     const topDomain = top3[0] ?? 'family';
     const topReality = currentReality[topDomain];
 
@@ -300,7 +331,15 @@ export class OnboardingService {
            */
           : 'Drift shows up in how real weeks get spent, and Priority has not watched one of yours yet. A few ordinary days will show where it lives.',
         firstWeekFocus: this.firstWeekOptions({
-          top3, person, postponing, neglected, currentReality,
+          top3,
+          person,
+          personDomain: relationships[0]
+            ? domainForRelationType(relationships[0].relationType)
+            : null,
+          postponing,
+          postponingDomain: postponingGoalDomain,
+          neglected,
+          currentReality,
         }),
       },
     );
