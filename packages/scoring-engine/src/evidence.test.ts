@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { rhythmDomains, rhythmsFor } from './rhythms';
 import { domainLadder } from './domainLadder';
 import { healthspan } from './lifeStrategy';
-import { EVIDENCE, PROPOSED } from './evidence';
+import { EVIDENCE, PROPOSED, evidenceForGenerated } from './evidence';
 
 /** Every identity the catalogs currently ship. */
 function catalogIdentities(): Set<string> {
@@ -81,5 +81,36 @@ describe('evidence bank', () => {
       }
     }
     expect(offenders, offenders.join(' | ')).toEqual([]);
+  });
+});
+
+/**
+ * The rule that stops the evidence layer being laundered: a model can phrase
+ * a rhythm in somebody's own words, and phrasing is all it can do. It never
+ * earns a grade by sounding like one.
+ */
+describe('what a generated entry may claim', () => {
+  it('inherits the receipt of the thing it is a phrasing of', () => {
+    expect(evidenceForGenerated('Yoga on Tuesdays and Fridays').grade).toBe('A');
+    expect(evidenceForGenerated('Flossing before bed').source)
+      .toBe(EVIDENCE['health.upkeep'].source);
+  });
+
+  it('takes an explicit catalog key over the phrasing', () => {
+    expect(evidenceForGenerated('Something else entirely', 'health.strength').source)
+      .toBe(EVIDENCE['health.strength'].source);
+  });
+
+  it('is folk when it resolves to nothing — a new idea nobody has measured', () => {
+    const ev = evidenceForGenerated('Cycle the long way past the reservoir');
+    expect(ev.grade).toBe('folk');
+    expect(ev.note).toBeTruthy();
+    expect(ev.source).toBeUndefined();
+  });
+
+  it('never invents a source for something ungraded', () => {
+    for (const t of ['Repot the balcony plants', 'Sit with the cat', 'Sort the loft']) {
+      expect(evidenceForGenerated(t).source, t).toBeUndefined();
+    }
   });
 });

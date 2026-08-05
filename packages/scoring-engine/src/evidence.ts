@@ -51,6 +51,8 @@
  * the narrator to promise anybody an outcome.
  */
 
+import { recognizeHabit } from './commonHabits';
+
 export type EvidenceGrade = 'A' | 'B' | 'C' | 'folk';
 
 export interface Evidence {
@@ -682,4 +684,39 @@ export const EVIDENCE: Record<string, Evidence> = {
  */
 export function evidenceFor(idOrTitle: string): Evidence | null {
   return EVIDENCE[idOrTitle] ?? PROPOSED[idOrTitle] ?? null;
+}
+
+/** What a generated entry may claim before anything is known about it. */
+const UNGRADED: Evidence = {
+  grade: 'folk',
+  note: 'Written for this life rather than taken from the catalog, so it carries no claim about outcomes. Kept because it fits, not because it was measured.',
+};
+
+/**
+ * The receipt for something a model wrote, which is `folk` until proven
+ * otherwise — and proven only by being a rephrasing of something graded.
+ *
+ * This is the rule that stops the evidence layer from being laundered. A
+ * generation phrases a rhythm in somebody's own idiom; if that phrasing
+ * resolves to a catalog identity, it is that thing said differently and it
+ * inherits that thing's receipt. If it resolves to nothing, it is a new idea
+ * nobody has measured, and the honest grade for a new idea is folk.
+ *
+ * Personal phrasing inherits the evidence of the thing it is a phrasing of.
+ * It never invents evidence of its own, and it never borrows a grade by
+ * sounding similar to one — the resolution goes through the same recognizer
+ * the catalog already uses to tell that "Yoga" and "yoga on Tuesdays" are
+ * the same commitment.
+ */
+export function evidenceForGenerated(title: string, key?: string | null): Evidence {
+  if (key) {
+    const byKey = EVIDENCE[key] ?? PROPOSED[key];
+    if (byKey) return byKey;
+  }
+  const resolved = recognizeHabit(title)?.key;
+  if (resolved) {
+    const byPhrase = EVIDENCE[resolved] ?? PROPOSED[resolved];
+    if (byPhrase) return byPhrase;
+  }
+  return UNGRADED;
 }

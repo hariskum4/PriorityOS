@@ -384,3 +384,55 @@ describe('judgeBlueprint', () => {
     expect(verdict.rhythms.length).toBeLessThanOrEqual(12);
   });
 });
+
+/**
+ * The judge had every opinion except whether the thing works. Once the
+ * catalog started carrying graded receipts that stopped being tolerable: an
+ * app that grades its own entries A through folk and then lets a generation
+ * append a detox week has not got a standard, it has a decoration.
+ */
+describe('what the literature went and looked for, and did not find', () => {
+  const here = ctx();
+  const rhythm = (title: string, because = 'A reason that is fine on its own.') => ({
+    key: 'p.test', title, domain: 'health', perWeek: 3, minutes: 20, because,
+  });
+
+  it.each([
+    ['A three-day detox to reset', 'detox'],
+    ['Manifest the year you want', 'manifesting'],
+    ['Ten minutes of brain-training', 'brain games'],
+    ['Study in your visual learner style', 'learning styles'],
+    ['21 days to a new morning', '21-day framing'],
+    ['A cold plunge for your low mood', 'cold-as-treatment'],
+    ['Dial in your supplement stack', 'supplement stacks'],
+  ])('refuses "%s" (%s)', (title) => {
+    const v = judgeRhythm(rhythm(title), here);
+    expect(v.ok).toBe(false);
+    expect((v as { reason: string }).reason).toBe('no-evidence');
+  });
+
+  it('reads the reason as well as the title', () => {
+    const v = judgeRhythm(rhythm('An honest morning', 'Manifest the outcome you want.'), here);
+    expect((v as { reason: string }).reason).toBe('no-evidence');
+  });
+
+  /* Narrow on purpose. This refuses the *app* proposing these; somebody who
+     wants a cold shower can type one in whenever they like. */
+  it('leaves an ordinary cold shower alone', () => {
+    expect(judgeRhythm(rhythm('A cold shower before work'), here).ok).toBe(true);
+  });
+
+  it('does not refuse the things that do have receipts', () => {
+    for (const t of ['Yoga on Tuesday and Friday', 'Two hours somewhere green', 'A walk after lunch']) {
+      expect(judgeRhythm(rhythm(t), here).ok, t).toBe(true);
+    }
+  });
+
+  it('gates the stack path through the same door', () => {
+    const v = judgeStack({
+      key: 'p.s', action: 'Do a cleanse with your partner',
+      domains: ['health', 'partner'], framing: 'Two parts of the week, one hour.',
+    }, here);
+    expect((v as { reason: string }).reason).toBe('no-evidence');
+  });
+});

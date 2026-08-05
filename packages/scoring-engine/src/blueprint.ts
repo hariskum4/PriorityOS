@@ -120,6 +120,10 @@ export type RejectionReason =
   | 'not-this-life'
   | 'tone'
   | 'unsafe'
+  /* Proposed something the literature has looked for and not found — see
+     NO_EVIDENCE. Distinct from 'unsafe': this is not dangerous, it is just
+     not true, and a catalog that prints grades cannot also print this. */
+  | 'no-evidence'
   | 'duplicate';
 
 export interface Rejection {
@@ -255,6 +259,50 @@ const OUT_OF_SCOPE = new RegExp([
 ].map((r) => r.source).join('|'), 'i');
 
 /**
+ * Things the evidence went and looked for, and did not find.
+ *
+ * The judge already refuses lines that are unsafe, off-tone, out of scope, or
+ * about a life this person does not lead. It had no opinion at all about
+ * whether the thing being proposed works — so a generation could phrase a
+ * piece of pseudoscience in somebody's own idiom, pass every structural
+ * check, and land in their catalog beside strength training.
+ *
+ * Once the catalog started carrying receipts that stopped being tolerable.
+ * An app that grades its own entries A through folk and then lets the model
+ * append a detox week has not got a standard; it has a decoration.
+ *
+ * Each of these is here for a specific reason, not a general suspicion:
+ *
+ *   **Brain-training** for general cognition — large trials find transfer to
+ *   the trained task and almost nothing beyond it.
+ *   **Learning styles** — the matching hypothesis has failed every controlled
+ *   test designed to find it.
+ *   **"21 days"** — the number is a misquotation of a plastic-surgery
+ *   observation; the measured median is around 66 days with enormous spread,
+ *   and the app's own grace design already assumes that.
+ *   **Detox and cleanses** — no mechanism, no outcome evidence, and a live
+ *   route to disordered eating.
+ *   **Manifesting and visualization-as-outcome** — visualizing the result
+ *   rather than the process performs worse than doing neither.
+ *   **Cold exposure as a mood treatment** — early, tiny, uncontrolled, and
+ *   routinely sold as settled.
+ *
+ * Deliberately narrow. This is not a list of things the authors dislike: a
+ * cold shower, a supplement, or a visualization habit is somebody's business
+ * and can be typed in by hand at any time. What this refuses is the *app*
+ * proposing them, which is a different act with a different duty.
+ */
+const NO_EVIDENCE = new RegExp([
+  /\b(detox|cleanse|flush out toxins|toxin[- ]free)\b/,
+  /\b(manifest(ing|ation)?|law of attraction|vision board|visuali[sz]e (the|your) (outcome|success|goal))\b/,
+  /\b(brain[- ]?training|brain games|neuroplasticity app|lumosity)\b/,
+  /\b(learning style|visual learner|auditory learner|kinaesthetic learner|kinesthetic learner)\b/,
+  /\b(21[- ]day|21 days to|in just 21|30 days to (a )?new (you|habit))\b/,
+  /\b(ice bath|cold plunge|cold shower)s?\b[^.]{0,40}\b(depress|anxiet|mood|mental health)/,
+  /\b(supplement stack|nootropic|biohack(ing)?)\b/,
+].map((r) => r.source).join('|'), 'i');
+
+/**
  * What this life does not contain.
  *
  * The homemaker who was told to turn her commute into an audiobook. The
@@ -358,6 +406,9 @@ function commonFaults(
 ): RejectionReason | null {
   if (detectCrisisLanguage(text)) return 'unsafe';
   if (OUT_OF_SCOPE.test(text)) return 'unsafe';
+  /* Before tone, because a well-phrased detox week is still a detox week and
+     the app should not be judging its manners. */
+  if (NO_EVIDENCE.test(text)) return 'no-evidence';
   if (TONE.test(text) || text.includes('!')) return 'tone';
   if (namesAStranger(text, ctx.knownNames ?? [])) return 'invented-person';
   if (assumesWrongLife(text, ctx.shape)) return 'not-this-life';

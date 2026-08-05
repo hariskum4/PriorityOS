@@ -29,7 +29,8 @@ import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
 import { useNow } from '@/hooks/useNow';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
-import { rhythmFor, anchorFor } from '@priority/scoring-engine';
+import { rhythmFor, anchorFor, evidenceForGenerated } from '@priority/scoring-engine';
+import { WhyThisWorks } from '@/components/WhyThisWorks';
 
 /** Days each desired cadence represents — for the "people waiting" glance. */
 const CADENCE_DAYS: Record<string, number> = {
@@ -1458,6 +1459,19 @@ export default function Today() {
                       absence is what made three domains offer three lines that
                       could have been swapped without anyone noticing. */}
                   <Text style={s.heldMore}>{rhythmHere.rhythm.because}</Text>
+                  {/* And the other half, in the other register: whether
+                      anybody has been and measured it. Collapsed, because the
+                      reader deciding about Tuesday does not need a citation —
+                      but the reader wondering whether this app is repeating
+                      something off the internet deserves an answer. */}
+                  <View style={{ marginTop: 2 }}>
+                    <WhyThisWorks
+                      idOrTitle={rhythmHere.rhythm.key}
+                      evidence={isBlueprint(rhythmHere.rhythm.key)
+                        ? evidenceForGenerated(rhythmHere.rhythm.title, rhythmHere.rhythm.key)
+                        : undefined}
+                    />
+                  </View>
                   {/*
                     Only for a rhythm the app wrote for this person.
 
