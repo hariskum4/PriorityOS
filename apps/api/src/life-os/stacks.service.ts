@@ -182,7 +182,7 @@ export class StacksService {
           country: user?.country ?? null,
           maritalStatus: user?.maritalStatus ?? null,
           childrenCount: user?.childrenCount ?? 0,
-          livesAwayFromParents: user?.livesAwayFromParents ?? false,
+          livesAwayFromParents: user?.livesAwayFromParents ?? null,
           /* So nothing generated writes a mother into a life that does not
              have one. Only an explicit false says so; null is never asked. */
           hasParentsInLife: user?.parentsInLife !== false,

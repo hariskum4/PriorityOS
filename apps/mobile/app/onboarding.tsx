@@ -26,6 +26,7 @@ import {
   type MicroReveal,
   type RevealLedger,
 } from '@priority/scoring-engine';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
 import { track } from '@/services/analytics';
 import { Button, Card, DomainDot, GapBar, Input, Label } from '@/components/ui';
@@ -83,10 +84,32 @@ const QUESTION_STEPS = 7; // life context, rank, reality+drift, postponing, pers
  * on purpose: they key the saved answers and the analytics.
  */
 const LANES: Record<'fast' | 'full' | 'deepen', number[]> = {
-  fast: [2, 6, 5],
-  full: [0.5, 1, 2, 3, 5, 6, 7],
+  /**
+   * Age leads even the hurried lane.
+   *
+   * The quick start used to skip step 1 entirely, so a fast starter reached
+   * Today with no date of birth — and age is the number under every other
+   * number this app owns: the body windows, the countables, the whole Time
+   * tab. One number pad, five seconds, and the signature feature works. The
+   * rest of step 1 (work pattern, household, parents) stays in the longer
+   * lane; step 1 renders only the age question when the lane is fast.
+   */
+  fast: [1, 2, 6, 5],
+  /**
+   * Step 6 was nine inputs on one screen, second to last, exactly where
+   * fatigue peaks. It is now who they are (6) and how you two actually keep
+   * in touch (6.5) — fractional for the same reason 0.5 is: the numbers key
+   * saved answers and analytics, so existing ones must not shift.
+   */
+  full: [0.5, 1, 2, 3, 5, 6, 6.5, 7],
   deepen: [0.5, 1, 3, 7],
 };
+
+/** The promises the quick start actually keeps — see the opening screen. */
+const FAST_LANE_COVERS = new Set(['age', 'rank', 'person', 'someday']);
+
+/** Where a half-finished onboarding waits. Versioned, so a shape change expires it. */
+const DRAFT_KEY = 'priority.onboardingDraft.v1';
 
 const WORK_TYPES: Record<string, string> = {
   office_9_5: '9–5 office', remote: 'remote', shift: 'shift work',
@@ -269,6 +292,16 @@ export default function Onboarding() {
 
   const [postponing, setPostponing] = useState('');
   const [postponingDomain, setPostponingDomain] = useState('');
+  /**
+   * The domain this goal files under, shown rather than assumed.
+   *
+   * `finish` falls back to `ranking[0]` when nothing is picked, so the goal
+   * always landed somewhere — just somewhere the reader was never shown and
+   * never agreed to. The fallback stays (it is the sane one), but now it is
+   * on screen as a preselected chip they can move, which is the difference
+   * between a smart default and a silent one.
+   */
+  const effectivePostponingDomain = postponingDomain || ranking[0] || '';
   const [feeling, setFeeling] = useState<string>('');
   /**
    * The last question, asked in their own terms.
@@ -329,6 +362,83 @@ export default function Onboarding() {
     else if (list.length < max) set([...list, item]);
   };
 
+  /**
+   * The answers survive the app closing.
+   *
+   * Everything above lives in component state, so a phone call on the person
+   * screen threw away six answers and dropped the reader back at "First, the
+   * honest part" — the single most expensive moment to lose, because they had
+   * already paid for it. Written on every change, restored once on mount,
+   * deleted the moment the reveal is earned.
+   *
+   * `hydrated` exists because the writer would otherwise fire on the first
+   * render and overwrite the stored draft with the empty initial state before
+   * the reader had a chance to load it.
+   */
+  const [hydrated, setHydrated] = useState(false);
+  const draft = {
+    step, lane, futureSelf, eulogy, userAge, workType, workHours, profession, city,
+    marital, children, awayFromParents, ranking, reality, alsoSlipping,
+    person, personAge, locationType, healthStatus, callFrequency, desired,
+    visitFrequency, moments, postponing, postponingDomain, feeling, style, touched,
+  };
+  useEffect(() => {
+    /* Deepen loads from the server instead — its answers are already saved,
+       and a stale local draft would fight them. */
+    if (mode === 'deepen') { setHydrated(true); return; }
+    let alive = true;
+    AsyncStorage.getItem(DRAFT_KEY)
+      .then((raw) => {
+        if (!alive || !raw) return;
+        const saved = JSON.parse(raw);
+        /* A draft older than a week is a different intention. */
+        if (!saved?.at || Date.now() - saved.at > 7 * 86_400_000) {
+          AsyncStorage.removeItem(DRAFT_KEY);
+          return;
+        }
+        const d = saved.draft ?? {};
+        if (typeof d.lane === 'string') setLane(d.lane);
+        if (typeof d.futureSelf === 'string') setFutureSelf(d.futureSelf);
+        if (typeof d.eulogy === 'string') setEulogy(d.eulogy);
+        if (typeof d.userAge === 'string') setUserAge(d.userAge);
+        if (typeof d.workType === 'string') setWorkType(d.workType);
+        if (typeof d.workHours === 'string') setWorkHours(d.workHours);
+        if (typeof d.profession === 'string') setProfession(d.profession);
+        if (typeof d.city === 'string') setCity(d.city);
+        if (typeof d.marital === 'string') setMarital(d.marital);
+        if (typeof d.children === 'string') setChildren(d.children);
+        if (typeof d.awayFromParents === 'string') setAwayFromParents(d.awayFromParents);
+        if (Array.isArray(d.ranking)) setRanking(d.ranking);
+        if (d.reality && typeof d.reality === 'object') setReality(d.reality);
+        if (Array.isArray(d.alsoSlipping)) setAlsoSlipping(d.alsoSlipping);
+        if (d.person && typeof d.person === 'object') setPerson(d.person);
+        if (typeof d.personAge === 'string') setPersonAge(d.personAge);
+        if (typeof d.locationType === 'string') setLocationType(d.locationType);
+        if (typeof d.healthStatus === 'string') setHealthStatus(d.healthStatus);
+        if (typeof d.callFrequency === 'string') setCallFrequency(d.callFrequency);
+        if (typeof d.desired === 'string') setDesired(d.desired);
+        if (typeof d.visitFrequency === 'string') setVisitFrequency(d.visitFrequency);
+        if (Array.isArray(d.moments)) setMoments(d.moments);
+        if (typeof d.postponing === 'string') setPostponing(d.postponing);
+        if (typeof d.postponingDomain === 'string') setPostponingDomain(d.postponingDomain);
+        if (typeof d.feeling === 'string') setFeeling(d.feeling);
+        if (typeof d.style === 'string') setStyle(d.style);
+        if (d.touched && typeof d.touched === 'object') setTouched(d.touched);
+        /* Last, so the screen it lands on is the one they left. */
+        if (typeof d.step === 'number') setStep(d.step);
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setHydrated(true); });
+    return () => { alive = false; };
+  }, [mode]);
+  useEffect(() => {
+    if (!hydrated || mode === 'deepen') return;
+    /* Nothing to keep before they have started, and nothing to keep once the
+       reveal is up — `finish` clears it explicitly. */
+    if (step === 0 || step > QUESTION_STEPS) return;
+    AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ at: Date.now(), draft })).catch(() => {});
+  });
+
   // Deepen mode: skip the intro, load what they already told us (the reality
   // step scores the domains they ranked during the fast start).
   useEffect(() => {
@@ -387,11 +497,25 @@ export default function Onboarding() {
           // who picked "married" and then corrected their age to 17 has no
           // visible answer left, so none may be submitted either.
           maritalStatus: plan.askMarital ? marital || undefined : undefined,
-          childrenCount: plan.askChildren ? parseInt(children, 10) || 0 : 0,
-          livesAwayFromParents: awayFromParents === 'yes',
-          /* Only an explicit "neither" says no. An unanswered question stays
-             null — silence must not delete somebody's mother. */
-          parentsInLife: awayFromParents === 'neither' ? false : true,
+          /* Withheld means unknown, not zero. Sending 0 for a question the
+             plan never asked would also wipe a real answer given earlier —
+             a deepen pass that hides the children row must not reset it. */
+          childrenCount: plan.askChildren ? parseInt(children, 10) || 0 : undefined,
+          /**
+           * Both fields, only when the question was actually answered.
+           *
+           * These read `awayFromParents`, which only the step-1 PickRow ever
+           * sets — and the fast lane does not show step 1. So every quick
+           * start wrote `livesAwayFromParents: false` and `parentsInLife:
+           * true`: the app recording that someone lives with their parents
+           * and that their parents are alive, having asked neither. The
+           * second one is the same failure the three-answer question was
+           * built to prevent — `blueprint.service` reads `parentsInLife
+           * !== false` and will write a mother into a life that may not
+           * have one. Silence is now silence.
+           */
+          livesAwayFromParents: awayFromParents ? awayFromParents === 'yes' : undefined,
+          parentsInLife: awayFromParents ? awayFromParents !== 'neither' : undefined,
           motivationStyle: style,
         },
       });
@@ -415,7 +539,7 @@ export default function Onboarding() {
           body: {
             title: goal.title,
             description: goal.description,
-            domainType: postponingDomain || ranking[0] || 'growth',
+            domainType: effectivePostponingDomain || 'growth',
             horizon: '1y',
           },
         });
@@ -461,6 +585,9 @@ export default function Onboarding() {
         });
       }
       const res = await api<{ reveal: any }>('/onboarding/complete', { method: 'POST' });
+      /* Earned and saved server-side — the local draft has nothing left to
+         protect, and keeping it would restore a finished flow on next open. */
+      AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
       setReveal(res.reveal);
       api<any[]>('/insights/opportunities')
         .then((list) => setInsights(list ?? []))
@@ -485,7 +612,15 @@ export default function Onboarding() {
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={s.wrap}>
       {pos >= 0 && step !== 0 && step !== QUESTION_STEPS + 1 && (
         <View style={s.progressHeader}>
-          <Pressable onPress={back} hitSlop={12} style={({ pressed }) => pressed && { opacity: 0.6 }}>
+          {/* Every control on this screen reaches a screen reader as an
+              unnamed `generic` without this — including the only way back. */}
+          <Pressable
+            onPress={back}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Back to the previous question"
+            style={({ pressed }) => pressed && { opacity: 0.6 }}
+          >
             <Ionicons name="chevron-back" size={22} color={colors.textDim} />
           </Pressable>
           <View style={s.progressTrack}>
@@ -505,29 +640,51 @@ export default function Onboarding() {
           </View>
           <Text style={[type.display, { textAlign: 'center' }]}>First, the honest part</Text>
           <Text style={[type.serif, { textAlign: 'center', color: colors.textDim }]}>
-            Three questions if you're in a hurry. Six if you're not.{'\n'}
+            Four questions if you're in a hurry. Seven if you're not.{'\n'}
             Either way, we show you the gap between the life you describe and the life your time describes.
           </Text>
+          {/* Which promises each lane actually keeps.
+              This list showed six bullets above a button that answered three
+              of them — a contract offered and then not honoured, on the first
+              screen of the product. The brass marks are the quick start; the
+              rest are what the extra minutes buy. */}
           <View style={{ gap: space(3), marginTop: space(4) }}>
-            {[
-              ['briefcase-outline', 'Tell us how your weeks actually work'],
-              ['podium-outline', 'Rank what actually matters to you'],
-              ['speedometer-outline', 'Score how you are living each one today'],
-              ['hourglass-outline', 'Name the thing you keep postponing'],
-              ['heart-outline', 'Name one person you want to show up for'],
-              ['sunny-outline', 'Choose how you want to feel in a week'],
-            ].map(([icon, text]) => (
-              <View key={text} style={s.promiseRow}>
-                <Ionicons name={icon as any} size={18} color={colors.amber} />
-                <Text style={[type.body, { flex: 1 }]}>{text}</Text>
-              </View>
-            ))}
+            {([
+              ['calendar-outline', 'Tell us your age — every number here rests on it', 'age'],
+              ['podium-outline', 'Rank what actually matters to you', 'rank'],
+              ['heart-outline', 'Name one person you want to show up for', 'person'],
+              ['hourglass-outline', 'Name the thing you keep postponing', 'someday'],
+              ['briefcase-outline', 'Tell us how your weeks actually work', 'week'],
+              ['speedometer-outline', 'Score how you are living each one today', 'score'],
+              ['sunny-outline', 'Choose how you want to feel in a week', 'feeling'],
+            ] as const).map(([icon, text, key]) => {
+              const inFast = FAST_LANE_COVERS.has(key);
+              return (
+                <View key={key} style={s.promiseRow}>
+                  <Ionicons
+                    name={icon as any}
+                    size={18}
+                    color={inFast ? colors.amber : colors.textFaint}
+                  />
+                  <Text style={[type.body, { flex: 1 }, !inFast && { color: colors.textDim }]}>
+                    {text}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
+          <Text style={[type.faint, { textAlign: 'center' }]}>
+            Brass is the quick start. The rest is what four minutes buys.
+          </Text>
           <Button
             title="Quick start — 90 seconds"
             onPress={() => { track('onboarding_started', { lane: 'fast' }); setLane('fast'); setStep(LANES.fast[0]); }}
           />
-          <Pressable onPress={() => { track('onboarding_started', { lane: 'full' }); setLane('full'); setStep(LANES.full[0]); }}>
+          <Pressable
+            onPress={() => { track('onboarding_started', { lane: 'full' }); setLane('full'); setStep(LANES.full[0]); }}
+            accessibilityRole="button"
+            accessibilityLabel="I have four minutes — ask me everything"
+          >
             <Text style={[type.dim, { textAlign: 'center', padding: 6, color: colors.amber }]}>
               I have four minutes — ask me everything
             </Text>
@@ -559,7 +716,11 @@ export default function Onboarding() {
             <Input multiline value={eulogy} onChangeText={setEulogy} placeholder="They were someone who always…" />
           </View>
           <Button title="Continue" onPress={next} />
-          <Pressable onPress={next}>
+          <Pressable
+            onPress={next}
+            accessibilityRole="button"
+            accessibilityLabel="Skip the long view — I'll just begin"
+          >
             <Text style={[type.faint, { textAlign: 'center', padding: 6 }]}>Skip — I'll just begin</Text>
           </Pressable>
         </View>
@@ -567,8 +728,18 @@ export default function Onboarding() {
 
       {step === 1 && (
         <>
-          <Text style={type.display}>First, your life as it is</Text>
-          <Text style={type.dim}>Your work pattern shapes what's realistic — Priority plans around your life, not an imaginary one.</Text>
+          {/* One question in the quick lane, the whole life context in the
+              long one. Age is here either way: it is the number every other
+              number on the Time tab is derived from, and the fast lane used
+              to skip this screen entirely and leave it unknown forever. */}
+          <Text style={type.display}>
+            {lane === 'fast' ? 'One number first' : 'First, your life as it is'}
+          </Text>
+          <Text style={type.dim}>
+            {lane === 'fast'
+              ? 'Every window Priority draws — the years, the visits, the weeks — is measured from here.'
+              : "Your work pattern shapes what's realistic — Priority plans around your life, not an imaginary one."}
+          </Text>
           <View style={{ gap: space(4), marginTop: space(2) }}>
             <View style={{ gap: space(2) }}>
               <Label>Your age</Label>
@@ -580,6 +751,7 @@ export default function Onboarding() {
                 style={{ maxWidth: 120 }}
               />
             </View>
+            {lane !== 'fast' && (
             <PickRow
               label="Your work looks like"
               options={Object.keys(WORK_TYPES)}
@@ -587,7 +759,8 @@ export default function Onboarding() {
               value={workType}
               onPick={setWorkType}
             />
-            {!NO_WORK_HOURS.has(workType) && (
+            )}
+            {lane !== 'fast' && !NO_WORK_HOURS.has(workType) && (
               <PickRow
                 label={HOURS_LABEL[workType] ?? 'Hours in a typical week'}
                 options={Object.keys(WORK_HOURS)}
@@ -675,7 +848,7 @@ export default function Onboarding() {
                 </View>
               </>
             )}
-            {plan.askMarital && (
+            {lane !== 'fast' && plan.askMarital && (
               <PickRow
                 label="At home you are"
                 options={Object.keys(MARITAL)}
@@ -684,7 +857,7 @@ export default function Onboarding() {
                 onPick={setMarital}
               />
             )}
-            {plan.askChildren && (
+            {lane !== 'fast' && plan.askChildren && (
               <PickRow
                 label="Children"
                 options={['0', '1', '2', '3']}
@@ -698,14 +871,19 @@ export default function Onboarding() {
                 them, and the app then spent a year offering to help them call
                 home. `neither` is a catch-all on purpose — death, estrangement
                 and not wanting to say are one answer, since the app needs one
-                fact and has no business itemising the reason. */}
-            <PickRow
-              label={plan.awayLabel}
-              options={['yes', 'no', 'neither']}
-              display={{ neither: plan.awayNeitherLabel }}
-              value={awayFromParents}
-              onPick={setAwayFromParents}
-            />
+                fact and has no business itemising the reason.
+
+                Withheld from the quick lane rather than answered for them:
+                `finish` now sends nothing at all when this is untouched. */}
+            {lane !== 'fast' && (
+              <PickRow
+                label={plan.awayLabel}
+                options={['yes', 'no', 'neither']}
+                display={{ neither: plan.awayNeitherLabel }}
+                value={awayFromParents}
+                onPick={setAwayFromParents}
+              />
+            )}
             {/* Keyed so a changed week fades in again — a corrected answer
                 should land its corrected number, not silently swap a digit. */}
             {weekFact && <EchoCard key={`${workType}-${workHours}`} echo={weekFact} />}
@@ -713,8 +891,10 @@ export default function Onboarding() {
               title={nextTitle}
               onPress={next}
               disabled={
-                busy || !userAge || !workType || !awayFromParents ||
-                (!NO_WORK_HOURS.has(workType) && !workHours)
+                busy || !userAge || (lane !== 'fast' && (
+                  !workType || !awayFromParents
+                  || (!NO_WORK_HOURS.has(workType) && !workHours)
+                ))
               }
             />
           </View>
@@ -771,6 +951,18 @@ export default function Onboarding() {
             For each area you ranked: 1 means barely present in your weeks, 5 means fully lived.
             Anything at {DRIFT_SCORE_MAX} or below we'll treat as drifting — no need to tell us twice.
           </Text>
+          {/* One screen holding up to five separate answers, with the only
+              progress indicator counting whole steps — so a reader scoring
+              their fourth of five domains saw the same "4/7" they saw at the
+              first, and the Next button stayed dead without saying why. */}
+          <Text style={[type.faint, { color: colors.amber }]}>
+            {(() => {
+              const done = ranking.filter((d) => reality[d]).length;
+              return done === ranking.length
+                ? 'All scored — the picture below is yours.'
+                : `${done} of ${ranking.length} scored`;
+            })()}
+          </Text>
           <View style={{ gap: space(4), marginVertical: space(3) }}>
             {ranking.map((d) => {
               const c = domainColor(d);
@@ -796,6 +988,9 @@ export default function Onboarding() {
                       <Pressable
                         key={n}
                         onPress={() => setReality({ ...reality, [d]: n })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${domainLabel(d)}: ${n} out of 5`}
+                        accessibilityState={{ selected: score === n }}
                         style={({ pressed }) => [
                           s.scoreDot,
                           n <= score && { backgroundColor: c, borderColor: c },
@@ -874,13 +1069,17 @@ export default function Onboarding() {
               label="Which part of life is it?"
               options={ranking.length ? ranking.slice(0, 6) : DOMAINS.slice(0, 6)}
               display={DOMAIN_LABELS}
-              value={postponingDomain}
+              value={effectivePostponingDomain}
               onPick={setPostponingDomain}
             />
             {somedayFact && <EchoCard key="someday" echo={somedayFact} />}
             {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
             <Button title={nextTitle} onPress={next} disabled={busy || !postponing.trim()} />
-            <Pressable onPress={() => { if (!busy) next(); }}>
+            <Pressable
+              onPress={() => { if (!busy) next(); }}
+              accessibilityRole="button"
+              accessibilityLabel="Nothing comes to mind — skip this question"
+            >
               <Text style={[type.faint, { textAlign: 'center', padding: 6 }]}>Nothing comes to mind — skip</Text>
             </Pressable>
           </View>
@@ -909,78 +1108,16 @@ export default function Onboarding() {
                 />
               </View>
             </View>
+            {/* Why the app is asking a stranger's age on screen five.
+                Health below has carried a reassurance since it was written;
+                age never did, and age is the more startling of the two to be
+                asked for. It costs one line to say what it buys. */}
+            <Text style={type.faint}>
+              Their age is what lets Priority count the time you have left
+              together instead of guessing at it. Leave it blank if you'd rather.
+            </Text>
             <PickRow label="They are your" options={RELATIONS} value={person.relationType} onPick={pickRelation} />
             <PickRow label="How often do you wish you talked?" options={CADENCES} value={desired} onPick={own('desired', setDesired)} />
-            {lane !== 'fast' && (
-              <>
-                <PickRow
-                  label="Where do they live?"
-                  options={PLACES}
-                  display={PLACE_LABELS}
-                  value={locationType}
-                  onPick={own('locationType', setLocationType)}
-                />
-                {/* Not asked of someone in the next room, where the answer is
-                    "constantly", carries nothing, and is three taps of
-                    nothing. The People tab reads visits for these anyway. */}
-                {asksAboutCalls(locationType) && (
-                  <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={own('callFrequency', setCallFrequency)} />
-                )}
-                <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={own('visitFrequency', setVisitFrequency)} />
-
-                {/* The strongest input the countable life has, and the app has
-                    never once asked for it. `suggestCountables` scores a
-                    reader's own phrase at four times a domain guess — it is
-                    the difference between "days out with Ines" and "hawker
-                    centre dinners with Wei" — and `meaningfulMomentTypes` had
-                    two readers and no writer, so it was empty for everybody. A
-                    blank text box would have collected nothing; taps collect
-                    plenty. Two is the cap, because this is one question in a
-                    long form and the Time tab can add more later. */}
-                <View style={{ gap: space(2) }}>
-                  <Label>What is worth counting with them? (optional)</Label>
-                  <Text style={type.faint}>
-                    Pick up to two. Priority counts how many of these you have left,
-                    which turns out to be the number people remember.
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-                    {momentOptionsFor(person.relationType).map((m) => {
-                      const on = moments.includes(m);
-                      return (
-                        <Pressable
-                          key={m}
-                          onPress={() => setMoments((prev) => (
-                            prev.includes(m)
-                              ? prev.filter((x) => x !== m)
-                              : prev.length >= 2 ? prev : [...prev, m]
-                          ))}
-                          accessibilityRole="button"
-                          accessibilityLabel={m}
-                          accessibilityState={{ selected: on }}
-                          style={[s.chip, on && s.chipOn]}
-                        >
-                          <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
-                            {m}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-                <View style={{ gap: space(2) }}>
-                  <Label>How is their health these days? (optional)</Label>
-                  <Text style={type.faint}>This only tunes the arithmetic. It never changes how Priority speaks to you.</Text>
-                  <PickRow
-                    label=""
-                    options={['good', 'declining', 'serious'] as const}
-                    display={{ good: 'doing well', declining: 'some concerns', serious: 'serious' }}
-                    value={healthStatus}
-                    onPick={(v) => setHealthStatus(healthStatus === v ? '' : v)}
-                  />
-                </View>
-              </>
-            )}
-
             {/* What the answers add up to.
                 Blocks are arithmetic that cannot be true — a mother younger
                 than her child — and stated as the typos they are. Notes are
@@ -1008,6 +1145,92 @@ export default function Onboarding() {
         </>
       )}
 
+      {/* The second half of the person, on its own screen.
+          These five lived on the screen above, which made it nine inputs
+          deep and put it second-to-last, where fatigue peaks and every other
+          screen in this flow asks exactly one thing. Who they are is one
+          question; how the two of you actually keep in touch is another. */}
+      {step === 6.5 && (
+        <>
+          <Text style={type.display}>
+            {person.name ? `You and ${person.name.trim().split(/\s+/)[0]}` : 'You and them'}
+          </Text>
+          <Text style={type.dim}>
+            How it actually works between you right now — not how you wish it did.
+            Every one of these is optional.
+          </Text>
+          <View style={{ gap: space(4), marginTop: space(2) }}>
+            <PickRow
+              label="Where do they live?"
+              options={PLACES}
+              display={PLACE_LABELS}
+              value={locationType}
+              onPick={own('locationType', setLocationType)}
+            />
+            {/* Not asked of someone in the next room, where the answer is
+                "constantly", carries nothing, and is three taps of
+                nothing. The People tab reads visits for these anyway. */}
+            {asksAboutCalls(locationType) && (
+              <PickRow label="How often do you talk?" options={CADENCES} value={callFrequency} onPick={own('callFrequency', setCallFrequency)} />
+            )}
+            <PickRow label="How often do you see them in person?" options={CADENCES} value={visitFrequency} onPick={own('visitFrequency', setVisitFrequency)} />
+
+            {/* The strongest input the countable life has, and the app has
+                never once asked for it. `suggestCountables` scores a
+                reader's own phrase at four times a domain guess — it is
+                the difference between "days out with Ines" and "hawker
+                centre dinners with Wei" — and `meaningfulMomentTypes` had
+                two readers and no writer, so it was empty for everybody. A
+                blank text box would have collected nothing; taps collect
+                plenty. Two is the cap, because this is one question in a
+                long form and the Time tab can add more later. */}
+            <View style={{ gap: space(2) }}>
+              <Label>What is worth counting with them? (optional)</Label>
+              <Text style={type.faint}>
+                Pick up to two. Priority counts how many of these you have left,
+                which turns out to be the number people remember.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                {momentOptionsFor(person.relationType).map((m) => {
+                  const on = moments.includes(m);
+                  return (
+                    <Pressable
+                      key={m}
+                      onPress={() => setMoments((prev) => (
+                        prev.includes(m)
+                          ? prev.filter((x) => x !== m)
+                          : prev.length >= 2 ? prev : [...prev, m]
+                      ))}
+                      accessibilityRole="button"
+                      accessibilityLabel={m}
+                      accessibilityState={{ selected: on }}
+                      style={[s.chip, on && s.chipOn]}
+                    >
+                      <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>
+                        {m}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={{ gap: space(2) }}>
+              <Label>How is their health these days? (optional)</Label>
+              <Text style={type.faint}>This only tunes the arithmetic. It never changes how Priority speaks to you.</Text>
+              <PickRow
+                label=""
+                options={['good', 'declining', 'serious'] as const}
+                display={{ good: 'doing well', declining: 'some concerns', serious: 'serious' }}
+                value={healthStatus}
+                onPick={(v) => setHealthStatus(healthStatus === v ? '' : v)}
+              />
+            </View>
+            {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
+            <Button title={nextTitle} onPress={next} disabled={busy} />
+          </View>
+        </>
+      )}
+
       {step === 7 && (
         <>
           <Text style={type.display}>One week from now…</Text>
@@ -1019,6 +1242,9 @@ export default function Onboarding() {
                 <Pressable
                   key={f}
                   onPress={() => setFeeling(f)}
+                  accessibilityRole="button"
+                  accessibilityLabel={f}
+                  accessibilityState={{ selected: on }}
                   style={({ pressed }) => [s.chip, on && s.chipOn, pressed && { transform: [{ scale: 0.96 }] }]}
                 >
                   <Text style={[type.body, on && { color: colors.amber, fontWeight: '700' }]}>{f}</Text>
@@ -1417,6 +1643,9 @@ function Reveal({ reveal, insights, ranking, reality, domainScores, feeling, per
                 key={f.title}
                 onPress={() => pickPriority(f)}
                 disabled={!!chosen || adding}
+                accessibilityRole="button"
+                accessibilityLabel={`Start with this: ${f.title}`}
+                accessibilityState={{ selected: isChosen, disabled: !!chosen || adding }}
                 style={({ pressed }) => [
                   s.priorityRow,
                   isChosen && { borderColor: colors.green, backgroundColor: colors.greenSoft },

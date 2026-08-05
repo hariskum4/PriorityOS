@@ -46,7 +46,17 @@ model User {
   focusReason         String?
   maritalStatus       String?
   childrenCount       Int       @default(0)
-  livesAwayFromParents Boolean  @default(false)
+  /// Whether their parents live somewhere else — nullable, because "we never
+  /// asked" is a third state and defaulting it to `false` was an assertion.
+  ///
+  /// `@default(false)` meant every account that skipped the question was
+  /// recorded as living WITH their parents. The quick-start lane never shows
+  /// that question at all, so every fast onboarding said it — and
+  /// `rhythms.service` reads `=== false` to suppress "Call home, the same day
+  /// every week", so the app quietly withheld a relevant rhythm from people
+  /// it had simply never asked. Same rule as `parentsInLife` below: only an
+  /// explicit answer means anything.
+  livesAwayFromParents Boolean?
   /// Whether there are parents in this life to direct anything at.
   ///
   /// `livesAwayFromParents` is a boolean, so for years the only answers were
