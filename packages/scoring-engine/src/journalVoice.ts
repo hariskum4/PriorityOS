@@ -90,8 +90,24 @@ function intoMyOwnWords(clause: string): string {
     .replace(/\byou\b/gi, 'I');
 }
 
+/**
+ * The same verbs, recognised in the tense a person actually types.
+ *
+ * This function was written for catalog titles, which are imperatives —
+ * "Call Amma", "Walk before the heat". Then the archive started calling it,
+ * and an archive is full of titles somebody wrote themselves after the fact:
+ * "Called Amma", "Walked before the heat", "Sat with Appa". None of those
+ * open with a key in the table, so every one of them returned null and the
+ * composer opened blank on the exact path this was built for.
+ *
+ * Derived from `PAST` rather than listed again, so the two can never drift.
+ * The words that are their own past — put, read, set, let, had — collapse
+ * harmlessly into one entry.
+ */
+const ALREADY_PAST = new Set(Object.values(PAST));
+
 export interface FirstPersonInput {
-  /** The mission or moment title, as the catalog wrote it. */
+  /** The mission or moment title, as the catalog or the person wrote it. */
   title: string;
   /** Who it was with, when it was with anybody. */
   personName?: string | null;
@@ -110,7 +126,10 @@ export function firstPersonPast(input: FirstPersonInput): string | null {
   if (!title) return null;
 
   const [first, ...rest] = title.split(/\s+/);
-  const verb = PAST[first.toLowerCase()];
+  const lower = first.toLowerCase();
+  /* An imperative from the catalog, or a past tense the person typed
+     themselves. Both are things that happened; only one needed conjugating. */
+  const verb = PAST[lower] ?? (ALREADY_PAST.has(lower) ? lower : undefined);
   if (!verb) return null;
 
   let clause = intoMyOwnWords(withoutTheInstruction(rest.join(' ')));

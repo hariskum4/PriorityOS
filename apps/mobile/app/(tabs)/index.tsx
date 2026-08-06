@@ -880,6 +880,17 @@ export default function Today() {
   const liveDomains = allDomains.filter((d: any) => d.importance > 0);
   const reading = lifeAlignment(liveDomains);
   const score = reading.score;
+  /**
+   * A domain far enough behind its own ranking that "enjoy the calm" would be
+   * the wrong sentence.
+   *
+   * Ten points of share, which is the gap at which the rest of this screen
+   * already starts using the word "drifting" out loud — so the empty-list card
+   * and the read-out under it stop disagreeing about the same life.
+   */
+  const drifting = reading.starved && reading.worstGapPoints >= 10
+    ? reading.starved
+    : null;
 
   const gam = data.gamification;
   const dateLine = now.date.toLocaleDateString(undefined, {
@@ -1300,16 +1311,34 @@ export default function Today() {
                * which is the same rule the alignment tile already uses to
                * print a dash instead of a zero.
                */}
+              {/**
+                * And empty is not the same as aligned either.
+                *
+                * The `score > 0` guard above fixed the cold start and left the
+                * other half standing: a reader with alignment at 29 and health
+                * on 0% of an asked-for 24% was still told "That is alignment.
+                * Enjoy the calm." — three lines above this same screen saying
+                * "Health is getting the least of what you said it was worth."
+                * One card, two answers, and the flattering one on top.
+                *
+                * An empty list means nothing is pending. Whether that is calm
+                * depends on the reading, and the reading already knows: it
+                * carries the starved domain and how many points short it is.
+                */}
               <Tick color={obs.brass}>{score > 0 ? 'Nothing pending' : 'Nothing here yet'}</Tick>
               <Text style={[obsType.said, { marginTop: 10 }]}>
-                {score > 0
-                  ? 'That is alignment. Enjoy the calm.'
-                  : 'Nothing to show yet — that is a new account, not a quiet life.'}
+                {score <= 0
+                  ? 'Nothing to show yet — that is a new account, not a quiet life.'
+                  : drifting
+                    ? `Nothing pending — and nothing going to ${drifting.domainType} either.`
+                    : 'That is alignment. Enjoy the calm.'}
               </Text>
               <Text style={[obsType.dim, { marginTop: 6 }]}>
-                {score > 0
-                  ? 'The best thing this app can do right now is get out of your way.'
-                  : 'Keep one thing this week and the numbers below start meaning something.'}
+                {score <= 0
+                  ? 'Keep one thing this week and the numbers below start meaning something.'
+                  : drifting
+                    ? 'An empty list and a life in balance are not the same thing.'
+                    : 'The best thing this app can do right now is get out of your way.'}
               </Text>
             </View>
           )}

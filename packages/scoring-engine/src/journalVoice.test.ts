@@ -103,4 +103,41 @@ describe('a question instead of an answer', () => {
       expect(insightPrompt(input)).not.toMatch(/\bfeel\b/i);
     }
   });
+
+  describe('a title the person wrote themselves', () => {
+    /**
+     * The archive is not the catalog.
+     *
+     * This function was built for imperatives — "Call Amma" — and then the
+     * memory→journal path started handing it titles from the archive, which
+     * people write after the fact and therefore in the past. Every one of
+     * them fell through to null, so the composer opened blank on exactly the
+     * flow this exists to serve. Found by a persona sweep, not by a test.
+     */
+    it('accepts a past tense as the thing that already happened', () => {
+      expect(firstPersonPast({ title: 'Called Amma' })).toBe('Today I called Amma.');
+      expect(firstPersonPast({ title: 'Walked before the heat' })).toBe('Today I walked before the heat.');
+      expect(firstPersonPast({ title: 'Sat with Appa' })).toBe('Today I sat with Appa.');
+      expect(firstPersonPast({ title: 'Wrote the letter' })).toBe('Today I wrote the letter.');
+    });
+
+    it('gives an imperative and its past the same sentence', () => {
+      expect(firstPersonPast({ title: 'Cook dinner with Arun' }))
+        .toBe(firstPersonPast({ title: 'Cooked dinner with Arun' }));
+    });
+
+    it('still says nothing about a title that is not an act', () => {
+      /* An empty box is never wrong; a clumsy sentence is. */
+      expect(firstPersonPast({ title: 'Kerala with Amma' })).toBeNull();
+      expect(firstPersonPast({ title: 'Diwali 2009' })).toBeNull();
+      expect(firstPersonPast({ title: 'Amma' })).toBeNull();
+    });
+
+    it('leaves the words that are their own past alone', () => {
+      /* put/read/set/let/had conjugate to themselves, so both spellings of
+         the title have to land on one sentence rather than doubling up. */
+      expect(firstPersonPast({ title: 'Read ten pages' })).toBe('Today I read ten pages.');
+      expect(firstPersonPast({ title: 'Put the phone away' })).toBe('Today I put the phone away.');
+    });
+  });
 });
