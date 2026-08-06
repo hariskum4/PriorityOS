@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { HabitsService } from './habits.service';
-import { SetHabitScheduleDto } from './habits.dto';
+import { CreateHabitDto, SetHabitScheduleDto } from './habits.dto';
 
 @UseGuards(JwtGuard)
 @Controller('habits')
@@ -20,7 +20,7 @@ export class HabitsController {
   }
 
   @Post()
-  create(@CurrentUser() u: JwtUser, @Body() body: any) {
+  create(@CurrentUser() u: JwtUser, @Body() body: CreateHabitDto) {
     return this.habits.create(u.userId, body);
   }
 

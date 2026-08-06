@@ -55,13 +55,53 @@ export class UsersService {
       if (Number.isNaN(dob.getTime())) {
         throw new BadRequestException('dob must be a valid date');
       }
+      /**
+       * A real date is not the same as a possible birthday.
+       *
+       * `2099-01-01` is a perfectly valid Date and was accepted, which gave
+       * the Time tab an age of −73 to work with: "years lived" came back
+       * negative, the horizon ran to a hundred and forty-three years, and the
+       * grid was told to fill in minus seventy-three squares. Every number on
+       * the tab is age arithmetic, so one impossible date poisons all of them
+       * at once — and none of it looks like an error, it just looks generous.
+       *
+       * The upper bound is today because a person cannot be born tomorrow.
+       * The lower is 130 years, comfortably past the oldest verified life, so
+       * it refuses typos without ever refusing somebody real.
+       */
+      const now = Date.now();
+      const OLDEST_YEARS = 130;
+      if (dob.getTime() > now) {
+        throw new BadRequestException('dob cannot be in the future');
+      }
+      if (now - dob.getTime() > OLDEST_YEARS * 365.25 * 86_400_000) {
+        throw new BadRequestException(`dob cannot be more than ${OLDEST_YEARS} years ago`);
+      }
       patch.dob = dob;
     }
+    /**
+     * A floor was not enough.
+     *
+     * Non-negative let `workHoursPerWeek: 500` through — more hours than a
+     * week contains — and every free-hour figure on the Time tab is
+     * `168 − sleep − work − overhead`, so the whole tab goes to its floor and
+     * stays there with no clue why. Each ceiling is the largest value that is
+     * still a fact about a week or a life rather than a typo.
+     */
+    /* The two work hours have their own clock check further down. */
+    const CEILING: Record<string, number> = {
+      workHoursPerWeek: 168,     // the week itself
+      screenHoursPerDay: 24,     // the day itself
+      childrenCount: 20,
+      commuteMinutes: 600,       // five hours each way
+    };
     for (const key of ['workHoursPerWeek', 'screenHoursPerDay', 'childrenCount', 'commuteMinutes']) {
       if (patch[key] === undefined || patch[key] === null) continue;
       const n = Number(patch[key]);
-      if (!Number.isFinite(n) || n < 0) {
-        throw new BadRequestException(`${key} must be a non-negative number`);
+      if (!Number.isFinite(n) || n < 0 || n > CEILING[key]) {
+        throw new BadRequestException(
+          `${key} must be a number between 0 and ${CEILING[key]}`,
+        );
       }
       patch[key] = Math.round(n);
     }
@@ -110,6 +150,24 @@ export class UsersService {
         && !['none', 'low_impact', 'ask_doctor'].includes(String(patch.movementLimits))) {
       throw new BadRequestException('movementLimits must be none, low_impact or ask_doctor');
     }
+    /**
+     * The country is not a label, it is an input to the arithmetic.
+     *
+     * Every horizon on the Time tab reads it — the life table, the marker on
+     * the grid, how many years anybody is counted over. `NOT-A-COUNTRY` was
+     * accepted and stored, and the lookup then quietly fell back to the
+     * global default, so the tab went on quoting confident figures for a
+     * place that does not exist while the You tab showed the reader their
+     * own nonsense back. Two letters, upper case, as `countryFromTimezone`
+     * produces and `LIFE_EXPECTANCY` is keyed.
+     */
+    if (patch.country !== undefined && patch.country !== null && patch.country !== '') {
+      const code = String(patch.country).trim().toUpperCase();
+      if (!/^[A-Z]{2}$/.test(code)) {
+        throw new BadRequestException('country must be a two-letter ISO code');
+      }
+      patch.country = code;
+    }
     /* An hour of the day, not a duration — 0 is midnight and is valid. */
     for (const key of ['workStartHour', 'workEndHour']) {
       if (patch[key] === undefined || patch[key] === null) continue;
@@ -154,6 +212,28 @@ export class UsersService {
         throw new BadRequestException(`${key} must be an hour between 0 and 23`);
       }
       patch[key] = n;
+    }
+    /**
+     * The setting that decides how directly this app talks about finite time,
+     * and the only one where an unreadable value is a safety question rather
+     * than a display one.
+     *
+     * `off` is honoured server-side — it returns an empty insight list. A
+     * value the check cannot read is not `off`, so somebody who asked for
+     * silence and had their answer stored as `screaming` would be talked to
+     * anyway. Refused rather than stored, for the same reason as
+     * `movementLimits` above.
+     */
+    if (patch.insightIntensity !== undefined && patch.insightIntensity !== null
+        && !['off', 'gentle', 'direct'].includes(String(patch.insightIntensity))) {
+      throw new BadRequestException('insightIntensity must be off, gentle or direct');
+    }
+    if (patch.weeklyReviewDay !== undefined && patch.weeklyReviewDay !== null) {
+      const n = Number(patch.weeklyReviewDay);
+      if (!Number.isInteger(n) || n < 0 || n > 6) {
+        throw new BadRequestException('weeklyReviewDay must be a day between 0 and 6');
+      }
+      patch.weeklyReviewDay = n;
     }
     return this.prisma.userPreferences.update({ where: { userId }, data: patch });
   }

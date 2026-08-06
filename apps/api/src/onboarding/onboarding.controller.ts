@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { OnboardingService } from './onboarding.service';
+import { SaveAnswersDto } from './onboarding.dto';
 
 @UseGuards(JwtGuard)
 @Controller('onboarding')
@@ -11,7 +12,7 @@ export class OnboardingController {
   @Post('answers')
   save(
     @CurrentUser() u: JwtUser,
-    @Body() body: { answers: { section: string; key: string; value: unknown }[] },
+    @Body() body: SaveAnswersDto,
   ) {
     return this.onboarding.saveAnswers(u.userId, body.answers);
   }
