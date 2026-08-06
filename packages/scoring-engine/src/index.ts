@@ -27,6 +27,7 @@ export * from './ics';
 export * from './keptLine';
 export * from './craftWindow';
 export * from './digest';
+export * from './rephrase';
 export * from './goalTitle';
 export * from './lifeWindows';
 export * from './timeArithmetic';

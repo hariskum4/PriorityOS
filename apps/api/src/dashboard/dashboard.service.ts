@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserClock } from '../common/clock.module';
 import { MissionsService } from '../missions/missions.service';
@@ -7,9 +7,12 @@ import { InsightsService } from '../insights/insights.service';
 import { AiService } from '../ai/ai.service';
 import { DigestService } from '../life-os/digest.service';
 import { DAILY_FOCUS } from '@priority/ai-prompts';
+import { safeRephrase } from '@priority/scoring-engine';
 
 @Injectable()
 export class DashboardService {
+  private readonly logger = new Logger(DashboardService.name);
+
   constructor(
     private prisma: PrismaService,
     private missions: MissionsService,
@@ -119,21 +122,37 @@ export class DashboardService {
        * Never fatal. A digest that fails to build leaves the model with the
        * mission alone, which is what it had before this line existed.
        */
-      whyToday = await this.ai.generateOrDefer(
+      /**
+       * The model edits; it does not decide.
+       *
+       * `fallbackWhy` is not a fallback any more — it is the sentence, written
+       * by the code that owns the numbers and knows what they mean. The model
+       * is handed it and asked for a better version of the same claim, and
+       * `safeRephrase` throws that version away if it introduced a number, a
+       * name or a unit the original did not carry.
+       *
+       * Worth the loss of range. Given the whole digest and asked to reason,
+       * a good model wrote five false sentences in one evening — all of them
+       * plausible, none of them catchable by a test. This shape cannot
+       * produce that class of error at all.
+       */
+      const edited = await this.ai.generateOrDefer(
         userId,
         'daily_focus',
         DAILY_FOCUS,
-        /* Built only if a generation actually happens — the day-cache answers
-           most loads, and seven queries for a value nobody reads was 2.8s of
-           every dashboard. */
-        async () => ({
-          mission: { title: topMission.title, domain: topMission.domainType, person: personName },
-          digest: await this.digest.forUser(userId).catch(() => null),
-        }),
+        { sentence: fallbackWhy },
         { whyToday: fallbackWhy, encouragement: encouragements[dayIndex] },
         // One generation per mission per day — not one per page load.
         { cacheKey: `${topMission.id}:${await this.clock.dayKey(userId)}` },
       );
+      const checked = safeRephrase(fallbackWhy, edited?.whyToday);
+      if (checked.used === 'engine' && checked.reasons.length && edited?.whyToday !== fallbackWhy) {
+        this.logger.warn(`daily_focus rewrite rejected: ${checked.reasons.join('; ')}`);
+      }
+      whyToday = {
+        whyToday: checked.sentence,
+        encouragement: edited?.encouragement ?? encouragements[dayIndex],
+      };
     }
 
     // Memory resurfacing: when today's mission is about a person, bring back

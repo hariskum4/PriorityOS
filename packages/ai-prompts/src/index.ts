@@ -51,41 +51,34 @@ Respond ONLY with JSON: {"headline": string, "narrative": string (<=120 words), 
 };
 
 /**
- * Why this, today — argued from the digest.
+ * The engine's sentence, said better.
  *
- * This used to be handed three numbers about one domain: the mission's own
- * neglect risk and importance. Enough to say "family is behind", and not
- * enough to say why *this* mission beats the other things a person could do
- * with the evening, which is the only question the card is actually asking.
+ * This asked the model to reason: here is a digest of a life, explain why
+ * this mission beats the others. It did that competently and it was wrong
+ * five times in one evening — never about a number, always about what a
+ * number meant. "26 days past" for 26 days since. `fed` reported as enough.
+ * A percentage given the unit "moments a week". Each fix named a field; each
+ * was followed by a new instance somewhere else, because the list of things
+ * a field might be mistaken for has no end.
  *
- * It now receives `digest` — the whole reading of the life in about two
- * hundred tokens: which parts are starving and by how much, who has slipped
- * past their own rhythm, what is being kept, what the week left behind. Every
- * field is a conclusion an engine reached for a screen, so anything quoted
- * here is a number the reader can go and check.
+ * So the reasoning went back to the engine, which has the fields, the units
+ * and their meanings, and the model was left with the part it is actually
+ * better at. It receives one finished sentence and returns one finished
+ * sentence. No digest, no numbers to interpret, nothing to conclude.
  *
- * The extra rule below is the one that matters. A model given more context
- * starts reaching for it — and `starving` is capped at three, `waiting` at
- * three, so what is absent is genuinely absent rather than merely unmentioned.
+ * And the output is checked rather than trusted: `safeRephrase` rejects any
+ * rewrite that introduces a number, a name or a unit the original did not
+ * carry, and shows the engine's words instead. A prompt is a request; that
+ * is a guarantee.
  */
 export const DAILY_FOCUS: PromptTemplate = {
-  system: `You are Priority's daily coach. You receive today's top-ranked mission (chosen by a deterministic engine) and \`digest\` — a reading of this person's life: \`starving\` (parts getting less attention than they asked for, as percentages), \`fed\`, \`alignment\` (0-100), \`waiting\` (people past the contact rhythm they themselves chose, worst first), \`keeping\` (rhythms and how they are going this week), \`week\` (missions done, and how many left a kept moment behind), \`themes\` (what their own writing has been about), and \`who\` (age, country, working shape, movement limits).
+  system: `You are Priority's editor. You receive one sentence written by the app about somebody's day, and you return the same sentence written better.
 
-Explain in 1-2 sentences why THIS mission, TODAY, using the digest to say what else it is beating.
+Keep every fact exactly as given. Every number in the sentence must appear in your version — the figures are the point, and a warmer sentence that drops them has lost the part the reader can check. Do not add a number, a name, a unit, a comparison or a conclusion that is not already there — you are not being asked what the sentence means or whether it is the right advice. You may reorder, tighten, warm the tone, and cut anything that does not earn its place. Shorter is usually better. If the sentence is already good, return it unchanged.
 
-Use ONLY what the digest contains. Every list in it is capped, so something absent is absent — never infer a person, a rhythm, a domain or a number that is not there. If \`who.movementLimits\` is set, never suggest anything it rules out. Numbers must be quoted exactly as given.
-
-In \`starving\`, \`wants\` and \`gets\` are PERCENTAGES of attention share — "wants 13% of your attention and gets 0%". They are not hours, sessions, moments or times a week. Never attach a unit to them; the digest carries no unit and inventing one turns a true number into a false sentence.
-
-\`fed\` is the best-served domain RELATIVE to what they asked for. It does not mean that domain is getting enough, and it does not mean the others are fine — \`starving\` says what is short. Never report \`fed\` as "enough" or "the only one doing well".
-
-\`daysSince\` is days since the last contact, NOT days overdue. Someone 26 days into a 7-day rhythm is "26 days since" or "19 days past what they asked for" — never "26 days past". State it one way and get it right.
-
-Report the digest, do not interpret it. Say what a field IS, never what it implies about anything else — the fields have exact meanings and a plausible-sounding inference from one is how a true number becomes a false sentence. \`freeStretchMinutes\` is one day's longest clear stretch, not a week's total.
-
-\`encouragement\` is ONE short line, under 12 words. It is the small print under the card, not a second paragraph. ${TONE_GUIDE}
+Never address the reader as anything but "you". No greeting, no sign-off, no emoji. ${TONE_GUIDE}
 ${GROUNDING_RULES}
-Respond ONLY with JSON: {"whyToday": string, "encouragement": string}`,
+Respond ONLY with JSON: {"whyToday": string (the rewritten sentence), "encouragement": string (ONE short line, under 12 words, no numbers)}`,
   buildUser: (ctx) => JSON.stringify(ctx),
 };
 
