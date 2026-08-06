@@ -75,12 +75,27 @@ describe('evidence bank', () => {
     const offenders: string[] = [];
     for (const [id, ev] of Object.entries({ ...EVIDENCE, ...PROPOSED })) {
       if (ev.grade === 'folk') {
-        if (!ev.note) offenders.push(`${id} (folk without a note)`);
+        /* Folk has to say what it is. That used to live in `note`; it lives
+           in the plain sentence now, which is the one a reader sees. */
+        if (!ev.plain) offenders.push(`${id} (folk without an explanation)`);
       } else {
         if (!ev.source) offenders.push(`${id} (${ev.grade} without a source)`);
       }
     }
     expect(offenders, offenders.join(' | ')).toEqual([]);
+  });
+
+  /**
+   * The panel shows `plain` and nothing else that states a finding. A record
+   * without one is a card that opens "Why this works" and answers with a
+   * grade label and a citation — which is what this whole field was added to
+   * stop.
+   */
+  it('says what was found, in words, for every single entry', () => {
+    const silent = Object.entries({ ...EVIDENCE, ...PROPOSED })
+      .filter(([, ev]) => !ev.plain?.trim())
+      .map(([id]) => id);
+    expect(silent, `no plain sentence: ${silent.join(' | ')}`).toEqual([]);
   });
 });
 
@@ -104,7 +119,9 @@ describe('what a generated entry may claim', () => {
   it('is folk when it resolves to nothing — a new idea nobody has measured', () => {
     const ev = evidenceForGenerated('Cycle the long way past the reservoir');
     expect(ev.grade).toBe('folk');
-    expect(ev.note).toBeTruthy();
+    /* And it says so out loud on the card, rather than showing a bare grade
+       label to somebody who asked a real question. */
+    expect(ev.plain).toMatch(/nobody has measured/i);
     expect(ev.source).toBeUndefined();
   });
 
@@ -205,6 +222,84 @@ describe('every receipt is written for the person reading it', () => {
     const FORBIDDEN = /\b(die|dying|death|deathbed|lifespan|too late|you failed|guilty|ashamed)\b/i;
     for (const [key, note] of notes) {
       expect(FORBIDDEN.test(note), `${key}: ${note}`).toBe(false);
+    }
+  });
+});
+
+/**
+ * The sentence a reader actually gets.
+ *
+ * `note` has been checked for readability since the day somebody found a
+ * developer instruction printed on a card about walking. `plain` is now the
+ * more important of the two — it is the whole answer to "why does this work?"
+ * — so it is held to the same rules and two of its own.
+ *
+ * One rule that deliberately does NOT carry over is the forbidden register.
+ * Notes may not say "die", because the app's own voice does not. A good part
+ * of this literature measures exactly that, and the two ways out of the word
+ * are both worse: "lower all-cause mortality" is the jargon this field exists
+ * to replace, and "more likely to still be alive" is not the same arithmetic
+ * as a reduction in deaths. The panel is the one place in the app allowed to
+ * be clinical, because the alternative is being unclear or being wrong.
+ */
+describe('the plain sentence is the one a reader can use', () => {
+  const OUR_VOCABULARY = /\b(catalog|rung|lever|blueprint|generator|telemetry|the bank|this receipt|identity)\b/i;
+  const ADDRESSED_TO_US = /\b(reconcile|refactor|TODO|FIXME|we should|needs? fixing|should be read as)\b/i;
+  /**
+   * The words that sent somebody to a search engine.
+   *
+   * Every one of these appeared on screen, unexplained, in the version this
+   * replaced: *meta-analysis of trials, d ≈ 0.40, Harkin 2016*. They are all
+   * still in the file — in `effect`, where a careful reader can check the
+   * sentence against them. They are not allowed in the sentence.
+   */
+  const JARGON = /(\bd ≈|\bg ≈|δ|meta-analys|cohort|quasi-experiment|associational|cross-sectional|effect size|odds ratio|\bp <|confidence interval|systematic review|single-blind)/i;
+  /* Case-sensitive, or the statistician's "OR" swallows every "or". */
+  const ACRONYMS = /\b(OR|RCTs?|CBT-I|BA)\b/;
+
+  const plains = Object.entries({ ...EVIDENCE, ...PROPOSED })
+    .filter(([, e]) => e.plain)
+    .map(([key, e]) => [key, e.plain as string] as const);
+
+  it('has a sentence for every record in the bank', () => {
+    expect(plains.length).toBe(Object.keys({ ...EVIDENCE, ...PROPOSED }).length);
+  });
+
+  it('never uses a word that only means something inside this repo', () => {
+    for (const [key, p] of plains) {
+      expect(OUR_VOCABULARY.test(p), `${key}: ${p}`).toBe(false);
+    }
+  });
+
+  it('never addresses the maintainer instead of the reader', () => {
+    for (const [key, p] of plains) {
+      expect(ADDRESSED_TO_US.test(p), `${key}: ${p}`).toBe(false);
+      expect(p.includes('`'), `${key}: ${p}`).toBe(false);
+    }
+  });
+
+  it('never says the thing that sent somebody to a search engine', () => {
+    for (const [key, p] of plains) {
+      const hit = p.match(JARGON) ?? p.match(ACRONYMS);
+      expect(hit?.[0], `${key} still says "${hit?.[0]}": ${p}`).toBeUndefined();
+    }
+  });
+
+  /**
+   * Translation may not quietly promote the finding.
+   *
+   * This is the rule the whole file was built to protect, now applied at the
+   * point where it is easiest to lose: expressive writing is proven across
+   * 146 experiments and does almost nothing, and a warm sentence saying
+   * "writing helps" would be a lie told by omission. Wherever the precise
+   * version calls the effect small, the readable version has to say so too.
+   */
+  it('keeps a small finding small', () => {
+    const SAYS_SMALL = /\b(small|tiny|modest|slight)\b/i;
+    const STILL_SMALL = /\b(small|tiny|modest|slight(?:ly)?|a little|little|barely|not dramatic|only)\b/i;
+    for (const [key, ev] of Object.entries(EVIDENCE)) {
+      if (!ev.effect || !SAYS_SMALL.test(ev.effect)) continue;
+      expect(STILL_SMALL.test(ev.plain ?? ''), `${key} lost its size: ${ev.plain}`).toBe(true);
     }
   });
 });

@@ -20,17 +20,28 @@ import { colors, type, space } from '@/theme';
  * Three rules the copy here follows, inherited from the bank it reads:
  *
  *   **Grade is not magnitude.** Expressive writing is Grade A and tiny. The
- *   effect line says the size, the grade says the design, and the label never
- *   lets one impersonate the other.
+ *   finding says the size, the grade says how well it is known, and the label
+ *   never lets one impersonate the other.
  *
  *   **Folk is a real answer, shown as proudly as A.** "Make the bed" has no
  *   outcome literature and is kept anyway. Saying so is precisely what makes
- *   "strength training, meta-analysis of trials" believable — a product that
+ *   "strength training, tested many times over" believable — a product that
  *   graded everything highly would be grading nothing.
  *
- *   **An effect size with a source is a fact, not a claim.** Nothing here
+ *   **A measured finding with a source is a fact, not a claim.** Nothing here
  *   promises the reader an outcome, and the note is where the caveats live
  *   rather than being quietly dropped for a cleaner line.
+ *
+ * What this panel used to print was the bank's `effect` string, unmodified.
+ * On the weekly money review that was three lines: *meta-analysis of trials ·
+ * d ≈ 0.40 · Harkin 2016, Psychol Bull*. Every word true, and no reader
+ * without a statistics course could do anything with it — which made the
+ * panel worse than absent, because it took a question somebody asked in good
+ * faith and answered it in a language they were not offered. The evidence
+ * bank now carries a plain sentence for every record, and that is what gets
+ * shown; `effect` stays in the file as the version the sentence is answerable
+ * to. Nothing was softened to make this readable. The size still has to
+ * survive the translation, which is what the bank's own tests enforce.
  */
 export function WhyThisWorks({ idOrTitle, evidence }: {
   /** A rhythm key, an exact rung title, or `lever.<key>`. */
@@ -63,17 +74,24 @@ export function WhyThisWorks({ idOrTitle, evidence }: {
         </Text>
       </Pressable>
       {open ? (
-        <View style={{ gap: 3, paddingLeft: space(2) }}>
-          {/* The grade first, in words rather than a letter — "B" means
-              nothing to a reader and "randomized trials" means exactly what
-              it says. */}
-          <Text style={type.faint}>{GRADE_LABELS[ev.grade]}</Text>
-          {ev.effect ? <Text style={type.faint}>{ev.effect}</Text> : null}
-          {ev.source ? <Text style={type.faint}>{ev.source}</Text> : null}
+        <View style={{ gap: space(1), paddingLeft: space(2) }}>
+          {/* The finding first, and in ordinary words — what somebody
+              measured, on whom, and how much it moved. Everything below it is
+              context for this sentence. */}
+          {ev.plain ? (
+            <Text style={[type.faint, { color: colors.text }]}>{ev.plain}</Text>
+          ) : null}
+          {/* Then how well it is known, which is a different question from
+              how much it helps and is labelled so it cannot be read as the
+              same one. */}
+          <Text style={type.faint}>How well this is known: {GRADE_LABELS[ev.grade]}</Text>
           {/* The caveat, kept rather than dropped for a tidier card. Dose
               gaps, replication trouble, and who the benefit actually lands
               on all live here. */}
           {ev.note ? <Text style={type.faint}>{ev.note}</Text> : null}
+          {/* Last and quietest: where to go and check. A name and a year is
+              enough to find the paper and not enough to clutter the card. */}
+          {ev.source ? <Text style={type.faint}>{ev.source}</Text> : null}
         </View>
       ) : null}
     </View>
