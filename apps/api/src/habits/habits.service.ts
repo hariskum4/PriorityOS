@@ -113,6 +113,21 @@ export class HabitsService {
          * record it faithfully rather than claim to have authored it.
          */
         sourceKey: data.sourceKey ?? catalogKeyFor(String(data.title ?? '')),
+        /**
+         * The hour and the days, when the caller knows them.
+         *
+         * `CreateHabitDto` has validated both since schedules existed and this
+         * method never wrote either, so a rhythm started with an hour attached
+         * was accepted at the door and stored without one — a silent no-op
+         * that only showed up by reading the row back. Every existing caller
+         * omits them and still lands unscheduled, exactly as before.
+         */
+        ...(typeof data.plannedMinute === 'number'
+          ? { plannedMinute: data.plannedMinute }
+          : {}),
+        ...(Array.isArray(data.plannedDays) && data.plannedDays.length
+          ? { plannedDays: data.plannedDays }
+          : {}),
       },
     });
   }

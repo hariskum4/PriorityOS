@@ -20,6 +20,7 @@ import {
   screenTrade,
   estimateCostOfWaiting,
   estimateCreativeCompounding,
+  craftWindow,
   suggestStacks,
   lifeShape,
   shortfallsCovered,
@@ -53,6 +54,7 @@ import {
   activeHourByKey,
   formatSpan,
   formatClock,
+  formatRun,
   type DayBlock,
   type DayType,
   PLANNING_HORIZON_AGE,
@@ -105,6 +107,7 @@ const CADENCE_DAYS: Record<string, number> = {
 const DAY_TYPE_KEY = 'priority-day-type-v1';
 const NUDGE_KEY = 'priority-day-nudges-v1';
 const MORE_YEARS_KEY = 'priority-more-years-v1';
+const MONTHLY_KEY = 'priority-monthly-invest-v1';
 const DURATION_KEY = 'priority-day-durations-v1';
 /**
  * Which weekdays a rhythm was moved to.
@@ -781,7 +784,13 @@ export default function TimeReality() {
     /* `domain` was added when the body windows began starting rhythms from
        here too — rough travel belongs to experiences, not health. Absent, the
        original lever rule stands. */
-    mutationFn: (l: { key: string; title: string; target: number; domain?: string }) =>
+    /* `plannedMinute` arrived with the craft window: a rhythm started from a
+       named stretch of the day should be planted at that stretch's hour, not
+       at no hour at all. Absent, the habit is unscheduled exactly as before. */
+    mutationFn: (l: {
+      key: string; title: string; target: number; domain?: string;
+      plannedMinute?: number; plannedDays?: number[];
+    }) =>
       api('/habits', {
         method: 'POST',
         body: {
@@ -789,6 +798,12 @@ export default function TimeReality() {
           domainType: l.domain ?? (l.key === 'social' ? 'friends' : 'health'),
           targetPerWeek: l.target,
           sourceType: 'system',
+          ...(typeof l.plannedMinute === 'number'
+            /* The day runs waking-to-waking, so a late block's minutes can
+               exceed 1440. A clock time never does. */
+            ? { plannedMinute: ((Math.round(l.plannedMinute) % 1440) + 1440) % 1440 }
+            : {}),
+          ...(l.plannedDays?.length ? { plannedDays: l.plannedDays } : {}),
         },
       }),
     onMutate: (l) => setStartedLevers((p) => (p.includes(l.key) ? p : [...p, l.key])),
@@ -872,7 +887,43 @@ export default function TimeReality() {
         .catch(() => {});
     }
   };
-  const [monthly, setMonthly] = useState('10000');
+  /**
+   * What they invest a month — theirs, or nothing.
+   *
+   * This was `useState('10000')`: a house number hardcoded in this file, run
+   * through a compound-interest formula, and printed as "grows to ~₹2,323,391"
+   * over somebody who had never mentioned money to this app. Every figure on
+   * this screen is checkable against something the reader said; that one was
+   * checkable against a string literal.
+   *
+   * Empty until answered, and the card shows the question instead of a total.
+   * Kept locally for the same reason `moreYears` is — a planning lens rather
+   * than a profile fact, and a number about somebody's savings is the last
+   * thing that needs to be on a wire.
+   */
+  const [monthly, setMonthlyState] = useState('');
+  const [monthlyLoaded, setMonthlyLoaded] = useState(false);
+  React.useEffect(() => {
+    if (!me?.id) return;
+    let alive = true;
+    AsyncStorage.getItem(MONTHLY_KEY)
+      .then((raw) => {
+        if (!alive) return;
+        const saved = raw ? JSON.parse(raw) : null;
+        if (saved?.userId === me.id && typeof saved.monthly === 'string') {
+          setMonthlyState(saved.monthly);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setMonthlyLoaded(true); });
+    return () => { alive = false; };
+  }, [me?.id]);
+  const setMonthly = (v: string) => {
+    setMonthlyState(v);
+    if (me?.id) {
+      AsyncStorage.setItem(MONTHLY_KEY, JSON.stringify({ userId: me.id, monthly: v })).catch(() => {});
+    }
+  };
   const [minutes, setMinutes] = useState<number>(30);
 
   /**
@@ -1761,7 +1812,6 @@ export default function TimeReality() {
     /* So the figures carry a unit. Unknown country still renders bare. */
     country: me?.country,
   });
-  const creative = estimateCreativeCompounding(minutes);
   const weeks = lifeInWeeks(age, me?.country);
   /**
    * Where the country average falls, for the mark on the grid.
@@ -1891,6 +1941,17 @@ export default function TimeReality() {
   const activeDomains = (dashboard?.domains ?? [])
     .filter((d: any) => d.importance > 0)
     .sort((a: any, b: any) => (a.priorityRank ?? 99) - (b.priorityRank ?? 99));
+
+  /**
+   * Whether money is a part of the life this person described.
+   *
+   * The same `importance > 0` test the rest of the app uses for "in your plan"
+   * — Today prints "not in your plan yet" under exactly this condition. The
+   * compounding card is gated on it because a savings projection shown to
+   * somebody who ranked finance nowhere is not a reading of their life, it is
+   * a calculator left on the page.
+   */
+  const financeInPlan = activeDomains.some((d: any) => d.domainType === 'finance');
 
   /**
    * The people a stack can name, each with how far past their own rhythm they
@@ -2263,6 +2324,45 @@ export default function TimeReality() {
     busy: calendar?.status === 'ready' && calendar.dayKey === viewDate.toDateString()
       ? calendar.busy
       : null,
+  });
+
+  /**
+   * The craft calculator, asked about the day this screen already drew.
+   *
+   * `shape` is computed further down and read here, so the open blocks are
+   * the same ones the day card renders — a stretch quoted in this card can be
+   * found by scrolling up to it. `estimateCreativeCompounding` stays for the
+   * abstract case inside `craftWindow`; what changed is that a sentence about
+   * thirty minutes a day now has to survive contact with a day that may not
+   * contain thirty free minutes.
+   */
+  /* Not memoised. This point in the component is past several early returns,
+     and a hook that only runs on some renders is a hooks-order crash — which
+     is exactly what the first version of this line was. Filtering a dozen
+     blocks costs nothing worth a hook. */
+  const openStretches = (shape?.blocks ?? [])
+    .filter((b: DayBlock) => b.kind === 'open')
+    .map((b: DayBlock) => ({
+      startMinutes: b.startMinutes,
+      endMinutes: b.endMinutes,
+      note: b.note,
+    }));
+  /**
+   * Something they already do for themselves.
+   *
+   * Never `lapsedHobbies`, however much better "enough to get back to the
+   * guitar" would read. Onboarding asks that one under a promise — "Priority
+   * will only ever offer it, once" — and a line printed on a tab every time
+   * it opens is not once.
+   */
+  const ownCraft = (() => {
+    const saved = (answers ?? []).find((a: any) => a.key === 'hobbies')?.value;
+    return Array.isArray(saved) && typeof saved[0] === 'string' ? saved[0] : null;
+  })();
+  const creative = craftWindow({
+    stretches: openStretches,
+    minutesPerDay: minutes,
+    craft: ownCraft,
   });
   /**
    * Now, against a day that runs from waking to waking.
@@ -4396,21 +4496,115 @@ export default function TimeReality() {
           question survives inside Money and craft below, where tapping an
           answer visibly changes something; the countdown does not. */}
 
-      {/* Money and craft stay outside the horizon block on purpose: they are
-          the two calculators that still work when finite-time framing is off. */}
+      {/**
+        * These stay outside the horizon block on purpose: they are the
+        * calculators that still work when finite-time framing is off.
+        *
+        * They used to be one section called "Money and craft", which was two
+        * compounding metaphors bolted together — and it meant a person who has
+        * never mentioned money to this app got a savings projection as
+        * furniture, computed from a figure the file invented. Split, so the
+        * one everybody can use is always there and the one about money
+        * appears when money is something they have said they care about.
+        */}
       <Section
-        icon="trending-up-outline"
-        title="Money and craft"
-        // "by 60" carries the unit the bare number lacked: collapsed, this row
-        // used to read "~2,323,391" of nothing in particular. The figure is in
-        // whatever currency the person types below — same as the body copy.
-        preview={`~${formatMoney(money.corpusStartingNow, me?.country)} by ${age + moreYears} · ${minutes} min/day`}
+        icon="color-palette-outline"
+        title="The hours you already have"
+        preview={creative.from
+          ? `${formatRun(creative.longestMinutes)} clear · ~${creative.hoursPerYear} h/yr`
+          : `${minutes} min/day · ~${creative.hoursPerYear} h/yr`}
       >
       <Card style={{ gap: space(3) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Ionicons name="trending-up-outline" size={14} color={colors.textDim} />
-          <Label>The compounding window</Label>
+          <Ionicons name="color-palette-outline" size={14} color={colors.textDim} />
+          <Label>The 30-minute calculator</Label>
         </View>
+        {/* The day first, then the arithmetic about it. The card used to open
+            with the arithmetic and never mention the day at all — which is how
+            it came to tell somebody with twenty clear minutes that thirty a
+            day is 130 hours a year. */}
+        <Text style={type.dim}>{creative.dayText}</Text>
+        <View style={{ flexDirection: 'row', gap: space(2) }}>
+          {[15, 30, 60].map((m) => (
+            <Pressable key={m} onPress={() => setMinutes(m)} style={[s.chip, minutes === m && s.chipOn]}>
+              <Text style={[type.body, minutes === m && { color: colors.amber, fontWeight: '700' }]}>
+                {m} min/day
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={type.serif}>{creative.framingText}</Text>
+        {/**
+          * And the act, which is the part that was missing.
+          *
+          * Every other card on this screen ends in something you can start.
+          * This one ended in a number you read and left — the arithmetic was
+          * never the point on its own. The rhythm is planted at the hour of
+          * the stretch it was measured from, so the thing that made the
+          * sentence true is the thing that gets scheduled.
+          *
+          * Only when a stretch was actually found: a button that plants a
+          * rhythm at no particular time is the vague intention this app
+          * exists to replace.
+          */}
+        {creative.from ? (
+          startedLevers.includes('craft') ? (
+            <Text style={type.faint}>
+              Started — it will show up in your rhythms, {formatClock(creative.from.startMinutes)} on weekdays.
+            </Text>
+          ) : (
+            <Button
+              title={ownCraft ? `Put ${ownCraft} at ${formatClock(creative.from.startMinutes)}` : `Start it at ${formatClock(creative.from.startMinutes)}`}
+              small
+              kind="ghost"
+              onPress={() => startLever.mutate({
+                key: 'craft',
+                title: ownCraft
+                  ? `${ownCraft}, ${creative.minutesUsed} minutes`
+                  : `${creative.minutesUsed} minutes on something that compounds`,
+                target: 5,
+                domain: 'growth',
+                plannedMinute: creative.from!.startMinutes,
+                /* The days the arithmetic was done for. "Five days a week" in
+                   the sentence and an everyday rhythm on the row would be two
+                   different promises. */
+                plannedDays: Array.isArray(me.workDays) && me.workDays.length
+                  ? me.workDays
+                  : [1, 2, 3, 4, 5],
+              })}
+              disabled={startLever.isPending}
+            />
+          )
+        ) : null}
+      </Card>
+      </Section>
+
+      {/**
+        * The compounding window, shown to people for whom money is a stated
+        * part of the plan.
+        *
+        * `importance <= 0` is the same test Today uses to print "not in your
+        * plan yet" — a domain nobody ranked. Somebody who never put finance in
+        * their life was being handed a savings projection anyway, which is the
+        * definition of a card that is furniture rather than a reading of
+        * their life. Once a figure has been entered it stays visible whatever
+        * the ranking says: they answered, so they meant it.
+        */}
+      {(financeInPlan || monthly.trim()) && (
+      <Section
+        icon="trending-up-outline"
+        title="The compounding window"
+        // "by 60" carries the unit the bare number lacked: collapsed, this row
+        // used to read "~2,323,391" of nothing in particular. The figure is in
+        // whatever currency the person types below — same as the body copy.
+        preview={monthly.trim()
+          ? `~${formatMoney(money.corpusStartingNow, me?.country)} by ${age + moreYears}`
+          : 'not answered yet'}
+      >
+      <Card style={{ gap: space(3) }}>
+        {/* No in-card label: the section it now owns carries the same words,
+            and the heading was printed twice the moment this stopped being
+            one half of "Money and craft". */}
         {/* The years question lives here rather than in a card of its own,
             because here the answer does something you can watch: the horizon
             of the compounding number is age plus this. Its old home printed
@@ -4444,10 +4638,23 @@ export default function TimeReality() {
           />
           <Text style={type.dim}>a month until {age + moreYears}</Text>
         </View>
-        <Text style={type.serif}>
-          grows to ~{formatMoney(money.corpusStartingNow, me?.country)}.
-        </Text>
-        <Text style={[type.dim, { color: colors.green }]}>{money.framingText}</Text>
+        {/* Until they have said a number there is no total to show, and
+            printing one computed from a house default was the whole problem.
+            The question is the card until it is answered. */}
+        {monthly.trim() ? (
+          <>
+            <Text style={type.serif}>
+              grows to ~{formatMoney(money.corpusStartingNow, me?.country)}.
+            </Text>
+            <Text style={[type.dim, { color: colors.green }]}>{money.framingText}</Text>
+          </>
+        ) : (
+          <Text style={type.dim}>
+            {monthlyLoaded
+              ? 'Put a number in and this says what starting now is worth against starting in five years. Nothing is sent anywhere — it stays on this phone.'
+              : ' '}
+          </Text>
+        )}
         {/* What the working years are for, in one quiet line — the part of
             the old card worth keeping. */}
         {/* "After that, N years that are almost entirely yours" is a sentence
@@ -4460,25 +4667,34 @@ export default function TimeReality() {
           </Text>
         )}
         <Text style={type.faint}>{money.assumptions[0]}.</Text>
-      </Card>
-
-      <Card style={{ gap: space(3) }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Ionicons name="color-palette-outline" size={14} color={colors.textDim} />
-          <Label>The 30-minute calculator</Label>
-        </View>
-        <View style={{ flexDirection: 'row', gap: space(2) }}>
-          {[15, 30, 60].map((m) => (
-            <Pressable key={m} onPress={() => setMinutes(m)} style={[s.chip, minutes === m && s.chipOn]}>
-              <Text style={[type.body, minutes === m && { color: colors.amber, fontWeight: '700' }]}>
-                {m} min/day
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <Text style={type.serif}>{creative.framingText}</Text>
+        {/**
+          * "The window is not closed — it is open right now" was an
+          * instruction with no button under it. This is the button: a monthly
+          * rhythm on the one act the whole card is about, so the sentence
+          * leads somewhere the way every other card on this screen does.
+          */}
+        {monthly.trim() ? (
+          startedLevers.includes('invest') ? (
+            <Text style={type.faint}>Started — it will show up in your rhythms.</Text>
+          ) : (
+            <Button
+              title="Make it a monthly rhythm"
+              small
+              kind="ghost"
+              onPress={() => startLever.mutate({
+                key: 'invest',
+                title: `Move ${formatMoney(parseInt(monthly, 10) || 0, me?.country)} across before anything else`,
+                /* Once a month, said in the only unit a weekly target has. */
+                target: 1,
+                domain: 'finance',
+              })}
+              disabled={startLever.isPending}
+            />
+          )
+        ) : null}
       </Card>
       </Section>
+      )}
 
       {!intensityOff && peopleInsights.length > 0 && (
         <Section
