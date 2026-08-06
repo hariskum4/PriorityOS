@@ -135,14 +135,17 @@ function Reflect() {
    */
   const takeEntry = useMemoryDraft((st) => st.takeEntry);
   const offered = useMemoryDraft((st) => st.pendingEntry);
+  const offeredPrompt = useMemoryDraft((st) => st.pendingPrompt);
   const [wasDrafted, setWasDrafted] = useState(false);
+  const [askedPrompt, setAskedPrompt] = useState<string | null>(null);
   useEffect(() => {
-    if (!offered) return;
-    const line = takeEntry();
-    if (!line) return;
-    setWhatMattered((current) => (current.trim() ? current : line));
-    setWasDrafted(true);
-  }, [offered]);
+    if (!offered && !offeredPrompt) return;
+    const taken = takeEntry();
+    if (!taken) return;
+    if (taken.line) setWhatMattered((current) => (current.trim() ? current : taken.line));
+    setAskedPrompt(taken.prompt);
+    setWasDrafted(!!taken.line);
+  }, [offered, offeredPrompt]);
   const [whatIAvoided, setWhatIAvoided] = useState('');
   const [gratitude, setGratitude] = useState('');
   const [gladNotPostponed, setGladNotPostponed] = useState('');
@@ -311,6 +314,19 @@ function Reflect() {
             <Text style={type.faint}>
               A first line from what you just kept — change it, or clear it.
             </Text>
+          ) : null}
+          {/**
+           * The question, which is the half that actually earns its place.
+           * The expressive-writing gain tracked causal and insight words
+           * rather than emotional ones, so what helps is not more sentence
+           * from the app — it is the question that pulls for the sentence
+           * only the person can write.
+           */}
+          {askedPrompt ? (
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+              <Ionicons name="help-circle-outline" size={14} color={colors.amber} style={{ marginTop: 2 }} />
+              <Text style={[type.dim, { flex: 1, color: colors.amber }]}>{askedPrompt}</Text>
+            </View>
           ) : null}
         </View>
         <View style={{ gap: space(2) }}>
@@ -597,7 +613,7 @@ function Memories() {
             domainType: draft?.domainType,
           },
         })
-          .then((d) => { if (d?.whatMattered) offerEntry(d.whatMattered); })
+          .then((d) => { if (d) offerEntry(d.whatMattered ?? '', (d as any).prompt ?? null); })
           .catch(() => {});
       }
       setTitle(''); setReflection(''); setPersonIds([]); setCountKey(''); setOccurredOn('');
@@ -611,6 +627,25 @@ function Memories() {
   const remove = useMutation({
     mutationFn: (id: string) => api(`/memories/${id}`, { method: 'DELETE' }),
     onSuccess: invalidate,
+  });
+
+  /**
+   * Draft a first line about a moment already in the archive.
+   *
+   * Same endpoint as the one that runs when a moment is first kept — the
+   * difference is only when it is asked for, which is the point: somebody
+   * coming back a week later has had a week to know what it meant.
+   */
+  const writeAbout = useMutation({
+    mutationFn: (m: any) => api<{ whatMattered?: string }>('/journal/draft', {
+      method: 'POST',
+      body: {
+        title: m.title,
+        personName: (m.peoplePresent ?? [])[0] ?? m.personName ?? undefined,
+        domainType: m.domainType ?? undefined,
+      },
+    }),
+    onSuccess: (d) => offerEntry(d?.whatMattered ?? '', (d as any)?.prompt ?? null),
   });
 
   const togglePerson = (id: string) =>
@@ -743,6 +778,28 @@ function Memories() {
               <Text style={type.faint}>With {(m.peoplePresent as string[]).join(', ')}</Text>
             )}
             {m.reflection ? <Text style={type.serif}>{m.reflection}</Text> : null}
+            {/**
+             * The way out of the archive and into the written half.
+             *
+             * A kept moment is a fact with a date on it; an entry is what it
+             * came to mean, and the second usually arrives later than the
+             * first. Without this the archive was a dead end — somewhere
+             * moments went to be counted and never thought about again.
+             */}
+            <Pressable
+              onPress={() => writeAbout.mutate(m)}
+              disabled={writeAbout.isPending}
+              accessibilityRole="button"
+              accessibilityLabel={`Write about ${m.title}`}
+              style={({ pressed }) => [s.writeAbout, pressed && { opacity: 0.7 }]}
+            >
+              <Ionicons name="create-outline" size={14} color={colors.amber} />
+              <Text style={[type.faint, { color: colors.amber }]}>
+                {writeAbout.isPending && writeAbout.variables?.id === m.id
+                  ? 'Opening…'
+                  : 'Write about this'}
+              </Text>
+            </Pressable>
             <View style={{ alignSelf: 'flex-start', marginTop: space(1) }}>
               <DangerConfirm
                 label="Delete"
@@ -791,7 +848,15 @@ function EditMemory({ memory, onClose, onSaved }: {
 
   return (
     <Card style={{ gap: space(3) }}>
-      <Label>Fix this moment</Label>
+      {/**
+       * "Fix this moment" was error-correction language on the one screen
+       * that should invite return. Nobody comes back to an evening because
+       * it was wrong — they come back because they have thought about it
+       * since, and that is the whole value of the screen: the feeling about
+       * a call is often not available until the next morning, which is
+       * exactly the window the expressive-writing work is about.
+       */}
+      <Label>Back to this moment</Label>
       <Input value={title} onChangeText={setTitle} placeholder="What happened?" />
       <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
         <Input
@@ -804,7 +869,7 @@ function EditMemory({ memory, onClose, onSaved }: {
           {dateValid ? 'Lands on that year' : 'Needs to look like 2009-06-14'}
         </Text>
       </View>
-      <Input multiline value={reflection} onChangeText={setReflection} placeholder="What will you remember?" />
+      <Input multiline value={reflection} onChangeText={setReflection} placeholder="What do you remember about it now?" />
       <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
       <View style={{ flexDirection: 'row', gap: space(2) }}>
         <View style={{ flex: 1 }}>
@@ -823,6 +888,7 @@ function EditMemory({ memory, onClose, onSaved }: {
 const s = StyleSheet.create({
   wrap: { padding: space(5), paddingTop: space(14), gap: space(3), paddingBottom: space(10), maxWidth: 560, width: '100%', alignSelf: 'center' },
   segmentRow: { flexDirection: 'row', gap: space(2), marginTop: space(2) },
+  writeAbout: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: space(1) },
   segment: {
     paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,

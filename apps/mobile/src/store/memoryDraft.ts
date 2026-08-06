@@ -40,10 +40,12 @@ interface MemoryDraftState {
    * somebody was typing days later.
    */
   pendingEntry: string | null;
+  /** The question that goes under it — the half the research says matters. */
+  pendingPrompt: string | null;
   setDraft: (d: MemoryDraft) => void;
   markKept: (missionId: string) => void;
-  offerEntry: (line: string) => void;
-  takeEntry: () => string | null;
+  offerEntry: (line: string, prompt?: string | null) => void;
+  takeEntry: () => { line: string; prompt: string | null } | null;
   clear: () => void;
 }
 
@@ -51,17 +53,22 @@ export const useMemoryDraft = create<MemoryDraftState>((set, get) => ({
   draft: null,
   kept: [],
   pendingEntry: null,
+  pendingPrompt: null,
   setDraft: (draft) => set({ draft }),
   markKept: (missionId) => set((st) => (
     st.kept.includes(missionId) ? st : { kept: [...st.kept, missionId] }
   )),
-  offerEntry: (pendingEntry) => set({ pendingEntry }),
+  offerEntry: (pendingEntry, pendingPrompt = null) => set({ pendingEntry, pendingPrompt }),
   /* Read once. Returning it and clearing in the same call is what stops a
      re-render from re-filling a field somebody has just emptied. */
   takeEntry: () => {
-    const line = get().pendingEntry;
-    if (line) set({ pendingEntry: null });
-    return line;
+    const { pendingEntry, pendingPrompt } = get();
+    /* A question with no line is still worth handing over: a title that
+       could not be conjugated leaves an empty box, and the box is exactly
+       where a question earns its keep. */
+    if (!pendingEntry && !pendingPrompt) return null;
+    set({ pendingEntry: null, pendingPrompt: null });
+    return { line: pendingEntry ?? '', prompt: pendingPrompt };
   },
   clear: () => set({ draft: null }),
 }));

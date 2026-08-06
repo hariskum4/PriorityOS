@@ -5,6 +5,7 @@ import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AiService } from '../ai/ai.service';
 import { JOURNAL_DRAFT } from '@priority/ai-prompts';
+import { firstPersonPast, insightPrompt } from '@priority/scoring-engine';
 
 @Injectable()
 export class JournalService {
@@ -159,21 +160,23 @@ export class JournalService {
     const title = input.title.trim();
     const withWhom = input.personName?.trim();
     /**
-     * Plain, true, and unadorned — a starting point to write over rather than
-     * a sentence pretending to be a diary.
+     * Plain, true, and in their own voice — a starting point to write over
+     * rather than a sentence pretending to be a diary.
      *
-     * Naming the person only when the title has not already done it. Most
-     * missions about somebody carry their name, so appending "with Amma" to
-     * "Call Amma — not a text" produced *Call Amma — not a text — with Amma*:
-     * her name twice and two em-dashes colliding. Same mistake the countables
-     * card was making this morning, in a different corner.
+     * `firstPersonPast` turns the catalog's imperative into an account: the
+     * composer used to open with "Call Amma — not a text.", which is an
+     * instruction sitting where somebody's own words belong. Null when the
+     * title cannot be conjugated honestly, and then the box stays empty —
+     * which is exactly what it was before this existed and is never wrong.
+     *
+     * The question is the half that matters. The expressive-writing trials
+     * found the gain tracked causal and insight words rather than emotional
+     * ones, so the useful thing to add is not more sentence, it is the
+     * question that pulls for the sentence only they can write.
      */
-    const alreadyNamed = !!withWhom
-      && new RegExp(`(^|\\W)${withWhom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\W|$)`, 'i').test(title);
-    const stem = title.replace(/[.!?]+$/, '');
     const fallback = {
-      whatMattered: withWhom && !alreadyNamed ? `${stem}, with ${withWhom}.` : `${stem}.`,
-      prompt: null as string | null,
+      whatMattered: firstPersonPast({ title, personName: withWhom }) ?? '',
+      prompt: insightPrompt({ title, personName: withWhom }) as string | null,
     };
 
     return this.ai.generate(

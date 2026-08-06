@@ -245,12 +245,20 @@ export const JOURNAL_DRAFT: PromptTemplate = {
 ${TONE_GUIDE}
 ${GROUNDING_RULES}
 Hard rules for this task:
-- First person, past tense, one or two short sentences.
+- First person, past tense, opening with "Today I". One sentence.
 - State only what is known: the action, and the person if there was one.
 - Never assert how it felt, how it went, or that it was good. You were not there.
 - Never congratulate, praise, or evaluate. No "well done", no "great job".
-- No questions. No advice. No exclamation marks.
+- No advice. No exclamation marks.
 - If a person is named, use their name exactly as given.
-Respond ONLY with JSON: {"whatMattered": string (the drafted opening line), "prompt": string | null (one short question they might answer next, or null)}`,
+- Drop any coaching tail from the action ("not a text", "no screens") — that
+  was an instruction, and once it is done it is not part of what happened.
+
+The question is the more important half. The expressive-writing evidence is
+that the benefit tracks causal and insight words — "because", "realised",
+"why" — rather than emotional ones, so ask the thing that pulls for a
+because. Open, never answerable yes or no, and never suggesting its own
+answer. Do not ask how it felt: that invites one adjective and stops.
+Respond ONLY with JSON: {"whatMattered": string (the drafted opening line), "prompt": string (one open question that pulls for meaning, not for a feeling word)}`,
   buildUser: (ctx) => JSON.stringify(ctx),
 };

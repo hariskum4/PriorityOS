@@ -111,33 +111,30 @@ describe('a first line, so the page is not blank', () => {
     return (await svc.draft(USER, input)) as { whatMattered: string; prompt: string | null };
   };
 
-  it('names the person when the title has not', async () => {
-    const d = await draft({ title: 'Take one thing off their plate this week', personName: 'Yusuf' });
-    expect(d.whatMattered).toBe('Take one thing off their plate this week, with Yusuf.');
-  });
-
-  it('does not say their name twice when the title already did', async () => {
-    /* "Call Amma — not a text — with Amma." was the first version: her name
-       twice and two em-dashes colliding. */
+  it('writes what happened in the first person, not the app\'s imperative', async () => {
     const d = await draft({ title: 'Call Amma — not a text', personName: 'Amma' });
-    expect(d.whatMattered).toBe('Call Amma — not a text.');
+    expect(d.whatMattered).toBe('Today I called Amma.');
   });
 
-  it('matches a name on a word boundary, not inside another word', async () => {
-    /* "Ama" must not count as having named "Amma", nor the reverse. */
-    const d = await draft({ title: 'Sit with Ama for an hour', personName: 'Amma' });
-    expect(d.whatMattered).toContain('with Amma');
+  it('carries a question that pulls for meaning', async () => {
+    /* The half that matters: the expressive-writing gain tracked causal and
+       insight words, not emotional ones. `prompt` used to always be null. */
+    const d = await draft({ title: 'Call Amma — not a text', personName: 'Amma' });
+    expect(d.prompt).toBeTruthy();
+    expect(d.prompt!.endsWith('?')).toBe(true);
+    expect(d.prompt!).not.toMatch(/\bfeel\b/i);
   });
 
-  it('leaves a title that already ends in a full stop alone', async () => {
-    const d = await draft({ title: 'Put on your shoes. You are allowed to stop there.' });
-    expect(d.whatMattered).toBe('Put on your shoes. You are allowed to stop there.');
-    expect(d.whatMattered).not.toMatch(/\.\./);
+  it('leaves the box empty rather than writing a clumsy sentence', async () => {
+    const d = await draft({ title: 'Thirty minutes of learning, daily' });
+    expect(d.whatMattered).toBe('');
+    /* But still asks — a question needs no verb to conjugate. */
+    expect(d.prompt).toBeTruthy();
   });
 
   it('works with nobody in it', async () => {
     const d = await draft({ title: 'Walk for twenty minutes today' });
-    expect(d.whatMattered).toBe('Walk for twenty minutes today.');
+    expect(d.whatMattered).toBe('Today I walked for twenty minutes.');
   });
 
   /**
