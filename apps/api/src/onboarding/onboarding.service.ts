@@ -36,6 +36,24 @@ export function normalizeDomains(value: unknown): string[] {
   return out;
 }
 
+/**
+ * How long onboarding will wait on a model before using its own words.
+ *
+ * The mobile client aborts any request at 15 seconds and shows "That took too
+ * long — Priority couldn't be reached." `AiService` defaults to 25 seconds per
+ * call, which is longer than the client's patience for the whole request — so
+ * one slow generation could strand somebody on the last screen of sign-up
+ * while the server carried on and finished successfully. That is exactly what
+ * happened in production on 2026-08-06: three `onboarding_completed` events,
+ * three red errors, one person pressing the button again.
+ *
+ * Both calls here have deterministic fallbacks written to be worth reading on
+ * their own, so waiting longer buys polish at the cost of the whole screen.
+ * The budget belongs to the caller, and this caller has a person watching a
+ * spinner.
+ */
+const ONBOARDING_AI_BUDGET_MS = 6_000;
+
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
@@ -154,20 +172,25 @@ export class OnboardingService {
       limit: 3,
     }).filter((s) => s.source === 'moment-type' || s.source === 'person');
 
+    /* Deduplicated first, then written together. The `taken` set is what
+       stops two suggestions colliding on one key, so it has to be settled
+       before anything is sent — after that the writes are independent. */
     const taken = new Set(existing.map((a) => a.key));
+    const fresh: Array<{ key: string; label: string; perYear: number; peopleIds?: string[] }> = [];
     for (const s of suggestions) {
       const key = countKeyOf(s.label);
       if (taken.has(key)) continue;
       taken.add(key);
-      await this.prisma.onboardingAnswer.upsert({
-        where: { userId_section_key: { userId, section: 'counts', key } },
-        create: {
-          userId, section: 'counts', key,
-          value: { label: s.label, perYear: s.perYear, people: s.peopleIds },
-        },
-        update: {},
-      });
+      fresh.push({ key, label: s.label, perYear: s.perYear, peopleIds: s.peopleIds });
     }
+    await Promise.all(fresh.map((f) => this.prisma.onboardingAnswer.upsert({
+      where: { userId_section_key: { userId, section: 'counts', key: f.key } },
+      create: {
+        userId, section: 'counts', key: f.key,
+        value: { label: f.label, perYear: f.perYear, people: f.peopleIds },
+      },
+      update: {},
+    })));
   }
 
   private firstWeekOptions(opts: {
@@ -290,15 +313,15 @@ export class OnboardingService {
     userId: string,
     answers: { section: string; key: string; value: unknown }[],
   ) {
-    for (const a of answers) {
-      await this.prisma.onboardingAnswer.upsert({
-        where: {
-          userId_section_key: { userId, section: a.section, key: a.key },
-        },
-        create: { userId, section: a.section, key: a.key, value: a.value as object },
-        update: { value: a.value as object },
-      });
-    }
+    /* One round trip per answer, in single file, was the shape of the save
+       that runs on every onboarding step. Independent rows; send them at once. */
+    await Promise.all(answers.map((a) => this.prisma.onboardingAnswer.upsert({
+      where: {
+        userId_section_key: { userId, section: a.section, key: a.key },
+      },
+      create: { userId, section: a.section, key: a.key, value: a.value as object },
+      update: { value: a.value as object },
+    })));
     /**
      * Onboarding is where the heaviest thing anybody types often lands.
      *
@@ -343,17 +366,23 @@ export class OnboardingService {
     const ranked: string[] = normalizeDomains(get('values', 'priorityRanking'));
     const neglected: string[] = normalizeDomains(get('values', 'neglectedDomains'));
     const regrets: string[] = normalizeDomains(get('values', 'regretRisks'));
-    for (const domain of await this.prisma.lifeDomain.findMany({ where: { userId } })) {
-      const rank = ranked.indexOf(domain.domainType);
-      await this.prisma.lifeDomain.update({
-        where: { id: domain.id },
-        data: {
-          priorityRank: rank >= 0 ? rank + 1 : null,
-          flaggedAsNeglected: neglected.includes(domain.domainType),
-          regretRiskFlagged: regrets.includes(domain.domainType),
-        },
-      });
-    }
+    /* Twelve updates, sent together. Awaiting them one at a time is free on a
+       laptop and three seconds in production, where the API is in Oregon and
+       the database is in Mumbai — a quarter of a second on the wire, twelve
+       times, for writes that never depended on each other. */
+    await Promise.all(
+      (await this.prisma.lifeDomain.findMany({ where: { userId } })).map((domain) => {
+        const rank = ranked.indexOf(domain.domainType);
+        return this.prisma.lifeDomain.update({
+          where: { id: domain.id },
+          data: {
+            priorityRank: rank >= 0 ? rank + 1 : null,
+            flaggedAsNeglected: neglected.includes(domain.domainType),
+            regretRiskFlagged: regrets.includes(domain.domainType),
+          },
+        });
+      }),
+    );
 
     // 2. Scores + opportunity insights
     //
@@ -389,12 +418,21 @@ export class OnboardingService {
     // the instant AI_ENABLED=true with a key.
     const futureSelf = get('reflection', 'futureSelf');
     const eulogy = get('reflection', 'eulogy');
-    let extractedValues: { values: string[]; reflection: string } | null = null;
+    /**
+     * Started here, awaited at the very end.
+     *
+     * This and the Life Reveal below are two independent model calls that
+     * were made one after the other, so their waits added up inside a request
+     * somebody is watching a spinner for. Nothing in the Reveal reads what
+     * this produces — they only meet in the response object — so they can run
+     * together and cost the longer of the two instead of the sum.
+     */
+    let extractedValues: Promise<{ values: string[]; reflection: string }> | null = null;
     if (futureSelf || eulogy) {
       // Fallback mirrors a fragment of THEIR words back — the difference
       // between "an app" and "it heard me", even with the LLM off.
       const fragment = this.quoteFragment(String(eulogy || futureSelf || ''), 90);
-      extractedValues = await this.ai.generate(
+      extractedValues = this.ai.generate(
         userId,
         'values_extraction',
         VALUES_EXTRACTION,
@@ -405,6 +443,7 @@ export class OnboardingService {
             ? `"${fragment}" — hold onto that. Everything Priority asks of you is in service of that person.`
             : 'You described a life measured in people and presence, not achievements. That is what Priority will help you protect.',
         },
+        { timeoutMs: ONBOARDING_AI_BUDGET_MS },
       );
     }
 
@@ -536,6 +575,7 @@ export class OnboardingService {
           currentReality,
         }),
       },
+      { timeoutMs: ONBOARDING_AI_BUDGET_MS },
     );
 
     await this.analytics.track(userId, 'onboarding_completed', {
@@ -568,7 +608,7 @@ export class OnboardingService {
 
     return {
       onboardingCompleted: true,
-      reveal: extractedValues ? { ...reveal, extractedValues } : reveal,
+      reveal: extractedValues ? { ...reveal, extractedValues: await extractedValues } : reveal,
     };
   }
 }

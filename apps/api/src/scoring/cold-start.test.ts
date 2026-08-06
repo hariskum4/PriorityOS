@@ -35,7 +35,9 @@ function fakePrisma(opts: { timezone?: string | null; failSamples?: boolean } = 
       mission: { findMany: async () => [] },
       habit: { findMany: async () => [] },
       journalEntry: { findMany: async () => [] },
-      goal: { count: async () => 0 },
+      /* `groupBy` replaced twelve per-domain counts with one query — see
+         `recalcUserDomains`. `count` stays because other callers still use it. */
+      goal: { count: async () => 0, groupBy: async () => [] },
       user: {
         findUnique: async () => ({ timezone: opts.timezone ?? 'Asia/Kolkata' }),
       },

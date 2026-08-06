@@ -52,6 +52,28 @@ export class ScoringService {
 
     const ranked = domains.filter((d) => d.priorityRank !== null).length;
 
+    /**
+     * Active goals per domain, counted once.
+     *
+     * This was a `goal.count` inside the loop below — twelve queries issued
+     * one after another, each waiting for the one before it. That is free on
+     * a laptop and expensive in production, where the API runs in Oregon and
+     * the database is in Mumbai: every await is a quarter of a second on the
+     * wire, so twelve counts and twelve updates cost six seconds of doing
+     * nothing. One grouped query answers all twelve.
+     */
+    const goalCounts = new Map<string, number>();
+    for (const row of await this.prisma.goal.groupBy({
+      by: ['domainType'],
+      where: { userId, status: 'active' },
+      _count: { _all: true },
+    })) {
+      goalCounts.set(row.domainType, row._count._all);
+    }
+
+    /** Each domain's new row, computed in memory and written in one pass. */
+    const writes: Array<{ id: string; data: Record<string, unknown> }> = [];
+
     for (const domain of domains) {
       const events: BehaviorEvent[] = [];
       const ageDays = (d: Date) =>
@@ -89,9 +111,7 @@ export class ScoringService {
         }
       }
 
-      const goalCount = await this.prisma.goal.count({
-        where: { userId, domainType: domain.domainType, status: 'active' },
-      });
+      const goalCount = goalCounts.get(domain.domainType) ?? 0;
 
       const importance = calculateImportanceScore({
         priorityRank: domain.priorityRank ?? undefined,
@@ -121,8 +141,8 @@ export class ScoringService {
         cfg,
       );
 
-      await this.prisma.lifeDomain.update({
-        where: { id: domain.id },
+      writes.push({
+        id: domain.id,
         data: {
           importanceScore: importance,
           prevAttentionScore: domain.attentionScore,
@@ -135,6 +155,14 @@ export class ScoringService {
       });
       standing.push({ domainType: domain.domainType, importance, attention });
     }
+
+    /* Twelve independent updates, sent together rather than in single file.
+       Nothing here reads what another write produced, so the ordering was
+       never load-bearing — only slow. */
+    await Promise.all(writes.map((w) => this.prisma.lifeDomain.update({
+      where: { id: w.id },
+      data: w.data,
+    })));
 
     await this.recordThisWeek(userId, standing);
   }

@@ -711,6 +711,38 @@ export default function Onboarding() {
         .catch(() => {});
       setStep(QUESTION_STEPS + 1);
     } catch (e: any) {
+      /**
+       * The work may well have landed.
+       *
+       * `/onboarding/complete` writes the account's ranks, scores and
+       * `onboardingCompleted` before it composes the Reveal, and the client
+       * gives the whole request 15 seconds. On a slow link that timeout fires
+       * over a request the server goes on to finish — which on 2026-08-06 put
+       * somebody on the last screen of sign-up reading "Priority couldn't be
+       * reached" three times while three complete accounts were being built
+       * behind it.
+       *
+       * So a failure here asks the one question that settles it: is this
+       * account already done? If it is, the only thing missing was the
+       * narrative, and the Reveal has a deterministic version of that
+       * anyway — far better than sending somebody back to a button that has
+       * already worked twice.
+       */
+      try {
+        const me = await api<{ onboardingCompleted?: boolean }>('/me');
+        if (me?.onboardingCompleted) {
+          AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
+          /* Into the app, not to the Reveal. The Reveal step renders only
+             when it has a `reveal` to render, and the one this request would
+             have returned was lost with the response — sending them there
+             would trade a red error for a blank screen. The account is built;
+             the app is the honest place to land. */
+          router.replace('/(tabs)');
+          return;
+        }
+      } catch {
+        /* Still unreachable. Fall through to the error the reader can act on. */
+      }
       setError(e.message ?? 'Something went wrong — try again.');
     } finally {
       setBusy(false);
