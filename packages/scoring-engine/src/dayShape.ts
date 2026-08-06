@@ -499,8 +499,23 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   let workEnd = derivedHours != null && derivedHours > 0
     ? workStart + Math.round(derivedHours * HOUR)
     : clampHour(input.workEndHour, ASSUMED.workEnd) * HOUR;
-  /* A shift ending before it starts is a night shift, not bad data. */
-  if (workEnd <= workStart) workEnd += DAY_MINUTES;
+  /**
+   * A shift ending before it starts is a night shift, not bad data.
+   *
+   * Ending at exactly the hour it starts is neither. `<=` swept that case in
+   * with the night shifts and read it as a twenty-four hour working day,
+   * which then ran past the sleep boundary and produced a Sleep block from
+   * 2010 to 1860 — an end before its start, a hundred and fifty minutes
+   * long in the negative. Both hours pass their own 0..23 check
+   * independently, so setting work to nine and nine is a reachable typo and
+   * not an exotic one.
+   *
+   * Treated as an unanswered question rather than a shift: the assumed
+   * working day is what somebody who told us nothing gets, and somebody who
+   * told us something impossible knows no more than they did.
+   */
+  if (workEnd === workStart) workEnd = workStart + (ASSUMED.workEnd - ASSUMED.workStart) * HOUR;
+  if (workEnd < workStart) workEnd += DAY_MINUTES;
 
   const stdCommute = clampMinutes(input.commuteMinutes, ASSUMED.commute);
   const commute = remote
@@ -511,7 +526,12 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
 
   const statedWake = clampHour(input.wakeHour, ASSUMED.wake) * HOUR;
   let statedSleep = clampHour(input.sleepHour, ASSUMED.sleep) * HOUR;
-  if (statedSleep <= statedWake) statedSleep += DAY_MINUTES;
+  /* Waking and sleeping at the same hour is the same contradiction as work
+     starting and ending at one, and produced the same artefact at the other
+     end of the card: a Sleep block of exactly zero minutes. A day with no
+     sleep in it is not an answer, so the assumed hours stand instead. */
+  if (statedSleep === statedWake) statedSleep = statedWake + (ASSUMED.wake + 24 - ASSUMED.sleep) * HOUR;
+  else if (statedSleep < statedWake) statedSleep += DAY_MINUTES;
 
   /**
    * The waking day has to contain the working one.
@@ -1022,8 +1042,26 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
       `That is the hour worth deciding about on purpose.`;
   }
 
+  /**
+   * The one thing a block may never be: over before it began.
+   *
+   * The two contradictions above are fixed at their source, which is the
+   * right place — but they were both found by feeding this function
+   * configurations nobody had thought to try, and the card cannot defend
+   * itself against the next one. A row of negative height is not a display
+   * bug to notice later; it is arithmetic the whole screen is laid out from.
+   *
+   * So: whatever comes out of here is a real span or it does not come out.
+   * Dropping a malformed block loses a row; drawing one loses the card.
+   */
+  const drawable = blocks.filter((b) => (
+    Number.isFinite(b.startMinutes)
+    && Number.isFinite(b.endMinutes)
+    && b.endMinutes > b.startMinutes
+  ));
+
   return {
-    blocks, freeMinutes, placements, placedIn, committedMinutes,
+    blocks: drawable, freeMinutes, placements, placedIn, committedMinutes,
     placedBy, basis, dayType, framingText, assumptions, conflict,
   };
 }

@@ -2,6 +2,8 @@ import {
   Max,
   IsIn, IsInt, IsISO8601, IsOptional, IsString, MaxLength, Min, MinLength,
 } from 'class-validator';
+
+import { CleanString } from '../common/clean-string';
 import { ALL_DOMAINS } from '@priority/types';
 
 /**
@@ -11,7 +13,7 @@ import { ALL_DOMAINS } from '@priority/types';
  * forever, which is worse.
  */
 export class CreateMissionDto {
-  @IsString() @MinLength(1) @MaxLength(300) title: string;
+  @CleanString() @IsString() @MinLength(1) @MaxLength(300) title: string;
   @IsIn(ALL_DOMAINS) domainType: string;
   @IsOptional() @IsString() @MaxLength(5000) description?: string;
   @IsOptional() @IsIn(['one_time', 'ritual', 'milestone', 'relationship', 'recovery'])

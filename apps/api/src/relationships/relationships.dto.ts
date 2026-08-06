@@ -2,6 +2,8 @@ import {
   IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength,
 } from 'class-validator';
 
+import { CleanString } from '../common/clean-string';
+
 /**
  * What a request may claim about a person, typed.
  *
@@ -16,7 +18,7 @@ import {
  * would trade a tolerable unknown for a lost answer.
  */
 export class CreateRelationshipDto {
-  @IsString() @MinLength(1) @MaxLength(200) name: string;
+  @CleanString() @IsString() @MinLength(1) @MaxLength(200) name: string;
   @IsString() @MinLength(1) @MaxLength(50) relationType: string;
   @IsOptional() @IsInt() @Min(0) @Max(129) age?: number;
   @IsOptional() @IsString() @MaxLength(120) city?: string;
@@ -34,7 +36,7 @@ export class CreateRelationshipDto {
 
 /** Everything optional: an edit says only what changed. */
 export class UpdateRelationshipDto {
-  @IsOptional() @IsString() @MinLength(1) @MaxLength(200) name?: string;
+  @IsOptional() @CleanString() @IsString() @MinLength(1) @MaxLength(200) name?: string;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(50) relationType?: string;
   @IsOptional() @IsInt() @Min(0) @Max(129) age?: number;
   @IsOptional() @IsString() @MaxLength(120) city?: string;

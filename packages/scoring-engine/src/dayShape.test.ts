@@ -1296,3 +1296,63 @@ describe('a day nobody in it would call work', () => {
     expect(notes.join(' ')).not.toMatch(/household/);
   });
 });
+
+/**
+ * Configurations nobody would design, which the profile nonetheless allows.
+ *
+ * `workStartHour` and `workEndHour` each pass their own 0..23 check
+ * independently, so setting both to nine is a reachable typo rather than an
+ * exotic one — and `<=` swept it in with the night shifts, read it as a
+ * twenty-four hour working day, and produced a Sleep block running 2010 to
+ * 1860: a hundred and fifty minutes long, in the negative. The card lays
+ * itself out from these numbers, so a row of negative height is arithmetic
+ * the whole screen inherits, not a cosmetic slip.
+ */
+describe('a day that cannot happen still has to draw', () => {
+  const base = {
+    wakeHour: 7, sleepHour: 23, workStartHour: 9, workEndHour: 17,
+    workHoursPerWeek: 40, commuteMinutes: 30, weekday: 4,
+  } as const;
+
+  const CONTRADICTIONS: Array<[string, Record<string, unknown>]> = [
+    ['work starting and ending at the same hour', { workStartHour: 9, workEndHour: 9 }],
+    ['waking and sleeping at the same hour', { wakeHour: 7, sleepHour: 7 }],
+    ['midnight to midnight', { wakeHour: 0, sleepHour: 0 }],
+    ['every hour of the week worked', { workHoursPerWeek: 168, workStartHour: 0, workEndHour: 23 }],
+    ['a ten-hour commute', { commuteMinutes: 600 }],
+    ['every number at zero', {
+      wakeHour: 0, sleepHour: 0, workStartHour: 0, workEndHour: 0,
+      commuteMinutes: 0, workHoursPerWeek: 0,
+    }],
+  ];
+
+  it.each(CONTRADICTIONS)('draws no impossible block for %s', (_label, over) => {
+    const shape = dayShape({ ...base, ...over });
+    for (const b of shape.blocks) {
+      expect(Number.isFinite(b.startMinutes)).toBe(true);
+      expect(Number.isFinite(b.endMinutes)).toBe(true);
+      expect(b.endMinutes).toBeGreaterThan(b.startMinutes);
+    }
+  });
+
+  it.each(CONTRADICTIONS)('still has something to show for %s', (_label, over) => {
+    /* Dropping malformed blocks must not empty the card — the guard is there
+       so a contradiction costs a row, not the screen. */
+    expect(dayShape({ ...base, ...over }).blocks.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the night shift, which is not a contradiction', () => {
+    const shape = dayShape({ ...base, workStartHour: 22, workEndHour: 6 });
+    const work = shape.blocks.find((b) => b.kind === 'work')!;
+    expect(work.endMinutes - work.startMinutes).toBe(8 * 60);
+  });
+
+  it('gives a contradicted working day the assumed hours rather than the whole clock', () => {
+    /* Somebody who told us something impossible knows no more than somebody
+       who told us nothing, so they get what an unanswered profile gets. */
+    const shape = dayShape({ ...base, workStartHour: 9, workEndHour: 9 });
+    const work = shape.blocks.find((b) => b.kind === 'work')!;
+    expect(work.endMinutes - work.startMinutes).toBeLessThan(24 * 60);
+    expect(work.endMinutes - work.startMinutes).toBe(8 * 60);
+  });
+});

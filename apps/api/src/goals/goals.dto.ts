@@ -2,6 +2,8 @@ import {
   IsIn, IsISO8601, IsOptional, IsString, MaxLength, MinLength,
 } from 'class-validator';
 
+import { CleanString } from '../common/clean-string';
+
 /**
  * What a request may claim about a goal, typed.
  *
@@ -35,7 +37,7 @@ export class CreateGoalDto {
   /* Long prose is expected and handled — `deriveGoalTitle` splits it into a
      title and a description. The cap is an upper bound on abuse, not on how
      much somebody may say. */
-  @IsString() @MinLength(1) @MaxLength(2000) title: string;
+  @CleanString() @IsString() @MinLength(1) @MaxLength(2000) title: string;
   @IsIn(DOMAIN_TYPES, { message: 'domainType must be one of the twelve domains' })
   domainType: string;
   @IsOptional() @IsString() @MaxLength(5000) description?: string;
@@ -48,7 +50,7 @@ export class CreateGoalDto {
 
 /** Everything optional: an edit says only what changed. */
 export class UpdateGoalDto {
-  @IsOptional() @IsString() @MinLength(1) @MaxLength(2000) title?: string;
+  @IsOptional() @CleanString() @IsString() @MinLength(1) @MaxLength(2000) title?: string;
   @IsOptional() @IsIn(DOMAIN_TYPES) domainType?: string;
   @IsOptional() @IsString() @MaxLength(5000) description?: string;
   @IsOptional() @IsString() @MaxLength(10) horizon?: string;

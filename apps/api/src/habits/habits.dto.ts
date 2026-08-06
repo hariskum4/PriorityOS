@@ -1,6 +1,8 @@
 import {
   ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength,
 } from 'class-validator';
+
+import { CleanString } from '../common/clean-string';
 import { DOMAIN_TYPES } from '../goals/goals.dto';
 
 /**
@@ -18,7 +20,7 @@ import { DOMAIN_TYPES } from '../goals/goals.dto';
  * rhythm, it is the absence of one.
  */
 export class CreateHabitDto {
-  @IsString() @MinLength(1) @MaxLength(200) title: string;
+  @CleanString() @IsString() @MinLength(1) @MaxLength(200) title: string;
   @IsIn(DOMAIN_TYPES, { message: 'domainType must be one of the twelve domains' })
   domainType: string;
   @IsOptional() @IsInt() @Min(1) @Max(21) targetPerWeek?: number;
