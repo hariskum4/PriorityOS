@@ -20,6 +20,19 @@ import { LifeOsService } from './life-os.service';
  * the decorators below are the easiest way to exercise a job. Without this, a
  * deployment carrying both clocks would run every job twice.
  */
+/**
+ * The guard belongs on the clock, not on the work.
+ *
+ * The first version of this put `if (EXTERNAL_CRON) return;` inside the job
+ * itself — which also silenced the HTTP endpoint that exists to run it, since
+ * both call the same method. Production reported four jobs "ok" in two
+ * milliseconds: the exact failure this whole change was meant to end, put
+ * back by the fix for it.
+ *
+ * So the decorator now wraps rather than guards. `@Cron` calls a thin
+ * scheduled-only shim; the work underneath is a plain method that always does
+ * what it says, whoever calls it.
+ */
 const EXTERNAL_CRON = process.env.EXTERNAL_CRON === 'true';
 
 @Injectable()
@@ -32,8 +45,12 @@ export class LifeOsJobs {
   ) {}
 
   @Cron(CronExpression.EVERY_WEEK)
+  scheduledSnapshotEveryone() {
+    if (EXTERNAL_CRON) return undefined;
+    return this.snapshotEveryone();
+  }
+
   async snapshotEveryone() {
-    if (EXTERNAL_CRON) return;
     // Only users who have actually onboarded — a snapshot of empty domains is
     // noise that would later read as a real, flat trend.
     /**

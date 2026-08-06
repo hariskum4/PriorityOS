@@ -40,6 +40,19 @@ import { PrismaService } from '../prisma/prisma.service';
  * the decorators below are the easiest way to exercise a job. Without this, a
  * deployment carrying both clocks would run every job twice.
  */
+/**
+ * The guard belongs on the clock, not on the work.
+ *
+ * The first version of this put `if (EXTERNAL_CRON) return;` inside the job
+ * itself — which also silenced the HTTP endpoint that exists to run it, since
+ * both call the same method. Production reported four jobs "ok" in two
+ * milliseconds: the exact failure this whole change was meant to end, put
+ * back by the fix for it.
+ *
+ * So the decorator now wraps rather than guards. `@Cron` calls a thin
+ * scheduled-only shim; the work underneath is a plain method that always does
+ * what it says, whoever calls it.
+ */
 const EXTERNAL_CRON = process.env.EXTERNAL_CRON === 'true';
 
 @Injectable()
@@ -59,8 +72,12 @@ export class RetentionJobs {
    * race the job whose history it would otherwise be deleting.
    */
   @Cron('30 3 * * 0')
+  scheduledPrune() {
+    if (EXTERNAL_CRON) return undefined;
+    return this.prune();
+  }
+
   async prune() {
-    if (EXTERNAL_CRON) return;
     const cutoff = (days: number) => new Date(Date.now() - days * 86_400_000);
 
     /* Independent tables, and neither is read by the other. Failing one must

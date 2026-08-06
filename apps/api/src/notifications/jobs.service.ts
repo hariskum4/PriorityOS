@@ -21,6 +21,19 @@ import { RelationshipsService } from '../relationships/relationships.service';
  * the decorators below are the easiest way to exercise a job. Without this, a
  * deployment carrying both clocks would run every job twice.
  */
+/**
+ * The guard belongs on the clock, not on the work.
+ *
+ * The first version of this put `if (EXTERNAL_CRON) return;` inside the job
+ * itself — which also silenced the HTTP endpoint that exists to run it, since
+ * both call the same method. Production reported four jobs "ok" in two
+ * milliseconds: the exact failure this whole change was meant to end, put
+ * back by the fix for it.
+ *
+ * So the decorator now wraps rather than guards. `@Cron` calls a thin
+ * scheduled-only shim; the work underneath is a plain method that always does
+ * what it says, whoever calls it.
+ */
 const EXTERNAL_CRON = process.env.EXTERNAL_CRON === 'true';
 
 @Injectable()
@@ -39,8 +52,12 @@ export class JobsService {
 
   /** Morning refresh: recalc scores + daily mission reminder. */
   @Cron('0 6 * * *')
+  scheduledMorningRefresh() {
+    if (EXTERNAL_CRON) return undefined;
+    return this.morningRefresh();
+  }
+
   async morningRefresh() {
-    if (EXTERNAL_CRON) return;
     const users = await this.prisma.user.findMany({
       where: { onboardingCompleted: true },
       select: { id: true },
@@ -66,8 +83,12 @@ export class JobsService {
 
   /** Relationship drift nudges — at most one per relationship per week. */
   @Cron('0 10 * * *')
+  scheduledDriftNudges() {
+    if (EXTERNAL_CRON) return undefined;
+    return this.driftNudges();
+  }
+
   async driftNudges() {
-    if (EXTERNAL_CRON) return;
     /**
      * Re-score BEFORE selecting, not after.
      *
@@ -112,8 +133,12 @@ export class JobsService {
    * no-guilt return nudge — never a streak-shame, never "you missed X days".
    */
   @Cron('0 11 * * *')
+  scheduledReengageQuietUsers() {
+    if (EXTERNAL_CRON) return undefined;
+    return this.reengageQuietUsers();
+  }
+
   async reengageQuietUsers() {
-    if (EXTERNAL_CRON) return;
     const fourDaysAgo = new Date(Date.now() - 4 * 86_400_000);
     const users = await this.prisma.user.findMany({
       where: {
@@ -140,8 +165,12 @@ export class JobsService {
 
   /** Sunday evening: roll habit streaks, generate reviews, remind. */
   @Cron('0 18 * * 0')
+  scheduledWeeklyRollover() {
+    if (EXTERNAL_CRON) return undefined;
+    return this.weeklyRollover();
+  }
+
   async weeklyRollover() {
-    if (EXTERNAL_CRON) return;
     const users = await this.prisma.user.findMany({
       where: { onboardingCompleted: true },
       select: { id: true },
