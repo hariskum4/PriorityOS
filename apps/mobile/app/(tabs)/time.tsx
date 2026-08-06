@@ -625,7 +625,8 @@ export default function TimeReality() {
    */
   const { data: lifeOs } = useQuery({
     queryKey: ['life-os-today'],
-    queryFn: () => api<any>('/life-os/today?preview=1'),
+    /* Safe now — the Today screen is what reports a cycle as seen. */
+    queryFn: () => api<any>('/life-os/today'),
     staleTime: 5 * 60_000,
   });
 

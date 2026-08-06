@@ -26,17 +26,42 @@ interface MemoryDraftState {
    * would be answering a question nobody is asking.
    */
   kept: string[];
+  /**
+   * A first line waiting for the Today composer.
+   *
+   * The two halves of this tab had never met: keeping a moment wrote an
+   * archive row and the written journal stayed empty, so the app could know
+   * somebody called their mother and hold not one word about it. This is the
+   * handoff — the archive form asks the server to draft a sentence, leaves it
+   * here, and the composer picks it up.
+   *
+   * Session-scoped like `kept`, and cleared the moment it is read: a draft
+   * that outlived the screen it was written for would reappear over whatever
+   * somebody was typing days later.
+   */
+  pendingEntry: string | null;
   setDraft: (d: MemoryDraft) => void;
   markKept: (missionId: string) => void;
+  offerEntry: (line: string) => void;
+  takeEntry: () => string | null;
   clear: () => void;
 }
 
-export const useMemoryDraft = create<MemoryDraftState>((set) => ({
+export const useMemoryDraft = create<MemoryDraftState>((set, get) => ({
   draft: null,
   kept: [],
+  pendingEntry: null,
   setDraft: (draft) => set({ draft }),
   markKept: (missionId) => set((st) => (
     st.kept.includes(missionId) ? st : { kept: [...st.kept, missionId] }
   )),
+  offerEntry: (pendingEntry) => set({ pendingEntry }),
+  /* Read once. Returning it and clearing in the same call is what stops a
+     re-render from re-filling a field somebody has just emptied. */
+  takeEntry: () => {
+    const line = get().pendingEntry;
+    if (line) set({ pendingEntry: null });
+    return line;
+  },
   clear: () => set({ draft: null }),
 }));

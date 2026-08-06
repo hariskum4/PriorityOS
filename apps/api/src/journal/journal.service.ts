@@ -3,6 +3,8 @@ import { detectCrisisLanguage } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
+import { AiService } from '../ai/ai.service';
+import { JOURNAL_DRAFT } from '@priority/ai-prompts';
 
 @Injectable()
 export class JournalService {
@@ -10,6 +12,7 @@ export class JournalService {
     private prisma: PrismaService,
     private scoring: ScoringService,
     private game: GamificationService,
+    private ai: AiService,
   ) {}
 
   /**
@@ -129,4 +132,65 @@ export class JournalService {
 
     return { ...entry, supportSuggested };
   }
+
+  /**
+   * The opening line of an entry about something just finished.
+   *
+   * The Journal has two halves that never met. "Today" is written — how the
+   * day felt, what mattered, what was avoided. "Memories" is the archive: a
+   * kept moment with a date and a person on it. Completing a mission and
+   * tapping Save it produced the second and never the first, so the app could
+   * know somebody called their mother and hold not one word about it.
+   *
+   * The blank page is why. Nobody opens a text field at nine at night to
+   * describe a call they have already had. A first line they can accept,
+   * change or delete is a different ask entirely.
+   *
+   * Every word has to be theirs rather than the model's, so the prompt is
+   * forbidden from saying how it went — the app knows the call happened and
+   * has no idea whether it was any good. "A lovely chat with Amma" is fiction
+   * about somebody's evening, and praise is the app grading a life.
+   *
+   * The fallback is not a degraded path. With AI off this still returns a
+   * usable line, because the whole point is a page that is not blank, and a
+   * bare statement of what was done is the most honest sentence available.
+   */
+  async draft(userId: string, input: { title: string; personName?: string; domainType?: string }) {
+    const title = input.title.trim();
+    const withWhom = input.personName?.trim();
+    /**
+     * Plain, true, and unadorned — a starting point to write over rather than
+     * a sentence pretending to be a diary.
+     *
+     * Naming the person only when the title has not already done it. Most
+     * missions about somebody carry their name, so appending "with Amma" to
+     * "Call Amma — not a text" produced *Call Amma — not a text — with Amma*:
+     * her name twice and two em-dashes colliding. Same mistake the countables
+     * card was making this morning, in a different corner.
+     */
+    const alreadyNamed = !!withWhom
+      && new RegExp(`(^|\\W)${withWhom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\W|$)`, 'i').test(title);
+    const stem = title.replace(/[.!?]+$/, '');
+    const fallback = {
+      whatMattered: withWhom && !alreadyNamed ? `${stem}, with ${withWhom}.` : `${stem}.`,
+      prompt: null as string | null,
+    };
+
+    return this.ai.generate(
+      userId,
+      'journal_draft',
+      JOURNAL_DRAFT,
+      {
+        finished: title,
+        withWhom: withWhom ?? null,
+        domain: input.domainType ?? null,
+      },
+      fallback,
+      /* Keyed on the thing finished, so re-opening the composer for the same
+         moment does not spend a second generation or hand back a different
+         sentence than the one already being edited. */
+      { cacheKey: `draft:${title}:${withWhom ?? ''}` },
+    );
+  }
+
 }

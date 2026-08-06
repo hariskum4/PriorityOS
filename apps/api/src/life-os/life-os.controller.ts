@@ -21,6 +21,7 @@ import { FocusService } from './focus.service';
 import { BlueprintService } from './blueprint.service';
 import { RankingService } from './ranking.service';
 import { SetDomainRankingDto } from './ranking.dto';
+import { MarkSeenDto } from './mark-seen.dto';
 
 @UseGuards(JwtGuard)
 @Controller('life-os')
@@ -68,14 +69,22 @@ export class LifeOsController {
   }
 
   /**
-   * Today, reduced.
+   * Today, reduced. Reads nothing into the record.
    *
-   * `?preview=1` runs without advancing the ration clock or marking anything
-   * seen — for debugging a day without spending the week's profound truth.
+   * This used to persist unless asked not to — `persist: preview !== '1'` —
+   * so a plain GET advanced the ration clock and marked every proposal it
+   * returned as seen. Reading somebody's day spent it. The safe path was the
+   * opt-in and the destructive one was the default, which is backwards for a
+   * verb the whole web treats as free: retries, proxy revalidation, uptime
+   * probes and refetch-on-focus all became a person's missing morning.
+   *
+   * Marking seen now has its own verb, below. `?preview=1` is still accepted
+   * so nothing calling it breaks, and it no longer means anything — every
+   * read is a preview.
    */
   @Get('today')
-  async today(@CurrentUser() u: JwtUser, @Query('preview') preview?: string) {
-    const result = await this.lifeOs.runToday(u.userId, { persist: preview !== '1' });
+  async today(@CurrentUser() u: JwtUser) {
+    const result = await this.lifeOs.runToday(u.userId, { persist: false });
     return {
       now: result.now,
       proposals: result.proposals,
@@ -93,6 +102,18 @@ export class LifeOsController {
       failures: result.failures,
       ranAt: result.ranAt,
     };
+  }
+
+  /**
+   * What the screen actually put in front of somebody.
+   *
+   * The other half of the split above. Sent once per cycle by the client
+   * that rendered them, so a proposal stops arriving every morning without
+   * a GET having to write to the database to achieve it.
+   */
+  @Post('today/seen')
+  markSeen(@CurrentUser() u: JwtUser, @Body() body: MarkSeenDto) {
+    return this.lifeOs.markTodaySeen(u.userId, body.observationIds, body.usedProfound ?? false);
   }
 
   /** The full engine context — what the engines were allowed to see. */

@@ -590,6 +590,52 @@ export class LifeOsService {
    * findings must be free to return tomorrow, or a busy day would silently
    * bury a truth forever.
    */
+  /**
+   * Record what the reader was actually shown.
+   *
+   * Split out of the GET, which used to do this as a side effect of being
+   * read. A GET is defined as safe, and everything downstream of that
+   * definition assumes it: a retried timeout, a proxy revalidating, an uptime
+   * probe on a real route, a client refetching on focus, or somebody running
+   * `curl` to see what the endpoint says. Any one of them silently spent a
+   * person's day — I did it myself with a test script, twice, and spent
+   * several hours believing the cold start was broken.
+   *
+   * The write itself was never the problem. `seenObservationIds` is what
+   * stops the same proposal arriving every morning, and losing it would be a
+   * worse product than the bug. So it moved rather than went: the screen asks
+   * for the day, and tells the server what it put in front of somebody.
+   *
+   * `usedProfound` is the client's word for whether one of the rationed
+   * findings was among them, which it can see — the engine is `regret` or
+   * `time`. Trusting it is deliberate and the blast radius is one account's
+   * own setting: a caller who lies either burns their own weekly truth early
+   * or hears one more than they were due. That is not a boundary worth an
+   * extra cycle run to defend.
+   */
+  async markTodaySeen(userId: string, observationIds: string[], usedProfound: boolean) {
+    const state = await this.prisma.lifeOsState.findUnique({ where: { userId } });
+    const previous = (state?.seenObservationIds as string[] | undefined) ?? [];
+    const seen = [...new Set([...previous, ...observationIds])].slice(-SEEN_WINDOW);
+    const at = new Date();
+
+    await this.prisma.lifeOsState.upsert({
+      where: { userId },
+      create: {
+        userId,
+        seenObservationIds: seen,
+        lastCycleAt: at,
+        lastProfoundAt: usedProfound ? at : null,
+      },
+      update: {
+        seenObservationIds: seen,
+        lastCycleAt: at,
+        ...(usedProfound ? { lastProfoundAt: at } : {}),
+      },
+    });
+    return { seen: observationIds.length, at: at.toISOString() };
+  }
+
   private async persist(userId: string, result: CycleResult, previousSeen?: string[]) {
     const delivered = result.proposals.flatMap((p) => p.addresses);
     const seen = [...new Set([...(previousSeen ?? []), ...delivered])].slice(-SEEN_WINDOW);

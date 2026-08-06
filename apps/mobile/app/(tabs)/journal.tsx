@@ -77,12 +77,18 @@ const MOODS: Array<[number, string, string]> = [
 
 export default function Journal() {
   const [segment, setSegment] = useState<'reflect' | 'memories'>('reflect');
-  const { draft } = useMemoryDraft();
+  const { draft, pendingEntry } = useMemoryDraft();
 
   // A pending mission draft jumps straight to the memory form.
   useEffect(() => {
     if (draft) setSegment('memories');
   }, [draft]);
+
+  /* And back again once the moment is kept, because a drafted first line is
+     no use on the half of the tab that cannot write one. */
+  useEffect(() => {
+    if (pendingEntry) setSegment('reflect');
+  }, [pendingEntry]);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={s.wrap}>
@@ -119,6 +125,24 @@ export default function Journal() {
 function Reflect() {
   const qc = useQueryClient();
   const [whatMattered, setWhatMattered] = useState('');
+  /**
+   * A first line offered after a moment was kept.
+   *
+   * Taken once — `takeEntry` clears it as it hands it over — so a re-render
+   * cannot refill a field somebody has just emptied on purpose. It lands as
+   * ordinary editable text with no ceremony: accept it, rewrite it, or select
+   * all and delete. The app drafted a sentence; it did not write the journal.
+   */
+  const takeEntry = useMemoryDraft((st) => st.takeEntry);
+  const offered = useMemoryDraft((st) => st.pendingEntry);
+  const [wasDrafted, setWasDrafted] = useState(false);
+  useEffect(() => {
+    if (!offered) return;
+    const line = takeEntry();
+    if (!line) return;
+    setWhatMattered((current) => (current.trim() ? current : line));
+    setWasDrafted(true);
+  }, [offered]);
   const [whatIAvoided, setWhatIAvoided] = useState('');
   const [gratitude, setGratitude] = useState('');
   const [gladNotPostponed, setGladNotPostponed] = useState('');
@@ -280,6 +304,14 @@ function Reflect() {
         <View style={{ gap: space(2) }}>
           <Label>What mattered today?</Label>
           <Input multiline value={whatMattered} onChangeText={setWhatMattered} placeholder="A moment, a person, a choice…" />
+          {/* Said out loud, because a sentence that appears in a text box
+              without explanation reads as something the app decided about
+              your evening rather than a first line you are free to delete. */}
+          {wasDrafted && whatMattered.trim() ? (
+            <Text style={type.faint}>
+              A first line from what you just kept — change it, or clear it.
+            </Text>
+          ) : null}
         </View>
         <View style={{ gap: space(2) }}>
           <Label>What did I avoid?</Label>
@@ -445,7 +477,7 @@ function Reflect() {
 // --------------------------------------------------------------- memories
 function Memories() {
   const qc = useQueryClient();
-  const { draft, clear, markKept } = useMemoryDraft();
+  const { draft, clear, markKept, offerEntry } = useMemoryDraft();
 
   const { data: memories } = useQuery({
     queryKey: ['memories'],
@@ -545,6 +577,29 @@ function Memories() {
       /* Remembered before the draft is cleared, so the banner that sent us
          here stops offering to save a moment that is already kept. */
       if (draft?.missionId) markKept(draft.missionId);
+      /**
+       * And the other half of the tab, which until now never heard about any
+       * of this. The archive got a row and the written journal stayed empty,
+       * so the app could know somebody called their mother and hold not one
+       * word about it.
+       *
+       * Fire and forget on purpose: this is an offer, not a step. If the
+       * draft never arrives the composer is simply blank, which is exactly
+       * what it was before.
+       */
+      const kept = title.trim() || draft?.title;
+      if (kept) {
+        api<{ whatMattered?: string }>('/journal/draft', {
+          method: 'POST',
+          body: {
+            title: kept,
+            personName: draft?.personName,
+            domainType: draft?.domainType,
+          },
+        })
+          .then((d) => { if (d?.whatMattered) offerEntry(d.whatMattered); })
+          .catch(() => {});
+      }
       setTitle(''); setReflection(''); setPersonIds([]); setCountKey(''); setOccurredOn('');
       clear();
       setJustSaved(true);

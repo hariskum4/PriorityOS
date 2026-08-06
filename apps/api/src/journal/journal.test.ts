@@ -28,7 +28,10 @@ function make() {
   } as any;
   const scoring = { recalcUserDomains: vi.fn(async () => {}) } as any;
   const game = { award: vi.fn(async () => {}) } as any;
-  return { svc: new JournalService(prisma, scoring, game), created, scoring, game };
+  /* The draft path is the only thing that touches AI, and it is exercised in
+     its own describe below with the model deliberately off. */
+  const ai = { generate: vi.fn(async (_u: string, _k: string, _t: unknown, _c: unknown, fallback: unknown) => fallback) } as any;
+  return { svc: new JournalService(prisma, scoring, game, ai), created, scoring, game, ai };
 }
 
 const USER = 'u1';
@@ -87,5 +90,70 @@ describe('journal entries must carry something', () => {
     await svc.create(USER, { mood: 4, gratitude: 'Quiet morning.' });
     expect(game.award).toHaveBeenCalledOnce();
     expect(scoring.recalcUserDomains).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * The two halves of the Journal tab, finally introduced.
+ *
+ * "Today" is written; "Memories" is the archive. Completing a mission and
+ * tapping Save it produced the second and never the first, so the app could
+ * know somebody called their mother and hold not one word about it. The blank
+ * page is why — nobody opens a text field at nine at night to describe a call
+ * they have already had.
+ *
+ * These pin the fallback, which is the path that runs with AI switched off
+ * and therefore the one that has to be right on its own.
+ */
+describe('a first line, so the page is not blank', () => {
+  const draft = async (input: { title: string; personName?: string }) => {
+    const { svc } = make();
+    return (await svc.draft(USER, input)) as { whatMattered: string; prompt: string | null };
+  };
+
+  it('names the person when the title has not', async () => {
+    const d = await draft({ title: 'Take one thing off their plate this week', personName: 'Yusuf' });
+    expect(d.whatMattered).toBe('Take one thing off their plate this week, with Yusuf.');
+  });
+
+  it('does not say their name twice when the title already did', async () => {
+    /* "Call Amma — not a text — with Amma." was the first version: her name
+       twice and two em-dashes colliding. */
+    const d = await draft({ title: 'Call Amma — not a text', personName: 'Amma' });
+    expect(d.whatMattered).toBe('Call Amma — not a text.');
+  });
+
+  it('matches a name on a word boundary, not inside another word', async () => {
+    /* "Ama" must not count as having named "Amma", nor the reverse. */
+    const d = await draft({ title: 'Sit with Ama for an hour', personName: 'Amma' });
+    expect(d.whatMattered).toContain('with Amma');
+  });
+
+  it('leaves a title that already ends in a full stop alone', async () => {
+    const d = await draft({ title: 'Put on your shoes. You are allowed to stop there.' });
+    expect(d.whatMattered).toBe('Put on your shoes. You are allowed to stop there.');
+    expect(d.whatMattered).not.toMatch(/\.\./);
+  });
+
+  it('works with nobody in it', async () => {
+    const d = await draft({ title: 'Walk for twenty minutes today' });
+    expect(d.whatMattered).toBe('Walk for twenty minutes today.');
+  });
+
+  /**
+   * The rules the prompt is held to, checked on the fallback because it is the
+   * only output this test can see deterministically. The model is told the
+   * same things, and the tone tests elsewhere cover generated copy.
+   */
+  it('never claims how it went, and never congratulates', async () => {
+    const FICTION = /\b(lovely|great|wonderful|nice|well done|good job|proud of you|amazing)\b/i;
+    for (const input of [
+      { title: 'Call Amma — not a text', personName: 'Amma' },
+      { title: 'Walk for twenty minutes today' },
+    ]) {
+      const d = await draft(input);
+      expect(d.whatMattered).not.toMatch(FICTION);
+      expect(d.whatMattered).not.toMatch(/[!?]/);
+    }
   });
 });

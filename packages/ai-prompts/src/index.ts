@@ -211,3 +211,46 @@ ${GROUNDING_RULES}
 Respond ONLY with JSON: {"title": string (<=40 chars), "body": string (<=140 chars, notification-safe)}`,
   buildUser: (ctx) => JSON.stringify(ctx),
 };
+
+/**
+ * The sentence somebody would have written, offered so they do not have to.
+ *
+ * The Journal tab has two halves that have never met. "Today" is a written
+ * entry — how the day felt, what mattered, what got avoided. "Memories" is
+ * the archive: a kept moment, counted, with a date and a person on it.
+ * Finishing a mission and tapping Save it produced the second and never the
+ * first, so the app knew somebody called their mother and held not one word
+ * about it.
+ *
+ * The blank page is the reason. Nobody opens a text field at nine at night to
+ * describe a phone call they have already had. A first line they can accept,
+ * change or delete is a different ask — and every word of it has to be
+ * theirs, not the model's:
+ *
+ *   No claims about how it went. The app knows the call happened and does
+ *   not know whether it was any good; "a lovely chat with Amma" is fiction
+ *   about somebody's evening.
+ *
+ *   No praise. "Well done for making time" is the app grading a life.
+ *
+ *   Plain past tense, first person, the way a person writes to themselves at
+ *   the end of a day rather than the way an app writes to a user.
+ *
+ * The fallback matters as much as the model here: with AI off this still has
+ * to offer something, and something honest is a bare statement of what was
+ * done. The whole point is a page that is not blank.
+ */
+export const JOURNAL_DRAFT: PromptTemplate = {
+  system: `The user just finished something and is about to write it down. Draft the opening line of their journal entry for them, in their own voice.
+${TONE_GUIDE}
+${GROUNDING_RULES}
+Hard rules for this task:
+- First person, past tense, one or two short sentences.
+- State only what is known: the action, and the person if there was one.
+- Never assert how it felt, how it went, or that it was good. You were not there.
+- Never congratulate, praise, or evaluate. No "well done", no "great job".
+- No questions. No advice. No exclamation marks.
+- If a person is named, use their name exactly as given.
+Respond ONLY with JSON: {"whatMattered": string (the drafted opening line), "prompt": string | null (one short question they might answer next, or null)}`,
+  buildUser: (ctx) => JSON.stringify(ctx),
+};

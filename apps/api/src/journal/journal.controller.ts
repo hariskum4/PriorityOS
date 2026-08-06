@@ -5,11 +5,25 @@ import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { JournalService } from './journal.service';
 import { CreateJournalEntryDto, UpdateJournalEntryDto } from './journal.dto';
+import { DraftJournalDto } from './journal-draft.dto';
 
 @UseGuards(JwtGuard)
 @Controller('journal')
 export class JournalController {
   constructor(private journal: JournalService) {}
+
+  /**
+   * A first line for an entry about something just finished.
+   *
+   * Drafts only — nothing is written here. The reader gets a sentence in the
+   * composer they can accept, rewrite or clear, and the entry is saved by the
+   * ordinary POST below like any other. An app that wrote the journal itself
+   * would be keeping its own diary about somebody else's life.
+   */
+  @Post('draft')
+  draft(@CurrentUser() u: JwtUser, @Body() body: DraftJournalDto) {
+    return this.journal.draft(u.userId, body);
+  }
 
   @Get()
   list(

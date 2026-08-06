@@ -355,15 +355,51 @@ export default function Today() {
   /**
    * The Life OS cycle — every engine's reduced verdict for today.
    *
-   * Requested with `preview=1` so that merely opening the screen does not spend
-   * the week's one profound truth or mark findings as delivered. The ration is
-   * committed only when the person actually acts on something.
+   * The read spends nothing; `GET /life-os/today` is safe now, and the
+   * screen tells the server separately what it actually put in front of
+   * somebody. That used to be one call — a GET that persisted unless asked
+   * not to — and this file asked not to, which is how the dedup came to be
+   * switched off entirely: both callers passed `preview=1`, so nothing ever
+   * recorded a delivered proposal and `seenObservationIds` stayed empty for
+   * every account the app itself created. The comment here claimed the
+   * ration was "committed only when the person actually acts", and nothing
+   * committed it at all.
    */
   const { data: lifeOs } = useQuery({
     queryKey: ['life-os-today'],
-    queryFn: () => api<any>('/life-os/today?preview=1'),
+    queryFn: () => api<any>('/life-os/today'),
     staleTime: 5 * 60_000,
   });
+
+  /**
+   * Tell the server what was shown, once per cycle.
+   *
+   * Keyed on `ranAt` so a re-render, a refocus or a cache rehydration does
+   * not report the same proposals twice — the write is idempotent anyway,
+   * but a request per render is a request per render.
+   *
+   * Deliberately after the data arrives rather than after any interaction:
+   * "seen" here means the card was on screen, which is what stops the same
+   * suggestion arriving every morning. Waiting for a tap would mean anything
+   * a person reads and ignores comes back forever, which is the behaviour
+   * this exists to prevent.
+   */
+  const reportedCycle = React.useRef<string | null>(null);
+  const markSeen = useMutation({
+    mutationFn: (body: { observationIds: string[]; usedProfound: boolean }) =>
+      api('/life-os/today/seen', { method: 'POST', body }),
+  });
+  React.useEffect(() => {
+    const ranAt = lifeOs?.ranAt;
+    const proposals = (lifeOs?.proposals ?? []) as any[];
+    if (!ranAt || reportedCycle.current === ranAt || proposals.length === 0) return;
+    reportedCycle.current = ranAt;
+    markSeen.mutate({
+      observationIds: [...new Set(proposals.flatMap((p) => p.addresses ?? []))],
+      /* The rationed engines, which the client can see on what it received. */
+      usedProfound: proposals.some((p) => p.engine === 'regret' || p.engine === 'time'),
+    });
+  }, [lifeOs?.ranAt]);
 
   /**
    * The rhythms each part of this life is still missing, in its own words.
