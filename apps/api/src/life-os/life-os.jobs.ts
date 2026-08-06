@@ -12,6 +12,16 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { LifeOsService } from './life-os.service';
 
+/**
+ * Whether an external scheduler owns the clock.
+ *
+ * Set on any deployment where Vercel Cron calls `/cron/daily` and
+ * `/cron/weekly`. Left unset locally, where the process runs continuously and
+ * the decorators below are the easiest way to exercise a job. Without this, a
+ * deployment carrying both clocks would run every job twice.
+ */
+const EXTERNAL_CRON = process.env.EXTERNAL_CRON === 'true';
+
 @Injectable()
 export class LifeOsJobs {
   private readonly log = new Logger(LifeOsJobs.name);
@@ -23,6 +33,7 @@ export class LifeOsJobs {
 
   @Cron(CronExpression.EVERY_WEEK)
   async snapshotEveryone() {
+    if (EXTERNAL_CRON) return;
     // Only users who have actually onboarded — a snapshot of empty domains is
     // noise that would later read as a real, flat trend.
     /**

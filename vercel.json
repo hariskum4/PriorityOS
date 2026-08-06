@@ -5,6 +5,19 @@
   "outputDirectory": "apps/mobile/dist",
   "framework": null,
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/daily",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/weekly",
+      "schedule": "0 3 * * 0"
+    }
   ]
 }

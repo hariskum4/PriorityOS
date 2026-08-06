@@ -16,6 +16,7 @@ import { RelationshipsModule } from '../relationships/relationships.module';
     ScoringModule,
     RelationshipsModule,
   ],
+  exports: [JobsService],
   controllers: [NotificationsController],
   providers: [NotificationsService, JobsService],
 })

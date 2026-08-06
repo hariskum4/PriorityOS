@@ -13,6 +13,16 @@ import { RelationshipsService } from '../relationships/relationships.service';
  * in-process cron keeps local dev dependency-free while preserving the
  * same service boundaries.
  */
+/**
+ * Whether an external scheduler owns the clock.
+ *
+ * Set on any deployment where Vercel Cron calls `/cron/daily` and
+ * `/cron/weekly`. Left unset locally, where the process runs continuously and
+ * the decorators below are the easiest way to exercise a job. Without this, a
+ * deployment carrying both clocks would run every job twice.
+ */
+const EXTERNAL_CRON = process.env.EXTERNAL_CRON === 'true';
+
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
@@ -30,6 +40,7 @@ export class JobsService {
   /** Morning refresh: recalc scores + daily mission reminder. */
   @Cron('0 6 * * *')
   async morningRefresh() {
+    if (EXTERNAL_CRON) return;
     const users = await this.prisma.user.findMany({
       where: { onboardingCompleted: true },
       select: { id: true },
@@ -56,6 +67,7 @@ export class JobsService {
   /** Relationship drift nudges — at most one per relationship per week. */
   @Cron('0 10 * * *')
   async driftNudges() {
+    if (EXTERNAL_CRON) return;
     /**
      * Re-score BEFORE selecting, not after.
      *
@@ -101,6 +113,7 @@ export class JobsService {
    */
   @Cron('0 11 * * *')
   async reengageQuietUsers() {
+    if (EXTERNAL_CRON) return;
     const fourDaysAgo = new Date(Date.now() - 4 * 86_400_000);
     const users = await this.prisma.user.findMany({
       where: {
@@ -128,6 +141,7 @@ export class JobsService {
   /** Sunday evening: roll habit streaks, generate reviews, remind. */
   @Cron('0 18 * * 0')
   async weeklyRollover() {
+    if (EXTERNAL_CRON) return;
     const users = await this.prisma.user.findMany({
       where: { onboardingCompleted: true },
       select: { id: true },

@@ -8,6 +8,7 @@ import { ClockModule } from './common/clock.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { RetentionJobs } from './common/retention.jobs';
+import { CronModule } from './cron/cron.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { RelationshipsModule } from './relationships/relationships.module';
 import { GoalsModule } from './goals/goals.module';
@@ -54,6 +55,7 @@ import { HealthController } from './health.controller';
     NotificationsModule,
     PartnersModule,
     LifeOsModule,
+    CronModule,
   ],
   providers: [RetentionJobs, 
     /**

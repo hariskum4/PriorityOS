@@ -32,6 +32,16 @@ import { PrismaService } from '../prisma/prisma.service';
  *   would notice going missing, which is the line: this job removes only
  *   what nothing reads and nobody can see.
  */
+/**
+ * Whether an external scheduler owns the clock.
+ *
+ * Set on any deployment where Vercel Cron calls `/cron/daily` and
+ * `/cron/weekly`. Left unset locally, where the process runs continuously and
+ * the decorators below are the easiest way to exercise a job. Without this, a
+ * deployment carrying both clocks would run every job twice.
+ */
+const EXTERNAL_CRON = process.env.EXTERNAL_CRON === 'true';
+
 @Injectable()
 export class RetentionJobs {
   private readonly log = new Logger(RetentionJobs.name);
@@ -50,6 +60,7 @@ export class RetentionJobs {
    */
   @Cron('30 3 * * 0')
   async prune() {
+    if (EXTERNAL_CRON) return;
     const cutoff = (days: number) => new Date(Date.now() - days * 86_400_000);
 
     /* Independent tables, and neither is read by the other. Failing one must

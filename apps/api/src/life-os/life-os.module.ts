@@ -27,7 +27,7 @@ import { ScoringModule } from '../scoring/scoring.module';
     LifeTimelineService, LifeOrganismService, StacksService, FocusService,
     RhythmsService, BlueprintService, RankingService, DigestService,
   ],
-  exports: [
+  exports: [LifeOsJobs, 
     LifeOsService, LifeDocumentService, LifeTimelineService,
     LifeOrganismService, StacksService, FocusService, RhythmsService,
     BlueprintService, DigestService,

@@ -8,6 +8,16 @@ import { PrismaService } from '../prisma/prisma.service';
  * row behind forever. One sweep a day keeps the table the size of the number
  * of live sessions instead of the number of sessions that have ever existed.
  */
+/**
+ * Whether an external scheduler owns the clock.
+ *
+ * Set on any deployment where Vercel Cron calls `/cron/daily` and
+ * `/cron/weekly`. Left unset locally, where the process runs continuously and
+ * the decorators below are the easiest way to exercise a job. Without this, a
+ * deployment carrying both clocks would run every job twice.
+ */
+const EXTERNAL_CRON = process.env.EXTERNAL_CRON === 'true';
+
 @Injectable()
 export class AuthJobsService {
   private readonly logger = new Logger(AuthJobsService.name);
@@ -16,6 +26,7 @@ export class AuthJobsService {
 
   @Cron('30 4 * * *')
   async pruneExpiredRefreshTokens() {
+    if (EXTERNAL_CRON) return;
     const { count } = await this.prisma.refreshToken.deleteMany({
       where: { expiresAt: { lt: new Date() } },
     });
