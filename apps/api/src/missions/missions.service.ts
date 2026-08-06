@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UpdateMissionDto } from './missions.dto';
 import { ScoringService } from '../scoring/scoring.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AnalyticsService } from '../analytics/analytics.service';
@@ -117,9 +118,13 @@ export class MissionsService {
     });
   }
 
-  async update(userId: string, id: string, data: any) {
+  /**
+   * An edit, bounded by `UpdateMissionDto` — see the note there for what this
+   * used to accept and why completion is not on the list.
+   */
+  async update(userId: string, id: string, data: UpdateMissionDto) {
     await this.assertOwned(userId, id);
-    return this.prisma.mission.update({ where: { id }, data });
+    return this.prisma.mission.update({ where: { id }, data: { ...data } });
   }
 
   async complete(userId: string, id: string) {

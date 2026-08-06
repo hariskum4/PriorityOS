@@ -4,7 +4,7 @@ import {
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { MissionsService } from './missions.service';
-import { CreateMissionDto } from './missions.dto';
+import { CreateMissionDto, UpdateMissionDto } from './missions.dto';
 
 @UseGuards(JwtGuard)
 @Controller('missions')
@@ -22,7 +22,7 @@ export class MissionsController {
   }
 
   @Patch(':id')
-  update(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
+  update(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: UpdateMissionDto) {
     return this.missions.update(u.userId, id, body);
   }
 

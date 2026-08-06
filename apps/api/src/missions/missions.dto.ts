@@ -29,3 +29,38 @@ export class CreateMissionDto {
   @IsOptional() @IsString() @MaxLength(30) energyLevel?: string;
   @IsOptional() @IsInt() @Min(0) xpReward?: number;
 }
+
+/**
+ * What a client may change about a mission after it exists.
+ *
+ * `PATCH /missions/:id` took `@Body() body: any` and handed it to
+ * `prisma.mission.update` unfiltered, which meant every column was writable
+ * by whoever owned the row. Demonstrated: `xpReward` set to 999999, `status`
+ * to completed, `completedAt` to a date in 2020, `snoozeCount` to -50 — all
+ * accepted, all returned 200.
+ *
+ * `assertOwned` was doing its job the whole time; this was never a way into
+ * somebody else's data. What it was is a way to corrupt your own: a mission
+ * marked complete this way skips `complete()` entirely, which is where the XP
+ * award, the contact log, the scoring recalculation and the double-tap lock
+ * all live. A week's `completedMissions` would count it and nothing else in
+ * the record would agree.
+ *
+ * The global pipe runs `whitelist: true`, so it strips anything not declared
+ * on a DTO — it simply had no DTO to work from here. Naming the two fields
+ * the app actually sends is the whole fix.
+ *
+ * **Completion has one door.** `status` deliberately cannot be set to
+ * `completed`: that transition belongs to `POST /missions/:id/complete`, and
+ * a second way in would be a second place for the rules to be forgotten.
+ */
+export class UpdateMissionDto {
+  @IsOptional() @CleanString() @IsString() @MinLength(1) @MaxLength(300) title?: string;
+  @IsOptional() @IsString() @MaxLength(5000) description?: string;
+  @IsOptional() @IsIn(['pending', 'dismissed'], {
+    message: 'status must be pending or dismissed — completing goes through /complete',
+  })
+  status?: string;
+  @IsOptional() @IsISO8601() dueDate?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(1440) estimatedMinutes?: number;
+}
