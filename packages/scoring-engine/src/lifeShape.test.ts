@@ -52,3 +52,34 @@ describe('lifeShape', () => {
     }
   });
 });
+
+/**
+ * Zoe, 22, found in the sweep: a student who filled in nothing beyond her
+ * course, and was told to turn her commute into an audiobook.
+ */
+describe('naming a commute needs more than a guess that there is one', () => {
+  it('will not name a commute a student never mentioned', () => {
+    expect(lifeShape('student').canNameCommute).toBe(false);
+  });
+
+  it('still lets a student have one when they say so', () => {
+    expect(lifeShape('student', 40).canNameCommute).toBe(true);
+  });
+
+  it('takes the workplace-naming work types at their word', () => {
+    for (const wt of ['office_9_5', 'shift', 'business']) {
+      expect(lifeShape(wt).canNameCommute).toBe(true);
+    }
+  });
+
+  it('says nothing about a commute for a profile that said nothing at all', () => {
+    expect(lifeShape(null).canNameCommute).toBe(false);
+    /* But availability is untouched — the permissive default is the whole
+       point of UNKNOWN. */
+    expect(lifeShape(null).hasCommute).toBe(true);
+  });
+
+  it('lets a stated zero overrule a work type that assumes one', () => {
+    expect(lifeShape('office_9_5', 0).canNameCommute).toBe(false);
+  });
+});

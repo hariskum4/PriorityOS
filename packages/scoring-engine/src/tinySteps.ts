@@ -114,6 +114,26 @@ const BY_SHAPE: Array<{ test: RegExp; step: (p?: string | null) => string }> = [
  */
 const NEEDS_SAME_ROOM = new Set(['children', 'partner']);
 
+/**
+ * The step, unless the step is the title said twice.
+ *
+ * The goal form suggests a first step by calling `tinyStep` on the goal, and
+ * whoever accepts that suggestion gets it as their mission title. The card
+ * then calls `tinyStep` again on that title and prints the answer underneath
+ * it, so a health goal came out as:
+ *
+ *   Put on your shoes. You are allowed to stop there.
+ *   ↳ Put on your shoes. You are allowed to stop there.
+ *
+ * The step is only ever worth a line when it says something the title did
+ * not. Callers render nothing when this returns null.
+ */
+export function tinyStepUnlessRestated(input: TinyStepInput): string | null {
+  const step = tinyStep(input);
+  const flat = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return flat(step) === flat(input.title ?? '') ? null : step;
+}
+
 export function tinyStep(input: TinyStepInput): string {
   const title = (input.title ?? '').trim();
   const shape = BY_SHAPE.find((s) => s.test.test(title));

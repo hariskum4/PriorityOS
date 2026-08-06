@@ -383,3 +383,97 @@ describe('four rows that do not read as one row', () => {
     for (const r of rows) expect(r.detailText).not.toMatch(FORBIDDEN);
   });
 });
+
+/**
+ * An ICU nurse's father-in-law, found in the sweep: Ravi is 72, Lakshmi is 68
+ * and in the same house, Nikhil is 40 and abroad. Every defect below was on
+ * one screen at once, in the number this app leans on hardest.
+ */
+describe('one person, one number, one yardstick', () => {
+  /* estimateTimeReality's real output for those two, so the test moves if the
+     window model does rather than pinning a number the model no longer gives. */
+  const LAKSHMI_YEARS = 9.2;
+  const NIKHIL_YEARS = 27;
+  const OWN_HORIZON = 28; // yearsToHorizon(72)
+
+  it('counts a ritual named after somebody on the window they share', () => {
+    const c = countable({
+      age: 72, label: 'evenings out with Lakshmi', declaredPerYear: 12,
+      people: [{ name: 'Lakshmi', qualityYears: LAKSHMI_YEARS }], now: NOW,
+    });
+    /* The bug: the headline used the flat 100-year planning horizon while the
+       line under it used her window, so the row read "~340 more evenings out
+       with Lakshmi / ~110 of them with Lakshmi". */
+    expect(c.remaining).toBeLessThanOrEqual(softRoundish(12 * LAKSHMI_YEARS));
+    expect(c.remaining).toBeLessThan(12 * OWN_HORIZON);
+    expect(c.shares).toEqual([]);
+    expect(c.detailText).not.toMatch(/of them with Lakshmi/);
+  });
+
+  it('never names the same person twice with two different numbers', () => {
+    const c = countable({
+      age: 72, label: 'evenings out with Lakshmi', declaredPerYear: 12,
+      people: [{ name: 'Lakshmi', qualityYears: LAKSHMI_YEARS }], now: NOW,
+    });
+    const mentions = (c.headlineText + ' ' + c.detailText).match(/Lakshmi/g) ?? [];
+    expect(mentions.length).toBe(1);
+  });
+
+  it('leaves a generic ritual counted on the reader, and still names the share', () => {
+    const c = countable({
+      age: 72, label: 'family gatherings', declaredPerYear: 2,
+      people: [{ name: 'Lakshmi', qualityYears: LAKSHMI_YEARS }], now: NOW,
+    });
+    expect(c.shares).toHaveLength(1);
+    expect(c.detailText).toMatch(/with Lakshmi/);
+    expect(c.detailText).toMatch(/their window is the shorter one/);
+  });
+
+  it('does not claim their window is shorter when the reader outlives them by it', () => {
+    /* Nikhil is 40 and will outlast a 72-year-old; `shares` clamps to the
+       reader's own remaining, and the sentence then announced a shortage the
+       arithmetic had just ruled out. */
+    const c = countable({
+      age: 72, label: 'family gatherings', declaredPerYear: 2,
+      people: [{ name: 'Nikhil', qualityYears: NIKHIL_YEARS }], now: NOW,
+    });
+    expect(c.detailText).toMatch(/with Nikhil/);
+    expect(c.detailText).not.toMatch(/shorter one/);
+  });
+
+  it('offers a far-away son calls, not days out', () => {
+    const s = suggestCountables({
+      existing: [],
+      people: [{
+        id: 'n', name: 'Nikhil', relationType: 'child', locationType: 'abroad',
+        wantsMoreTime: true, desiredCallFrequency: 'weekly', closenessScore: 8,
+      }],
+    });
+    expect(s.map((x) => x.label)).toContain('video calls with Nikhil');
+    expect(s.map((x) => x.label)).not.toContain('days out with Nikhil');
+  });
+
+  it('still puts two people who live together in the same room', () => {
+    const s = suggestCountables({
+      existing: [],
+      people: [{
+        id: 'l', name: 'Lakshmi', relationType: 'spouse', locationType: 'same_home',
+        wantsMoreTime: true, closenessScore: 10,
+      }],
+    });
+    expect(s.map((x) => x.label)).toContain('evenings out with Lakshmi');
+  });
+
+  it('says nothing forbidden in any of it', () => {
+    const rows = [
+      countable({ age: 72, label: 'evenings out with Lakshmi', declaredPerYear: 12, people: [{ name: 'Lakshmi', qualityYears: LAKSHMI_YEARS }], now: NOW }),
+      countable({ age: 72, label: 'family gatherings', declaredPerYear: 2, people: [{ name: 'Nikhil', qualityYears: NIKHIL_YEARS }], now: NOW }),
+    ];
+    for (const r of rows) expect(r.detailText).not.toMatch(FORBIDDEN);
+  });
+});
+
+/** The rounding `countable` applies, so the assertion above tracks it. */
+function softRoundish(n: number): number {
+  return Math.ceil(n / 5) * 5 + 5;
+}

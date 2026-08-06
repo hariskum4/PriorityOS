@@ -194,7 +194,12 @@ const ANONYMOUS: Record<PersonRole, string> = {
 const CATALOG: Stack[] = [
   { key: 'walk_call_parent', action: 'Take your walk while calling {who}', domains: ['health', 'family'], framing: 'Movement and a real conversation in the same 20 minutes.', role: 'parent', byPhone: true, setting: ['canMove', 'canSpeakFreely'] },
   { key: 'cook_with_kid', action: 'Cook dinner with {who}, no screens', domains: ['children', 'health'], framing: 'A shared ritual that also feeds you both well.', role: 'child', setting: ['canMove'], inPerson: true },
-  { key: 'commute_learn', action: 'Turn your commute into an audiobook or course', domains: ['growth', 'experiences'], framing: 'Reclaimed dead time becomes the skill you keep postponing.', needs: ['hasCommute'], setting: ['canMove'] },
+  /* `canNameCommute`, not `hasCommute`: this one says "your commute" out
+     loud, and the shape default is a guess. A student who answered nothing
+     was told to turn a commute they never mentioned into a course. Anyone
+     without a stated one still gets `chore_learn` below, which asks for no
+     such fact. */
+  { key: 'commute_learn', action: 'Turn your commute into an audiobook or course', domains: ['growth', 'experiences'], framing: 'Reclaimed dead time becomes the skill you keep postponing.', needs: ['canNameCommute'], setting: ['canMove'] },
   { key: 'chore_learn', action: 'Put an audiobook on while cooking or folding', domains: ['growth', 'experiences'], framing: 'The chores take the hour either way; you keep the ideas.', setting: ['canMove'] },
   { key: 'workout_friend', action: 'Train with {who} once a week', domains: ['health', 'friends'], framing: 'Accountability and the friendship, in one slot.', role: 'friend', setting: ['canMove'], inPerson: true },
   { key: 'weekend_trip_family', action: 'Plan a weekend trip with the family', domains: ['family', 'experiences'], framing: 'A memory and time together, from the same weekend.', setting: ['hasScreen'] },

@@ -26,6 +26,7 @@
 
 import { softRound } from './timeReality';
 import { yearsToHorizon } from './lifeWindows';
+import { isRemoteLocation } from './remote';
 
 // ---------------------------------------------------------------------------
 // Naming — one ritual, one row
@@ -248,8 +249,22 @@ export interface CountableInput {
   now?: number;
 }
 
+/**
+ * Whether the label already names this person — "evenings out with Lakshmi",
+ * the exact shape `RITUAL_BY_RELATION` generates.
+ *
+ * Matched on a word boundary so "Nikhil" does not match inside another word,
+ * and case-folded because the label is half the app's phrasing and half
+ * theirs.
+ */
+function labelNames(label: string, name: string): boolean {
+  const n = name.trim();
+  if (!n) return false;
+  return new RegExp(`(^|\\W)${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\W|$)`, 'i')
+    .test(label);
+}
+
 export function countable(input: CountableInput): Countable {
-  const years = yearsToHorizon(input.age);
   const obs = observedPace(input.observation, input.now);
 
   /* The observed pace wins whenever there is one. It is the difference
@@ -259,10 +274,39 @@ export function countable(input: CountableInput): Countable {
   const pacePerYear = obs.perYear ?? input.declaredPerYear;
   const paceBasis: 'observed' | 'declared' = obs.perYear != null ? 'observed' : 'declared';
 
+  /**
+   * The one case where the reader's own horizon is the wrong yardstick.
+   *
+   * A ritual whose label already names one person — every row
+   * `RITUAL_BY_RELATION` seeds — cannot outlast the window the two of them
+   * share. Counted on the reader's horizon instead, the row said, of a
+   * 72-year-old and the wife he lives with:
+   *
+   *   ~340 more evenings out with Lakshmi
+   *   ~110 of them with Lakshmi — their window is the shorter one.
+   *
+   * Three hundred and forty evenings with Lakshmi, of which a hundred and ten
+   * are with Lakshmi. Two numbers, one person, and two different yardsticks:
+   * the headline on `yearsToHorizon` (the flat 100-year planning horizon this
+   * tab plans on) and the share on `qualityYears` (age, health and distance).
+   * The honest number is the smaller one, and it belongs in the headline
+   * rather than in a footnote correcting it.
+   */
+  const shared = (input.people ?? []).length === 1
+    && labelNames(input.label, input.people![0].name)
+    ? input.people![0]
+    : null;
+
+  const years = shared
+    ? Math.min(yearsToHorizon(input.age), shared.qualityYears)
+    : yearsToHorizon(input.age);
+
   const remaining = Math.max(softRound(pacePerYear * years), 1);
   const upliftRemaining = Math.max(softRound((pacePerYear + 1) * years), remaining);
 
-  const shares: CountableShare[] = (input.people ?? []).map((p) => ({
+  /* Already in the headline — naming them again under it is where the two
+     yardsticks met. */
+  const shares: CountableShare[] = shared ? [] : (input.people ?? []).map((p) => ({
     name: p.name,
     remaining: Math.max(Math.min(softRound(pacePerYear * p.qualityYears), remaining), 1),
     upliftRemaining: Math.max(
@@ -290,6 +334,9 @@ export function countable(input: CountableInput): Countable {
       remaining,
       upliftRemaining,
       shares,
+      sharedWith: shared
+        ? { name: shared.name, boundByThem: shared.qualityYears < yearsToHorizon(input.age) }
+        : null,
     }),
   };
 }
@@ -334,6 +381,12 @@ export interface SuggestPerson {
   closenessScore?: number | null;
   wantsMoreTime?: boolean | null;
   desiredCallFrequency?: string | null;
+  /**
+   * Where they live. Absent means co-located, exactly as `isRemoteLocation`
+   * defines it: an outing suggested to somebody far away is nonsense, a call
+   * suggested to somebody in the next room is merely modest.
+   */
+  locationType?: string | null;
   /** Their own words for what matters with this person. */
   meaningfulMomentTypes?: string[] | null;
 }
@@ -371,6 +424,27 @@ const RITUAL_BY_RELATION: Record<string, string> = {
   child: 'days out with', son: 'days out with', daughter: 'days out with',
   sibling: 'trips with', brother: 'trips with', sister: 'trips with',
   friend: 'catch-ups with', mentor: 'long conversations with',
+};
+
+/**
+ * The same rituals for somebody who is not within reach.
+ *
+ * Every label above puts two people in a room. Offered about a son who lives
+ * abroad, "days out with Nikhil — 12 a year" is not a modest suggestion but an
+ * impossible one, and it was offered because this generator never asked where
+ * anybody lived: `SuggestPerson` had no `locationType` at all, which is how it
+ * survived the sweep that taught the mission and step generators geography.
+ *
+ * Counting is the point, so distance changes the ritual rather than removing
+ * it — what a far-away relationship actually accumulates is calls, and those
+ * are worth counting too.
+ */
+const RITUAL_BY_RELATION_REMOTE: Record<string, string> = {
+  mother: 'long calls with', father: 'long calls with', parent: 'long calls with',
+  spouse: 'long calls with', partner: 'long calls with',
+  child: 'video calls with', son: 'video calls with', daughter: 'video calls with',
+  sibling: 'calls with', brother: 'calls with', sister: 'calls with',
+  friend: 'catch-up calls with', mentor: 'long conversations with',
 };
 
 /** A countable a domain tends to hold, for domains rated highly and empty. */
@@ -424,7 +498,10 @@ export function suggestCountables(input: SuggestCountablesInput): CountableSugge
   // 3. People they said they want more of.
   for (const p of people) {
     if (!p.wantsMoreTime) continue;
-    const verb = RITUAL_BY_RELATION[p.relationType];
+    const table = isRemoteLocation(p.locationType)
+      ? RITUAL_BY_RELATION_REMOTE
+      : RITUAL_BY_RELATION;
+    const verb = table[p.relationType];
     if (!verb) continue;
     out.push({
       label: `${verb} ${p.name}`,
@@ -499,8 +576,19 @@ function detailFor(x: {
   remaining: number;
   upliftRemaining: number;
   shares: CountableShare[];
+  /** Set when the headline is already counted on one person's window. */
+  sharedWith?: { name: string; boundByThem: boolean } | null;
 }): string {
   const uplift = `One more a year makes it ~${x.upliftRemaining}.`;
+
+  /* The headline is already their number, so this says what bounded it
+     rather than naming them a second time with a different one. */
+  if (x.sharedWith) {
+    const basis = x.sharedWith.boundByThem
+      ? `counted on the years you two realistically have, not on yours alone`
+      : `counted on the years ahead of you`;
+    return `~${x.remaining} is ${basis}. ${uplift}`;
+  }
 
   if (x.shares.length) {
     const named = x.shares.length === 1
@@ -509,10 +597,16 @@ function detailFor(x: {
     // Their window is the shorter one, and it is the whole point of naming
     // them — said as arithmetic, with the lever attached, and never as a
     // warning. See RESEARCH_NOTES §4.
+    //
+    // Claimed only when the arithmetic supports it. `shares` clamps to the
+    // reader's own remaining, so somebody who outlives them shares every one
+    // of them — and the sentence then announced a shortage it had just ruled
+    // out: "~340 of them with Lakshmi" printed under a headline of 340.
+    const theirsBinds = x.shares.some((s) => s.remaining < x.remaining);
     const lift = x.shares[0].upliftRemaining > x.shares[0].remaining
       ? ` At one more a year, ~${x.shares[0].upliftRemaining} with ${x.shares[0].name}.`
       : '';
-    return `${named} — their window is the shorter one.${lift}`;
+    return `${named}${theirsBinds ? ' — their window is the shorter one.' : '.'}${lift}`;
   }
 
   if (x.obs.count === 0) {

@@ -260,6 +260,9 @@ function Reflect() {
               <Pressable
                 key={value}
                 onPress={() => setMood(mood === value ? null : value)}
+                accessibilityRole="button"
+                accessibilityLabel={`Today was ${word}`}
+                aria-selected={mood === value}
                 style={[s.mood, mood === value && s.moodOn]}
               >
                 <Ionicons

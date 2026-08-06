@@ -104,6 +104,26 @@ async function doRefresh(): Promise<boolean> {
     // request report the network failure instead of signing anyone out.
     return false;
   }
+  /**
+   * The server saying the session is over, as distinct from being unable to
+   * ask it.
+   *
+   * Both used to return false here, and the difference is the whole bug: the
+   * tokens stayed in storage, so `AuthGate` saw a non-null `accessToken` and
+   * never routed to the login screen, while every query underneath it failed.
+   * What that renders as is "Nothing here yet. Once you have answered a few
+   * things about your life, today will have something to ask for" — an app
+   * telling somebody with a year of journal entries that it has never met
+   * them. A refresh token expires, is rotated away, or is revoked, and the
+   * life appears deleted.
+   *
+   * Only 401 and 403 count. A 500 is the server having a bad day and must not
+   * cost anybody their session, exactly as being offline must not.
+   */
+  if (res.status === 401 || res.status === 403) {
+    await useAuth.getState().logout();
+    return false;
+  }
   if (!res.ok) return false;
   const tokens = await res.json();
   await useAuth.getState().setTokens(tokens);

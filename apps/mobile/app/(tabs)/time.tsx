@@ -1400,6 +1400,9 @@ export default function TimeReality() {
       closenessScore: r.closenessScore,
       wantsMoreTime: r.wantsMoreTime,
       desiredCallFrequency: r.desiredCallFrequency,
+      /* Without this the card offered "days out with Nikhil — 12 a year" to
+         a father whose son lives abroad. */
+      locationType: r.locationType,
       meaningfulMomentTypes: r.meaningfulMomentTypes,
     })),
     domains: (dashboard?.domains ?? []).map((d: any) => ({
@@ -1750,6 +1753,19 @@ export default function TimeReality() {
   });
   const creative = estimateCreativeCompounding(minutes);
   const weeks = lifeInWeeks(age);
+  /**
+   * Whether "how many more years do you want to work?" is a question this
+   * person can answer.
+   *
+   * Ravi is 72 and retired, with `workHoursPerWeek: 0`, and the compounding
+   * card asked him to choose between five and twenty-five more working years.
+   * The money question underneath survives the difference — how long he keeps
+   * adding to the pot is still his to decide — so only the framing changes.
+   * An explicit zero, not `?? 0`: an unanswered profile has not said it has
+   * stopped working.
+   */
+  const stillWorking = me.workHoursPerWeek !== 0
+    && !['retired', 'not_working'].includes((me.workType ?? '').toLowerCase());
   /* Their answer, or the one they just tapped while it is in flight. Never a
      house default — `screenTrade` says nothing at all without one. */
   const screenHours = screenDraft ?? me.screenHoursPerDay ?? null;
@@ -1763,20 +1779,64 @@ export default function TimeReality() {
    * tab and it was quoting two constants. Now it says what this person counts,
    * on the pace their archive shows, and says plainly when that is nothing.
    */
+  /**
+   * Who a count is with, and the window each of them shares.
+   *
+   * Extracted because the collapsed preview and the expanded row each built
+   * this, and only the row bothered — the preview called `countable` with no
+   * people at all. While both were counted on the reader's own horizon that
+   * was invisible; the moment a person-named ritual started counting on the
+   * window the two of them share, the same row read ~340 collapsed and ~110
+   * open. One implementation, so they cannot disagree again.
+   */
+  const peopleForCount = (
+    count: { people?: string[] | null },
+    lived?: { people?: string[] } | null,
+  ) => {
+    const named = (count.people ?? [])
+      .map((id) => (relationships ?? []).find((r: any) => r.id === id))
+      .filter(Boolean) as any[];
+    /* Whoever they named, and failing that whoever the archive keeps finding
+       there — nobody has to tell the app that Diwali means Amma. */
+    const observed = named.length
+      ? []
+      : ((lived?.people ?? [])
+        .map((n: string) => (relationships ?? []).find((r: any) => r.name === n))
+        .filter(Boolean) as any[]);
+    return [...named, ...observed]
+      .filter((r) => r.age != null)
+      .slice(0, 2)
+      .map((r) => ({
+        name: r.name as string,
+        qualityYears: estimateTimeReality({
+          personAge: r.age,
+          personLabel: r.name,
+          personHealthStatus: r.healthStatus ?? undefined,
+          personLocationType: r.locationType ?? undefined,
+          currentVisitsPerYear: 1,
+          region: me?.country ?? undefined,
+        }).qualityYears,
+      }));
+  };
+
   const countPreview = dedupeRituals(savedCounts, (c) => countsLived?.[c.key]?.count ?? 0)
     .slice(0, 2)
     .map((g) => {
       const merged = g.keys.map((k) => countsLived?.[k]).filter(Boolean) as CountsLived[];
+      const observation = merged.length
+        ? {
+          count: merged.reduce((n, m) => n + m.count, 0),
+          firstAt: merged.map((m) => m.firstAt).sort()[0],
+        }
+        : undefined;
       return `~${countable({
         age,
         label: g.item.label,
         declaredPerYear: g.item.perYear,
-        observation: merged.length
-          ? {
-            count: merged.reduce((n, m) => n + m.count, 0),
-            firstAt: merged.map((m) => m.firstAt).sort()[0],
-          }
-          : undefined,
+        observation,
+        people: peopleForCount(g.item, merged.length
+          ? { people: [...new Set(merged.flatMap((m) => m.people))] }
+          : undefined),
       }).remaining} ${g.item.label}`;
     })
     .join(' · ');
@@ -2185,21 +2245,37 @@ export default function TimeReality() {
    * Now, against a day that runs from waking to waking.
    *
    * The blocks keep counting past midnight — a card that wakes at seven ends
-   * at 1860, not at 1440 — and the temptation is to push a small-hours clock
-   * reading up into that range to match. It is wrong. At ten to one on a
-   * Thursday morning, the Thursday being drawn has not started: its seven
-   * o'clock is seven hours away, not seventeen hours behind. Normalising
-   * forward greyed out the entire day and put "you are here" at the bottom of
-   * a day nobody had lived yet.
+   * at 1860, not at 1440 — so a small-hours clock reading has two possible
+   * meanings and the card has to tell them apart:
    *
-   * So the clock is taken as it reads, and the one case it cannot answer —
-   * a block drawn after midnight, during the hour before the card's own day
-   * begins — is left alone rather than guessed at. Erring towards "still
-   * ahead of you" costs a reader nothing; erring the other way hands them a
-   * morning marked missed before it happened.
+   *   A day worker at 00:53. The Thursday being drawn has not started; its
+   *   seven o'clock is seven hours away, not seventeen hours behind. Pushing
+   *   the clock forward greys out the whole day and puts "you are here" at
+   *   the bottom of a day nobody has lived yet.
+   *
+   *   An ICU nurse at 03:20, whose day began at five the previous afternoon
+   *   and who is four hours into a shift that ends at six. Taking the clock
+   *   as it reads puts "you are here" above her five o'clock block, at the
+   *   top of a day she is more than half way through.
+   *
+   * Reading the clock literally is right for the first and wrong for the
+   * second; normalising forward is the exact reverse. What separates them is
+   * not the hour but whether the pushed-forward time still lands inside the
+   * day being drawn — 03:20 becomes 1640, which is inside the nurse's
+   * 1320–1800 shift, while 00:53 becomes 1493, past the end of a day that
+   * finished at 23:00. So: try the wrapped reading, and keep it only if the
+   * day is still running there.
    */
   const dayStartsAt = shape.blocks[0]?.startMinutes ?? 0;
-  const nowInDay = showingToday ? now.minutes : null;
+  const dayEndsAt = shape.blocks[shape.blocks.length - 1]?.endMinutes ?? 1440;
+  const nowInDay = (() => {
+    if (!showingToday) return null;
+    const raw = now.minutes;
+    if (raw >= dayStartsAt) return raw;
+    /* Before the day's own start on the clock: either the small hours of a
+       day still ahead, or the far side of midnight on a day already running. */
+    return raw + 1440 < dayEndsAt ? raw + 1440 : raw;
+  })();
   /** The small hours: today is drawn, and none of it has happened yet. */
   const dayNotStarted = nowInDay != null && nowInDay < dayStartsAt;
 
@@ -4093,32 +4169,9 @@ export default function TimeReality() {
                   people: [...new Set(merged.flatMap((m) => m.people))],
                 }
                 : undefined;
-              /* Who this ritual is with: whoever they named when they made it,
-                 and failing that whoever the archive keeps finding there. The
-                 second is the interesting one — nobody has to tell the app
-                 that Diwali means Amma; the logged Diwali already said so. */
-              const namedPeople = (c.people ?? [])
-                .map((id) => (relationships ?? []).find((r: any) => r.id === id))
-                .filter(Boolean) as any[];
-              const observedPeople = namedPeople.length
-                ? []
-                : (lived?.people ?? [])
-                  .map((n: string) => (relationships ?? []).find((r: any) => r.name === n))
-                  .filter(Boolean) as any[];
-              const people = [...namedPeople, ...observedPeople]
-                .filter((r) => r.age != null)
-                .slice(0, 2)
-                .map((r) => ({
-                  name: r.name as string,
-                  qualityYears: estimateTimeReality({
-                    personAge: r.age,
-                    personLabel: r.name,
-                    personHealthStatus: r.healthStatus ?? undefined,
-                    personLocationType: r.locationType ?? undefined,
-                    currentVisitsPerYear: 1,
-                    region: me?.country ?? undefined,
-                  }).qualityYears,
-                }));
+              /* Who this ritual is with — the same derivation the collapsed
+                 preview uses, so the two readings of one row agree. */
+              const people = peopleForCount(c, lived);
 
               const cc = countable({
                 age,
@@ -4297,7 +4350,11 @@ export default function TimeReality() {
             of the compounding number is age plus this. Its old home printed
             "~480 working weeks left", which was a countdown wearing a
             question as a disguise. */}
-        <Text style={type.dim}>How many more years do you want to work?</Text>
+        <Text style={type.dim}>
+          {stillWorking
+            ? 'How many more years do you want to work?'
+            : 'How many more years do you want to keep adding to this?'}
+        </Text>
         <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
           {[5, 10, 15, 20, 25].map((y) => (
             <Pressable
@@ -4327,7 +4384,10 @@ export default function TimeReality() {
         <Text style={[type.dim, { color: colors.green }]}>{money.framingText}</Text>
         {/* What the working years are for, in one quiet line — the part of
             the old card worth keeping. */}
-        {!intensityOff && (
+        {/* "After that, N years that are almost entirely yours" is a sentence
+            about a career ending. Said to somebody whose already has, it
+            describes a wait they are not in. */}
+        {!intensityOff && stillWorking && (
           <Text style={type.faint}>
             After that, ~{windows.career.postCareerYears} years that are almost
             entirely yours — the plan is for both halves.

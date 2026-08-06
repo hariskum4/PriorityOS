@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
-import { tinyStep } from '@priority/scoring-engine';
+import { tinyStep, tinyStepUnlessRestated } from '@priority/scoring-engine';
 import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
@@ -140,14 +140,25 @@ function GoalForm({ goal, onClose }: { goal?: any; onClose: () => void }) {
       <Label>{goal ? 'Fix this goal' : 'What are you aiming at?'}</Label>
       <Input
         placeholder="Run a 10K by December"
+        accessibilityLabel="What are you aiming at?"
         value={title}
         onChangeText={setTitle}
         autoFocus={!goal}
       />
       <Text style={type.faint}>Which part of your life is this?</Text>
       <View style={s.chipWrap}>
+        {/* Named and roled like the "By when?" row below. Without this the
+            twelve domains and the horizon pair reached the accessibility tree
+            as unlabelled generics — seventeen identical nodes in one form. */}
         {DOMAINS.map((d) => (
-          <Pressable key={d} onPress={() => setDomainType(d)} style={[s.chip, domainType === d && s.chipOn]}>
+          <Pressable
+            key={d}
+            onPress={() => setDomainType(d)}
+            accessibilityRole="button"
+            accessibilityLabel={d}
+            aria-selected={domainType === d}
+            style={[s.chip, domainType === d && s.chipOn]}
+          >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
               <DomainDot domain={d} size={7} />
               <Text style={[type.faint, domainType === d && { color: colors.amber, fontWeight: '700' }]}>{d}</Text>
@@ -161,7 +172,14 @@ function GoalForm({ goal, onClose }: { goal?: any; onClose: () => void }) {
       </Text>
       <View style={s.chipWrap}>
         {(['1y', '5y'] as const).map((h) => (
-          <Pressable key={h} onPress={() => setHorizon(h)} style={[s.chip, horizon === h && s.chipOn]}>
+          <Pressable
+            key={h}
+            onPress={() => setHorizon(h)}
+            accessibilityRole="button"
+            accessibilityLabel={h === '1y' ? 'this year' : 'five years'}
+            aria-selected={horizon === h}
+            style={[s.chip, horizon === h && s.chipOn]}
+          >
             <Text style={[type.faint, horizon === h && { color: colors.amber, fontWeight: '700' }]}>
               {h === '1y' ? 'this year' : 'five years'}
             </Text>
@@ -515,18 +533,24 @@ export default function Missions() {
             </View>
             <Text style={type.title}>{m.title}</Text>
             {m.aiRationale && <Text style={type.dim}>{m.aiRationale}</Text>}
-            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
-              <Ionicons name="footsteps-outline" size={13} color={colors.green} style={{ marginTop: 2 }} />
-              <Text style={[type.faint, { flex: 1 }]}>
-                {tinyStep({
-                  title: m.title,
-                  domainType: m.domainType,
-                  missionType: m.missionType,
-                  personName: m.relationship?.name,
-                  locationType: m.relationship?.locationType,
-                })}
-              </Text>
-            </View>
+            {(() => {
+              /* Null when the step would only repeat the title — which is
+                 exactly what a mission created from a goal's suggested first
+                 step produces. */
+              const step = tinyStepUnlessRestated({
+                title: m.title,
+                domainType: m.domainType,
+                missionType: m.missionType,
+                personName: m.relationship?.name,
+                locationType: m.relationship?.locationType,
+              });
+              return step ? (
+                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+                  <Ionicons name="footsteps-outline" size={13} color={colors.green} style={{ marginTop: 2 }} />
+                  <Text style={[type.faint, { flex: 1 }]}>{step}</Text>
+                </View>
+              ) : null;
+            })()}
             <View style={{ flexDirection: 'row', gap: space(2) }}>
               <View style={{ flex: 1 }}>
                 {/* Guarded, because two taps used to mean two completions and
@@ -549,11 +573,22 @@ export default function Missions() {
       }}
       ListEmptyComponent={
         <Card>
-          <EmptyState
-            icon={<Ionicons name="checkmark-done-circle-outline" size={34} color={colors.green} />}
-            headline="No pending missions"
-            body="That's alignment. New missions appear when a gap opens between what you say matters and where your attention goes."
-          />
+          {/* An account that has never completed anything is empty, not
+              aligned — the same distinction the Today card draws. Claiming
+              alignment here told a brand-new user they had arrived. */}
+          {(done?.length ?? 0) > 0 ? (
+            <EmptyState
+              icon={<Ionicons name="checkmark-done-circle-outline" size={34} color={colors.green} />}
+              headline="No pending missions"
+              body="That's alignment. New missions appear when a gap opens between what you say matters and where your attention goes."
+            />
+          ) : (
+            <EmptyState
+              icon={<Ionicons name="sparkles-outline" size={34} color={colors.amber} />}
+              headline="Nothing here yet"
+              body="Missions appear when a gap opens between what you say matters and where your attention goes. Give it a day, or add a goal above and take its first step."
+            />
+          )}
         </Card>
       }
       ListFooterComponent={

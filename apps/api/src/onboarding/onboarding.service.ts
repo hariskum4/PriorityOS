@@ -124,6 +124,9 @@ export class OnboardingService {
         select: {
           id: true, name: true, relationType: true, closenessScore: true,
           wantsMoreTime: true, desiredCallFrequency: true, meaningfulMomentTypes: true,
+          /* The seeded rows are the ones people actually keep, so this is
+             where a ritual with somebody abroad has to get it right. */
+          locationType: true,
         },
       }),
       this.prisma.onboardingAnswer.findMany({
@@ -141,6 +144,7 @@ export class OnboardingService {
         closenessScore: p.closenessScore ?? undefined,
         wantsMoreTime: p.wantsMoreTime ?? undefined,
         desiredCallFrequency: p.desiredCallFrequency ?? undefined,
+        locationType: p.locationType ?? undefined,
         meaningfulMomentTypes: (p.meaningfulMomentTypes ?? []) as string[],
       })),
       domains: [],

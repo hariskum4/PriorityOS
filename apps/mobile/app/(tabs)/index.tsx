@@ -827,6 +827,16 @@ export default function Today() {
 
   const peopleWaiting = (relationships ?? []).filter((r: any) => {
     if (!r.wantsMoreTime) return false;
+    /**
+     * Nobody you live with is waiting to hear from you.
+     *
+     * `desiredCallFrequency` defaults to weekly for everyone on create, and
+     * nothing logs the hundred daily exchanges of a shared house, so a
+     * 72-year-old was told two people were waiting on him: his son abroad,
+     * and the wife in the next room. Contact cadence is a fact about distance;
+     * applied across a kitchen table it only ever produces a false debt.
+     */
+    if (r.locationType === 'same_home') return false;
     const target = CADENCE_DAYS[r.desiredCallFrequency] ?? 30;
     const d = r.lastContactAt
       ? (Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000
@@ -1186,12 +1196,27 @@ export default function Today() {
             </View>
           ) : (
             <View style={[s.now, s.nowRest]}>
-              <Tick color={obs.brass}>Nothing pending</Tick>
+              {/**
+               * Empty and aligned are not the same state.
+               *
+               * A brand-new account has nothing pending because nothing has
+               * been measured yet, and this card congratulated it for that —
+               * "That is alignment. Enjoy the calm." — four lines above its
+               * own admission that health was getting 0% of an asked-for 35%.
+               * `score` is 0 only when no attention is recorded anywhere,
+               * which is the same rule the alignment tile already uses to
+               * print a dash instead of a zero.
+               */}
+              <Tick color={obs.brass}>{score > 0 ? 'Nothing pending' : 'Nothing here yet'}</Tick>
               <Text style={[obsType.said, { marginTop: 10 }]}>
-                That is alignment. Enjoy the calm.
+                {score > 0
+                  ? 'That is alignment. Enjoy the calm.'
+                  : 'Nothing to show yet — that is a new account, not a quiet life.'}
               </Text>
               <Text style={[obsType.dim, { marginTop: 6 }]}>
-                The best thing this app can do right now is get out of your way.
+                {score > 0
+                  ? 'The best thing this app can do right now is get out of your way.'
+                  : 'Keep one thing this week and the numbers below start meaning something.'}
               </Text>
             </View>
           )}
