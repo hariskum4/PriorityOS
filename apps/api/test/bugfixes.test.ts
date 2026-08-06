@@ -113,15 +113,32 @@ describe('a new person is urgent from the moment they exist', () => {
   });
 });
 
+/**
+ * Every promise here still holds. What changed is when.
+ *
+ * `complete` used to keep the reader waiting through the award, the contact
+ * log, the twelve-domain rescore and the engine picking the next mission —
+ * twenty-two round trips and 28.5 seconds measured on production, against a
+ * client that gives up at fifteen. All of that now runs behind the response,
+ * so these tests wait for it with `whenSettled()` rather than relying on the
+ * call not having returned.
+ *
+ * That is the interesting part of the change: deferring work quietly makes a
+ * guarantee unobservable, and an unobservable guarantee is one nobody notices
+ * breaking. The waiting is explicit instead.
+ */
 describe('completing a mission pays exactly once', () => {
   it('second complete is a no-op with the same shape', async () => {
     const m = await missions.create(userId, { title: 'Call Amma', domainType: 'family' });
     const first = await missions.complete(userId, m.id);
     const second = await missions.complete(userId, m.id);
-    expect(first.xp).not.toBeNull();
-    expect(second.xp).toBeNull();
-    expect(second.next).toBeNull();
+    /* The lock's own count, which is what the reader's tap actually turns on
+       — and what `xp` was standing in for before it stopped being computed
+       on the request. */
+    expect(first.completed).toBe(true);
+    expect(second.completed).toBe(false);
     expect(second.mission.status).toBe('completed');
+    await missions.whenSettled();
     expect(awards).toBe(1);
   });
 
@@ -136,8 +153,9 @@ describe('completing a mission pays exactly once', () => {
       missions.complete(userId, m.id),
       missions.complete(userId, m.id),
     ]);
-    const winners = [a, b].filter((r) => r.xp !== null);
+    const winners = [a, b].filter((r) => r.completed);
     expect(winners).toHaveLength(1);
+    await missions.whenSettled();
     expect(await prisma.contactLog.count({ where: { relationshipId: rel!.id } })).toBe(1);
   });
 
@@ -150,6 +168,7 @@ describe('completing a mission pays exactly once', () => {
       relationshipId: rel!.id,
     });
     await missions.complete(userId, m.id);
+    await missions.whenSettled();
     const after = await prisma.relationship.findUniqueOrThrow({ where: { id: rel!.id } });
     expect(after.lastContactAt).not.toBeNull();
     expect(Number(after.priorityScore)).toBeLessThan(before);

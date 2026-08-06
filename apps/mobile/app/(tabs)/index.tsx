@@ -314,7 +314,7 @@ export default function Today() {
   const now = useNow();
 
   const {
-    data, refetch, isRefetching, isLoading, isError,
+    data, refetch, isRefetching, isLoading, isError, fetchStatus,
   } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api<any>('/dashboard'),
@@ -335,6 +335,23 @@ export default function Today() {
     const t = setTimeout(() => setWaitedTooLong(true), 20_000);
     return () => clearTimeout(t);
   }, [isLoading]);
+  /**
+   * A request that gave up, whatever React Query decided to call it.
+   *
+   * `networkMode: 'offlineFirst'` does not fail a query it blames on the
+   * network — it *pauses* it, which is neither loading nor an error. With no
+   * data yet, that fell through to the blank state's else branch, and the
+   * else branch reads "Nothing here yet. Once you have answered a few things
+   * about your life…". Seen on production: an account with three missions, a
+   * partner, a daughter and a fortnight of completions was told its life was
+   * empty, because one cold start on a free instance took the dashboard past
+   * the client's fifteen-second abort.
+   *
+   * The same mistake as an expired session rendering as an empty life, and
+   * the same rule closes it — never tell somebody their record is empty on
+   * the strength of not having reached it.
+   */
+  const unreachable = isError || waitedTooLong || fetchStatus === 'paused';
   const { data: review } = useQuery({
     queryKey: ['weekly-review'],
     queryFn: () => api<any>('/weekly-review/current'),
@@ -568,8 +585,11 @@ export default function Today() {
   };
   const complete = useMutation({
     mutationFn: (m: any) => api<any>(`/missions/${m.id}/complete`, { method: 'POST' }),
-    onSuccess: (res, m) => {
-      setJustCompleted({ ...m, next: res?.next ?? null });
+    /* The mission this banner is about is the one that was tapped. The
+       response carries nothing the banner needs — `next` moved to the
+       dashboard and `xp` was never read here — so it is not kept. */
+    onSuccess: (_res, m) => {
+      setJustCompleted(m);
       invalidate();
     },
   });
@@ -874,10 +894,10 @@ export default function Today() {
           ) : (
             <>
               <Text style={[obsType.said, { textAlign: 'center' }]}>
-                {isError || waitedTooLong ? 'Can’t reach your record.' : 'Nothing here yet.'}
+                {unreachable ? 'Can’t reach your record.' : 'Nothing here yet.'}
               </Text>
               <Text style={[obsType.dim, { textAlign: 'center', marginTop: 8 }]}>
-                {isError || waitedTooLong
+                {unreachable
                   ? 'Everything you have written is safe on the server — this is only '
                     + 'the connection. It will come back on its own.'
                   : 'Once you have answered a few things about your life, today '
@@ -1122,9 +1142,19 @@ export default function Today() {
                 *
                 * Still said once the moment is kept — the next thing genuinely
                 * has changed by then, and there is nothing left to offer.
+                *
+                * Read from the refetched dashboard rather than from what the
+                * completion returned. `next` used to come back in that
+                * response, and computing it there cost the reader the last
+                * four of twenty-two round trips on a request they were
+                * watching a "Saving…" button through. It is also the worse
+                * answer: this line only appears after somebody has gone to
+                * the journal, kept a moment and come back, and by then what
+                * is actually next is a fact the dashboard holds, not a guess
+                * made at the instant of the tap.
                 */}
               {keptMoments.includes(justCompleted.id)
-                ? (justCompleted.next
+                ? (nextMissionId && nextMissionId !== justCompleted.id
                   ? 'The engine lined up what comes next.'
                   : 'Your plate already holds what matters.')
                 : 'What you write about it is what lasts.'}

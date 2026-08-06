@@ -127,6 +127,44 @@ export class MissionsService {
     return this.prisma.mission.update({ where: { id }, data: { ...data } });
   }
 
+  /**
+   * The tick, and nothing else the reader is made to wait for.
+   *
+   * Measured on production: 28.5 seconds, against a client that gives up at
+   * fifteen. Somebody pressed Done on the one thing their day was asking for
+   * and watched "Saving…" until it gave up — over a mission the server had
+   * already marked complete in the first second.
+   *
+   * Nothing here was slow. It was twenty-two database round trips in single
+   * file, and from Oregon to the pooler in ap-south-1 each one costs about
+   * 1.2 seconds: the ownership check, the lock, the read-back, a contact log,
+   * a relationship touch, a priority recalculation, an XP award, a full
+   * twelve-domain rescore, a neglect-band lookup, a telemetry write, and the
+   * engine picking the next mission — every one of them waiting for the last.
+   *
+   * Only the first three are the thing that happened. A completion is a
+   * record: the row flips, and that is what the reader is owed an answer
+   * about. Everything after it is bookkeeping the app does *because* of the
+   * completion, and none of it is read by the screen that is waiting:
+   *
+   *   `xp` was in this response and no screen ever read it — the banner
+   *   deliberately says "Done — that counted" rather than "+30 XP", and the
+   *   You tab keeps the ledger. What it was really doing was doubling as the
+   *   answer to "did this tap win the lock", which is now `completed`: the
+   *   lock's own count, said plainly, and costing nothing.
+   *
+   *   `next` fed one sentence, and only after the reader has gone to the
+   *   journal, kept a moment, and come back. By then the refetched dashboard
+   *   knows the answer better than a value computed at the moment of the tap,
+   *   so the screen reads it from there.
+   *
+   * So the response goes at two round trips, and the rest runs behind it on a
+   * process that stays alive. Nothing is skipped and nothing is reordered —
+   * it simply stops being something a person watches. `whenSettled` is how a
+   * caller that genuinely needs the consequences waits for them, because
+   * "runs behind the response" and "quietly stopped running" look identical
+   * from the outside and that is exactly how a deferred job dies.
+   */
   async complete(userId: string, id: string) {
     const mission = await this.assertOwned(userId, id);
     /**
@@ -136,66 +174,127 @@ export class MissionsService {
      * engine for another next-mission — six taps in one second once produced
      * six of everything.
      */
+    const completedAt = new Date();
     const { count } = await this.prisma.mission.updateMany({
       where: { id, status: { not: 'completed' } },
-      data: { status: 'completed', completedAt: new Date() },
+      data: { status: 'completed', completedAt },
     });
-    const updated = await this.prisma.mission.findUniqueOrThrow({ where: { id } });
     if (count === 0) {
-      // Already completed — idempotent: same shape, nothing awarded twice.
-      return { mission: updated, xp: null, next: null };
+      /* Already completed — idempotent: same shape, nothing awarded twice.
+         The row is read only here, because this is the one branch that does
+         not know what is in it. */
+      const existing = await this.prisma.mission.findUniqueOrThrow({ where: { id } });
+      return { mission: existing, completed: false };
     }
-    // Relationship missions also count as contact — no double data entry.
-    if (mission.relationshipId) {
-      await this.prisma.contactLog.create({
-        data: {
-          relationshipId: mission.relationshipId,
-          kind: 'activity',
-          note: `Mission: ${mission.title}`,
-        },
+
+    /* The row as it now stands. Read back it would be another round trip for
+       two fields this method just chose — and `completedAt` has to be the
+       same instant either way, because a moment kept from this mission takes
+       its hour from here. */
+    const updated = { ...mission, status: 'completed', completedAt };
+
+    this.settle(userId, mission, id);
+
+    return { mission: updated, completed: true };
+  }
+
+  /**
+   * The bookkeeping still in flight.
+   *
+   * Deferring work makes a guarantee unobservable, and three tests were right
+   * to notice: one contact log per completion, one award per completion, and
+   * a person's urgency recomputed the moment they are contacted. Those are
+   * real promises this app makes, and they were verified by the fact that
+   * `complete` had not returned until they were kept.
+   *
+   * They still are, through here. The chain is serial on purpose — two taps
+   * landing together settle one after the other rather than interleaving two
+   * rescores of the same twelve domains.
+   */
+  private settling: Promise<unknown> = Promise.resolve();
+
+  whenSettled(): Promise<unknown> {
+    return this.settling;
+  }
+
+  /**
+   * Everything a completion causes, once the reader has been answered.
+   *
+   * Started, not awaited. Render runs a persistent process, so a promise left
+   * running after the response survives to finish; a failure is logged and
+   * goes nowhere near the screen. The order is the order the old code used,
+   * because parts of it are genuinely sequential — the next mission is chosen
+   * from the rescored life-graph, and the neglect band is read after the
+   * rescore that sets it.
+   */
+  private settle(
+    userId: string,
+    mission: Awaited<ReturnType<MissionsService['assertOwned']>>,
+    id: string,
+  ) {
+    const run = async () => {
+      // Relationship missions also count as contact — no double data entry.
+      if (mission.relationshipId) {
+        /* Independent of each other. The log and the timestamp are two facts
+           about the same moment, not a sequence. */
+        await Promise.all([
+          this.prisma.contactLog.create({
+            data: {
+              relationshipId: mission.relationshipId,
+              kind: 'activity',
+              note: `Mission: ${mission.title}`,
+            },
+          }),
+          this.prisma.relationship.update({
+            where: { id: mission.relationshipId },
+            data: { lastContactAt: new Date() },
+          }),
+        ]);
+        // The contact just changed the urgency arithmetic; leaving the stored
+        // score stale kept the People list shouting about a person just seen.
+        await this.relationships.recalcPriority(mission.relationshipId);
+      }
+      const xpEvent = mission.relationshipId
+        ? 'relationship_mission_completed'
+        : 'mission_completed';
+      await this.game.award(userId, xpEvent, mission.domainType, id);
+      await this.scoring.recalcUserDomains(userId);
+      await this.analytics.track(userId, 'mission_completed', {
+        domainType: mission.domainType,
+        relationship: !!mission.relationshipId,
+        /**
+         * Which catalog entry was kept, and how starved the domain was when it
+         * was proposed.
+         *
+         * Not a metric anybody reads today. It is the only way the catalog ever
+         * stops being editorial: with the identity and the deficit band on the
+         * same row, six months of this answers "does `family.call` outperform
+         * `family.hour` when the family domain is badly neglected" — which is a
+         * question about this app's own users rather than about anybody's
+         * literature, and the one thing a competitor cannot copy.
+         *
+         * Banded rather than exact, because the risk score drifts continuously
+         * and a band is what a comparison can actually group by.
+         */
+        sourceKey: mission.sourceKey ?? null,
+        neglectBand: neglectBandFor(
+          (await this.prisma.lifeDomain.findFirst({
+            where: { userId, domainType: mission.domainType },
+            select: { neglectRiskScore: true },
+          }))?.neglectRiskScore ?? null,
+        ),
       });
-      await this.prisma.relationship.update({
-        where: { id: mission.relationshipId },
-        data: { lastContactAt: new Date() },
-      });
-      // The contact just changed the urgency arithmetic; leaving the stored
-      // score stale kept the People list shouting about a person just seen.
-      await this.relationships.recalcPriority(mission.relationshipId);
-    }
-    const xpEvent = mission.relationshipId
-      ? 'relationship_mission_completed'
-      : 'mission_completed';
-    const xp = await this.game.award(userId, xpEvent, mission.domainType, id);
-    await this.scoring.recalcUserDomains(userId);
-    await this.analytics.track(userId, 'mission_completed', {
-      domainType: mission.domainType,
-      relationship: !!mission.relationshipId,
-      /**
-       * Which catalog entry was kept, and how starved the domain was when it
-       * was proposed.
-       *
-       * Not a metric anybody reads today. It is the only way the catalog ever
-       * stops being editorial: with the identity and the deficit band on the
-       * same row, six months of this answers "does `family.call` outperform
-       * `family.hour` when the family domain is badly neglected" — which is a
-       * question about this app's own users rather than about anybody's
-       * literature, and the one thing a competitor cannot copy.
-       *
-       * Banded rather than exact, because the risk score drifts continuously
-       * and a band is what a comparison can actually group by.
-       */
-      sourceKey: mission.sourceKey ?? null,
-      neglectBand: neglectBandFor(
-        (await this.prisma.lifeDomain.findFirst({
-          where: { userId, domainType: mission.domainType },
-          select: { neglectRiskScore: true },
-        }))?.neglectRiskScore ?? null,
-      ),
-    });
-    // The adaptive loop: one meaningful action done → the engine reads the
-    // refreshed life-graph and lines up the next one. Today never runs dry.
-    const next = await this.ensureNextMission(userId, mission.domainType);
-    return { mission: updated, xp, next };
+      // The adaptive loop: one meaningful action done → the engine reads the
+      // refreshed life-graph and lines up the next one. Today never runs dry.
+      await this.ensureNextMission(userId, mission.domainType);
+    };
+
+    this.settling = this.settling
+      .catch(() => undefined)
+      .then(run)
+      .catch((err) => this.logger.error(
+        `settling completion of ${id} for ${userId} failed`, err as Error,
+      ));
   }
 
   async snooze(userId: string, id: string) {
