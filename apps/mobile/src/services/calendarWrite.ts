@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { momentToIcs, icsFilename } from '@priority/scoring-engine';
 
 /**
  * Moments, written to the device calendar — the first thing this app ever
@@ -44,8 +45,22 @@ export type CalendarWriteState =
   | { status: 'denied' }
   | { status: 'ready'; calendarId: string };
 
-/** A browser has no device calendar; the toggle is not offered there. */
-export const calendarWriteSupported = Platform.OS === 'ios' || Platform.OS === 'android';
+/**
+ * Both platforms can put a moment on a calendar; only one can do it silently.
+ *
+ * The first version made this iOS/Android only and hid the whole feature in a
+ * browser, on the house rule that a button which cannot work is worse than no
+ * button. That rule is right about *dead* buttons — and what it produced here
+ * was a capability invisible in the only place it was being reviewed, which
+ * nobody can judge and nobody can sign off.
+ *
+ * A browser genuinely has no device calendar to write into. What it does have
+ * is the file every calendar application imports, so the web route is a
+ * download rather than a background write: same destination, the way each
+ * platform can actually reach it.
+ */
+export const canWriteToDeviceCalendar = Platform.OS === 'ios' || Platform.OS === 'android';
+export const calendarWriteSupported = true;
 
 /**
  * Whether the reader has turned this on. Off unless explicitly stored.
@@ -69,6 +84,32 @@ const store = {
 
 export async function calendarWriteEnabled(): Promise<boolean> {
   return (await store.get(CALENDAR_WRITE_KEY)) === '1';
+}
+
+/**
+ * Hand a browser the file, which is the only thing a browser can be handed.
+ *
+ * Nothing is uploaded and nothing is asked for: the document is built in the
+ * page and offered as a download, so a moment reaches a calendar without a
+ * permission, a server round trip, or an account anywhere.
+ */
+function downloadIcs(moment: { title: string; occurredAt: string | Date }): boolean {
+  try {
+    const blob = new Blob([momentToIcs(moment)], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = icsFilename(moment);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    /* Revoked on the next tick: same-tick revocation cancels the download in
+       some browsers, and never revoking leaks the blob for the session. */
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function setCalendarWriteEnabled(on: boolean): Promise<void> {
@@ -130,8 +171,11 @@ export async function writeMemoryToCalendar(memory: {
   title: string;
   occurredAt: string | Date;
 }): Promise<string | null> {
-  if (!calendarWriteSupported) return null;
   if (!(await calendarWriteEnabled())) return null;
+
+  /* A download is a visible act, so it happens on request rather than as a
+     side effect of saving — `addMomentToCalendar` below is the web door. */
+  if (!canWriteToDeviceCalendar) return null;
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
@@ -166,8 +210,30 @@ export async function writeMemoryToCalendar(memory: {
  * anything. Turning a switch on and finding out days later that nothing was
  * ever written is worse than being told no at the moment of asking.
  */
+/**
+ * The explicit "put this one on my calendar" action.
+ *
+ * On a phone this writes into the app's own calendar. In a browser it hands
+ * over a file. Both are the reader asking for one specific moment, which is
+ * why this exists beside the automatic path rather than instead of it.
+ */
+export async function addMomentToCalendar(moment: {
+  title: string; occurredAt: string | Date;
+}): Promise<boolean> {
+  if (!canWriteToDeviceCalendar) return downloadIcs(moment);
+  const state = await prepareCalendarWrite();
+  if (state.status !== 'ready') return false;
+  /* Bypasses the preference: this is a direct request, not the background
+     behaviour the toggle governs. */
+  const previous = await calendarWriteEnabled();
+  if (!previous) await setCalendarWriteEnabled(true);
+  const id = await writeMemoryToCalendar(moment);
+  if (!previous) await setCalendarWriteEnabled(false);
+  return !!id;
+}
+
 export async function prepareCalendarWrite(): Promise<CalendarWriteState> {
-  if (!calendarWriteSupported) return { status: 'unsupported' };
+  if (!canWriteToDeviceCalendar) return { status: 'unsupported' };
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
     const Calendar = require('expo-calendar');

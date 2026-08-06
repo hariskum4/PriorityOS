@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { useMemoryDraft } from '@/store/memoryDraft';
-import { writeMemoryToCalendar } from '@/services/calendarWrite';
+import { writeMemoryToCalendar, addMomentToCalendar, canWriteToDeviceCalendar } from '@/services/calendarWrite';
 import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
@@ -661,6 +661,12 @@ function Memories() {
     onSuccess: invalidate,
   });
 
+  /* Explicit, per moment. The background write governed by the You tab
+     toggle is a different thing and only exists on a device. */
+  const toCalendar = useMutation({
+    mutationFn: (m: any) => addMomentToCalendar({ title: m.title, occurredAt: m.occurredAt }),
+  });
+
 
   const togglePerson = (id: string) =>
     setPersonIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -865,15 +871,38 @@ function Memories() {
              * belongs to the day it happened on, and expanding it is editing
              * it — not writing a new thing somewhere else.
              */}
-            <Pressable
-              onPress={() => setEditing(m.id)}
-              accessibilityRole="button"
-              accessibilityLabel={`Write more about ${m.title}`}
-              style={({ pressed }) => [s.writeAbout, pressed && { opacity: 0.7 }]}
-            >
-              <Ionicons name="create-outline" size={14} color={colors.amber} />
-              <Text style={[type.faint, { color: colors.amber }]}>Write more about this</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: space(3), flexWrap: 'wrap' }}>
+              <Pressable
+                onPress={() => setEditing(m.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Write more about ${m.title}`}
+                style={({ pressed }) => [s.writeAbout, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="create-outline" size={14} color={colors.amber} />
+                <Text style={[type.faint, { color: colors.amber }]}>Write more about this</Text>
+              </Pressable>
+              {/**
+               * One moment onto a calendar, asked for rather than assumed.
+               *
+               * On a phone this writes into the app's own calendar; in a
+               * browser it hands over the file every calendar imports. The
+               * destination is the same and the route is whatever the
+               * platform actually has — which is why the action is here on
+               * both rather than hidden on one.
+               */}
+              <Pressable
+                onPress={() => toCalendar.mutate(m)}
+                disabled={toCalendar.isPending}
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${m.title} to your calendar`}
+                style={({ pressed }) => [s.writeAbout, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="calendar-outline" size={14} color={colors.textFaint} />
+                <Text style={type.faint}>
+                  {canWriteToDeviceCalendar ? 'Add to calendar' : 'Download for calendar'}
+                </Text>
+              </Pressable>
+            </View>
             <View style={{ alignSelf: 'flex-start', marginTop: space(1) }}>
               <DangerConfirm
                 label="Delete"

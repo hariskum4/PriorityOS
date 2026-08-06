@@ -12,7 +12,8 @@ import { CityField } from '@/components/CityField';
 import { RegionField } from '@/components/RegionField';
 import { HobbyPicker } from '@/components/HobbyPicker';
 import {
-  calendarWriteSupported, calendarWriteEnabled, setCalendarWriteEnabled, prepareCalendarWrite,
+  calendarWriteSupported, canWriteToDeviceCalendar, calendarWriteEnabled,
+  setCalendarWriteEnabled, prepareCalendarWrite,
 } from '@/services/calendarWrite';
 import { canonicalTimezone, regionOfCity } from '@priority/scoring-engine';
 import {
@@ -492,10 +493,15 @@ export default function You() {
         <Card style={{ gap: space(3) }}>
           <Label>Moments on your calendar</Label>
           <Text style={type.faint}>
-            Kept moments appear on a calendar of their own, on the day they happened.
-            The title only — never what you wrote about it. Delete the calendar any
-            time and nothing here changes.
+            {canWriteToDeviceCalendar
+              ? 'Kept moments appear on a calendar of their own, on the day they happened. '
+                + 'The title only — never what you wrote about it. Delete the calendar any '
+                + 'time and nothing here changes.'
+              : 'In a browser there is no calendar to write to, so each moment can be '
+                + 'downloaded from the archive and opened in whichever calendar you use. '
+                + 'The title only — never what you wrote about it.'}
           </Text>
+          {canWriteToDeviceCalendar && (
           <View style={{ flexDirection: 'row', gap: space(2) }}>
             {([true, false] as const).map((on) => (
               <Pressable
@@ -513,6 +519,7 @@ export default function You() {
               </Pressable>
             ))}
           </View>
+          )}
           {calDenied ? (
             <Text style={[type.faint, { color: colors.rose }]}>
               Your phone declined calendar access, so nothing can be written. It is

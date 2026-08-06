@@ -23,6 +23,7 @@ export * from './safety';
 export * from './tinySteps';
 export * from './norms';
 export * from './journalVoice';
+export * from './ics';
 export * from './goalTitle';
 export * from './lifeWindows';
 export * from './timeArithmetic';
