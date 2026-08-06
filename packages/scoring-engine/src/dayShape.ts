@@ -825,20 +825,27 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   const openBlock = (startMinutes: number, endMinutes: number): DayBlock => {
     const mins = endMinutes - startMinutes;
     const length = formatRun(mins);
+    /**
+     * The name this life gives the block these stretches sit around.
+     *
+     * "before the day starts" read well for somebody who wakes at seven and is
+     * at a desk by nine, and was plainly wrong for the ICU nurse who wakes at
+     * five in the afternoon: at six her day had been going an hour, and the
+     * card told her it had not begun. Anchoring to work fixed her — and handed
+     * a homemaker "60 min before work" on a card that calls the block itself
+     * The household and the footer "the household day". The fixed point is the
+     * block, so it should be named the way the block is named, once.
+     */
+    const anchor = careWork ? 'the household day' : 'work';
     let note: string;
     if (!isWorkday) {
       note = `${length} clear`;
     } else if (endMinutes <= workStart - commute) {
-      /* "before the day starts" read well for somebody who wakes at seven
-         and is at a desk by nine, and was plainly wrong for the ICU nurse
-         who wakes at five in the afternoon: at six her day had been going
-         an hour, and the card told her it had not begun. Work is the fixed
-         point in both lives; the day is not. */
-      note = `${length} before work`;
+      note = `${length} before ${anchor}`;
     } else if (startMinutes >= workEnd + commute) {
-      note = `${length} after work`;
+      note = `${length} after ${anchor}`;
     } else {
-      note = `${length} inside the working day`;
+      note = `${length} inside ${careWork ? 'the household day' : 'the working day'}`;
     }
     return { startMinutes, endMinutes, kind: 'open', label: 'Yours', note };
   };
@@ -1011,7 +1018,7 @@ export function dayShape(input: DayShapeInput = {}): DayShape {
   } else {
     framingText =
       `About ${describeGap(freeMinutes)} of the day is not already spoken for, ` +
-      `the longest run of it ${evening ? formatSpan(evening.startMinutes, evening.endMinutes) : 'after work'}. ` +
+      `the longest run of it ${evening ? formatSpan(evening.startMinutes, evening.endMinutes) : `after ${careWork ? 'the household day' : 'work'}`}. ` +
       `That is the hour worth deciding about on purpose.`;
   }
 

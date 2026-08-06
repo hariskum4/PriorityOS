@@ -1261,3 +1261,38 @@ describe('the week somebody actually works', () => {
     expect(s.blocks.some((b) => b.kind === 'work')).toBe(true);
   });
 });
+
+/**
+ * Kamala keeps a house in Hyderabad from six in the morning until nine at
+ * night. The card names her block "The household" and the footer calls it
+ * "the household day" — and then labelled the hour before it "60 min before
+ * work", which is the word this whole `careWorkIsWork` path exists to avoid.
+ * My own doing: anchoring the free stretches to work is what fixed the ICU
+ * nurse, and it walked straight into the homemaker.
+ */
+describe('a day nobody in it would call work', () => {
+  const household = {
+    wakeHour: 5, sleepHour: 23,
+    workStartHour: 6, workEndHour: 21, workHoursPerWeek: 70,
+    commuteMinutes: 0, workType: 'homemaker',
+    weekday: 4,
+  } as const;
+
+  it('names the free stretches the way it names the block', () => {
+    const shape = dayShape({ ...household });
+    const notes = shape.blocks.filter((b) => b.kind === 'open').map((b) => b.note ?? '');
+    expect(notes.length).toBeGreaterThan(0);
+    for (const n of notes) expect(n).not.toMatch(/\bwork\b/);
+    expect(notes.join(' ')).toMatch(/household day/);
+  });
+
+  it('still says work to somebody who goes to work', () => {
+    const shape = dayShape({
+      wakeHour: 7, sleepHour: 23, workStartHour: 9, workEndHour: 17,
+      workHoursPerWeek: 40, commuteMinutes: 30, workType: 'office_9_5', weekday: 4,
+    });
+    const notes = shape.blocks.filter((b) => b.kind === 'open').map((b) => b.note ?? '');
+    expect(notes.join(' ')).toMatch(/\bwork\b/);
+    expect(notes.join(' ')).not.toMatch(/household/);
+  });
+});
