@@ -462,14 +462,43 @@ export default function You() {
       {/* Accountability partner — the shared-life moat */}
       <Card style={{ gap: space(3) }}>
         <Label>Accountability partner</Label>
+        {/**
+         * This sentence used to read "One person who sees your momentum" and
+         * sat above both halves of the card, which made it wrong twice.
+         *
+         * It described the opposite of what the code does. Inviting somebody
+         * does not give them sight of you — it gives you sight of them:
+         * `list()` returns the links you own with the stats of the person you
+         * invited. Tested by giving the invitee a completed mission and a
+         * streak and the inviter neither, then reading the inviter's screen.
+         *
+         * And because it sat above the incoming invite too, the one person it
+         * most needed to inform was the one it misled. Somebody tapping
+         * Accept was reading "one person who sees your momentum" and getting
+         * the reverse: their own completion rate leaving for somebody else,
+         * with nothing on the row saying so.
+         *
+         * What is shared has always been narrow and stays narrow. What was
+         * missing was an honest account of which way it travels, said on the
+         * screen of the person whose numbers move.
+         */}
         <Text style={type.faint}>
-          One person who sees your momentum — completion rate, streak, whether life is in balance. Never your priorities, people, journal, or memories. Ever.
+          Momentum only — completion rate, streak, whether life is in balance.
+          Never your priorities, people, journal, or memories. Ever.
         </Text>
 
         {(partners?.incoming ?? []).map((inv: any) => (
-          <View key={inv.id} style={s.partnerRow}>
-            <Ionicons name="mail-unread-outline" size={18} color={colors.amber} />
-            <Text style={[type.body, { flex: 1 }]}>{inv.owner?.fullName ?? 'Someone'} invited you</Text>
+          <View key={inv.id} style={[s.partnerRow, { alignItems: 'flex-start' }]}>
+            <Ionicons name="mail-unread-outline" size={18} color={colors.amber} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={type.body}>{inv.owner?.fullName ?? 'Someone'} invited you</Text>
+              {/* The consent, at the moment of consenting, in the direction it
+                  actually goes. */}
+              <Text style={type.faint}>
+                Accepting lets {inv.owner?.fullName ?? 'them'} see your momentum — nothing else,
+                and you can be removed at any time.
+              </Text>
+            </View>
             <Button
               title={accept.isPending ? 'Accepting…' : 'Accept'}
               small

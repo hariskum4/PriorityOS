@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { PartnersService } from './partners.service';
+import { InvitePartnerDto } from './partners.dto';
 
 @UseGuards(JwtGuard)
 @Controller('partners')
@@ -14,7 +15,7 @@ export class PartnersController {
   }
 
   @Post('invite')
-  invite(@CurrentUser() u: JwtUser, @Body() body: { email: string }) {
+  invite(@CurrentUser() u: JwtUser, @Body() body: InvitePartnerDto) {
     return this.partners.invite(u.userId, body.email);
   }
 
