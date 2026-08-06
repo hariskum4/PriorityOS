@@ -623,6 +623,9 @@ function Memories() {
       void writeMemoryToCalendar({
         title: saved?.title ?? title.trim(),
         occurredAt: saved?.occurredAt ?? new Date(),
+        /* The server decides this, never the client — a timed entry means the
+           app watched the clock, and only the server knows whether it did. */
+        timeKnown: saved?.timeKnown,
       });
       /**
        * And the other half of the tab, which until now never heard about any
@@ -664,7 +667,9 @@ function Memories() {
   /* Explicit, per moment. The background write governed by the You tab
      toggle is a different thing and only exists on a device. */
   const toCalendar = useMutation({
-    mutationFn: (m: any) => addMomentToCalendar({ title: m.title, occurredAt: m.occurredAt }),
+    mutationFn: (m: any) => addMomentToCalendar({
+      title: m.title, occurredAt: m.occurredAt, timeKnown: m.timeKnown,
+    }),
   });
 
 
@@ -673,6 +678,27 @@ function Memories() {
 
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+
+  /**
+   * The date, and the hour only where there is one.
+   *
+   * Every moment shows a date. A moment kept from a finished mission also
+   * shows a time, because that one was dated from the completion rather than
+   * from whenever the phone was picked up again — the app watched that clock.
+   * Everything else has a day and nothing more, and printing "12:00" on a
+   * trip somebody dated by hand would be inventing an afternoon.
+   *
+   * Which is the whole point of the distinction being carried this far: the
+   * two look different on the screen, so a time on the page always means
+   * something.
+   */
+  const fmtWhen = (m: { occurredAt: string; timeKnown?: boolean }) => (
+    m.timeKnown
+      ? `${fmtDate(m.occurredAt)} · ${new Date(m.occurredAt).toLocaleTimeString(undefined, {
+        hour: 'numeric', minute: '2-digit',
+      })}`
+      : fmtDate(m.occurredAt)
+  );
 
   return (
     <>
@@ -685,7 +711,7 @@ function Memories() {
           {onThisDay.slice(0, 2).map((m) => (
             <View key={m.id}>
               <Text style={type.serif}>{m.title}</Text>
-              <Text style={type.faint}>{fmtDate(m.occurredAt)}</Text>
+              <Text style={type.faint}>{fmtWhen(m)}</Text>
             </View>
           ))}
         </Card>
@@ -823,7 +849,7 @@ function Memories() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {m.domainType ? <DomainDot domain={m.domainType} /> : null}
               <Text style={[type.heading, { flex: 1 }]}>{m.title}</Text>
-              <Text style={type.faint}>{fmtDate(m.occurredAt)}</Text>
+              <Text style={type.faint}>{fmtWhen(m)}</Text>
               <Pressable onPress={() => setEditing(m.id)} hitSlop={8}>
                 <Ionicons name="create-outline" size={15} color={colors.textFaint} />
               </Pressable>

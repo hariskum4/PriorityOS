@@ -13,15 +13,15 @@
  * place it was being reviewed. A capability nobody can see is a capability
  * nobody can judge.
  *
- * Same two rules as the device path, for the same reasons. All-day, because a
- * memory has a date and not an hour and inventing nine o'clock would be the
- * app making something up. Title only: the account, the conversation and the
- * keepsake stay in the archive, because a calendar entry is read over
- * shoulders and synced by whatever the reader is signed into.
+ * Same two rules as the device path, for the same reasons. Title only: the
+ * account, the conversation and the keepsake stay in the archive, because a
+ * calendar entry is read over shoulders and synced by whatever the reader is
+ * signed into. And a date rather than an hour, unless the app was actually
+ * there for the hour — see `timeKnown` below.
  *
- * Deliberately not a library. RFC 5545 for a single all-day VEVENT is a dozen
- * lines, and the escaping rules below are the entire reason a dependency
- * would have been worth considering.
+ * Deliberately not a library. RFC 5545 for a single VEVENT is a dozen lines,
+ * and the escaping rules below are the entire reason a dependency would have
+ * been worth considering.
  */
 
 /** `YYYYMMDD`, in local time, which is what an all-day DATE value means. */
@@ -71,9 +71,35 @@ function fold(line: string): string {
 export interface IcsMoment {
   title: string;
   occurredAt: string | Date;
+  /**
+   * Whether the hour on `occurredAt` means anything.
+   *
+   * All-day was the only shape here for a reason worth keeping: a memory
+   * usually has a date and not an hour, and printing nine o'clock on an
+   * evening nobody described would be the app making something up.
+   *
+   * But there is one case where the hour is real. A moment kept from a
+   * finished mission is dated from `mission.completedAt` — the app watched
+   * that clock, and it is the difference between "Tuesday" and "the call you
+   * made at 7:04 on Tuesday evening". Discarding a fact the app actually
+   * holds is its own kind of dishonesty, so the flag travels and the two
+   * cases render differently.
+   */
+  timeKnown?: boolean;
   /** Stable across regenerations, so re-importing replaces rather than duplicates. */
   id?: string;
 }
+
+/**
+ * How long a kept moment lasts, which is a thing nobody knows.
+ *
+ * The archive never asks, and a zero-length event is dropped outright by some
+ * calendars — so a timed moment gets the smallest block that still renders on
+ * a week grid. With `TRANSP:TRANSPARENT` below it reads as a mark on the day
+ * rather than a booking, which is the honest claim: this is when it started,
+ * not how long it took.
+ */
+const MARK_MINUTES = 15;
 
 /**
  * A complete `.ics` document for one moment.
@@ -86,12 +112,28 @@ export interface IcsMoment {
 export function momentToIcs(moment: IcsMoment): string {
   const day = new Date(moment.occurredAt);
   if (Number.isNaN(day.getTime())) throw new Error('occurredAt is not a date');
-  const next = new Date(day);
-  next.setDate(next.getDate() + 1);
 
-  /* DTEND is exclusive for an all-day event: a one-day moment ends on the
-     following date, and using the same date produces a zero-length event that
-     some calendars silently drop. */
+  /* Timed events go out in UTC — the `Z` form. `occurredAt` is an instant the
+     app recorded, not a wall-clock reading someone typed, so it needs no time
+     zone to be unambiguous and every calendar renders it in the reader's own.
+     All-day is the opposite: a DATE value is deliberately floating, because a
+     memory belongs to a day wherever it is being read. */
+  let when: string[];
+  if (moment.timeKnown) {
+    const end = new Date(day.getTime() + MARK_MINUTES * 60_000);
+    when = [`DTSTART:${utcStamp(day)}`, `DTEND:${utcStamp(end)}`];
+  } else {
+    /* DTEND is exclusive for an all-day event: a one-day moment ends on the
+       following date, and using the same date produces a zero-length event
+       that some calendars silently drop. */
+    const next = new Date(day);
+    next.setDate(next.getDate() + 1);
+    when = [
+      `DTSTART;VALUE=DATE:${dateStamp(day)}`,
+      `DTEND;VALUE=DATE:${dateStamp(next)}`,
+    ];
+  }
+
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -101,8 +143,7 @@ export function momentToIcs(moment: IcsMoment): string {
     'BEGIN:VEVENT',
     `UID:${moment.id ?? `${dateStamp(day)}-${Math.abs(hash(moment.title))}`}@priority.app`,
     `DTSTAMP:${utcStamp(new Date())}`,
-    `DTSTART;VALUE=DATE:${dateStamp(day)}`,
-    `DTEND;VALUE=DATE:${dateStamp(next)}`,
+    ...when,
     `SUMMARY:${escapeText(moment.title)}`,
     /* No DESCRIPTION. See the title-only rule above. */
     'TRANSP:TRANSPARENT',

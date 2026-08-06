@@ -38,6 +38,37 @@ describe('a moment as a calendar file', () => {
     expect(ics).toContain('DTEND;VALUE=DATE:20090615');
   });
 
+  it('keeps the hour when the app was there for it', () => {
+    /* A moment kept from a finished mission is dated from `completedAt`, so
+       the hour is a fact and not a guess. Sent as UTC, which needs no time
+       zone to be unambiguous and renders in the reader's own. */
+    const ics = momentToIcs({
+      title: 'Called Amma',
+      occurredAt: '2026-08-06T13:34:57.000Z',
+      timeKnown: true,
+    });
+    expect(ics).toContain('DTSTART:20260806T133457Z');
+    expect(ics).toContain('DTEND:20260806T134957Z');
+    expect(ics).not.toContain('VALUE=DATE');
+  });
+
+  it('stays all day when nobody watched the clock', () => {
+    /* The default, and the common case: the archive never asked what time the
+       call was, and inventing nine o'clock would be the app making something
+       up about somebody's evening. */
+    const ics = momentToIcs({ title: 'Kerala trip', occurredAt: AT, timeKnown: false });
+    expect(ics).toContain('DTSTART;VALUE=DATE:20090614');
+    expect(ics).not.toMatch(/DTSTART:\d{8}T/);
+  });
+
+  it('marks the day rather than booking it', () => {
+    /* Nobody knows how long a kept moment took, so a timed one gets the
+       smallest block that still renders — and stays transparent, so it is a
+       mark on the day and not an hour claimed as busy. */
+    const ics = momentToIcs({ title: 'Called Amma', occurredAt: AT, timeKnown: true });
+    expect(ics).toContain('TRANSP:TRANSPARENT');
+  });
+
   it('escapes the characters that are separators to a parser', () => {
     /* Unescaped, "Dinner with Amma, then the long walk" arrives truncated at
        the comma — or corrupts the file. */

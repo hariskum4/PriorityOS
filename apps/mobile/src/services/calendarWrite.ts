@@ -93,7 +93,9 @@ export async function calendarWriteEnabled(): Promise<boolean> {
  * page and offered as a download, so a moment reaches a calendar without a
  * permission, a server round trip, or an account anywhere.
  */
-function downloadIcs(moment: { title: string; occurredAt: string | Date }): boolean {
+function downloadIcs(moment: {
+  title: string; occurredAt: string | Date; timeKnown?: boolean;
+}): boolean {
   try {
     const blob = new Blob([momentToIcs(moment)], { type: 'text/calendar;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -156,11 +158,21 @@ async function ensureCalendar(Calendar: any): Promise<string> {
 }
 
 /**
- * Put one kept moment on the calendar, on the day it happened.
+ * How long a kept moment lasts, which is a thing nobody knows. Mirrors
+ * `MARK_MINUTES` in the file path — the smallest block that still renders on
+ * a week grid, and see the note there for why it is not zero.
+ */
+const MARK_MINUTES = 15;
+
+/**
+ * Put one kept moment on the calendar, on the day it happened — and at the
+ * hour, where there is one.
  *
- * All-day, because a memory has a date and not an hour — the archive never
- * asked what time the call was, and inventing 9am to fill a field would be
- * the app making something up about somebody's evening.
+ * All-day is still the default and still the common case: the archive does
+ * not ask what time the call was, and inventing 9am to fill a field would be
+ * the app making something up about somebody's evening. The exception is a
+ * moment kept from a finished mission, which is dated from `completedAt` —
+ * an hour the app genuinely watched, and `timeKnown` is what says so.
  *
  * Returns null rather than throwing on every failure path. A calendar write
  * is a courtesy attached to saving a moment; the moment is already safe in
@@ -170,6 +182,7 @@ async function ensureCalendar(Calendar: any): Promise<string> {
 export async function writeMemoryToCalendar(memory: {
   title: string;
   occurredAt: string | Date;
+  timeKnown?: boolean;
 }): Promise<string | null> {
   if (!(await calendarWriteEnabled())) return null;
 
@@ -186,17 +199,24 @@ export async function writeMemoryToCalendar(memory: {
     if (status !== 'granted') return null;
 
     const calendarId = await ensureCalendar(Calendar);
-    const day = new Date(memory.occurredAt);
-    if (Number.isNaN(day.getTime())) return null;
-    day.setHours(0, 0, 0, 0);
-    const end = new Date(day);
-    end.setDate(end.getDate() + 1);
+    const at = new Date(memory.occurredAt);
+    if (Number.isNaN(at.getTime())) return null;
+
+    const start = new Date(at);
+    const end = new Date(at);
+    if (memory.timeKnown) {
+      end.setMinutes(end.getMinutes() + MARK_MINUTES);
+    } else {
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      end.setDate(end.getDate() + 1);
+    }
 
     return await Calendar.createEventAsync(calendarId, {
       title: memory.title,
-      startDate: day,
+      startDate: start,
       endDate: end,
-      allDay: true,
+      allDay: !memory.timeKnown,
       /* No notes field on purpose — see the titles-only rule above. */
       timeZone: Calendar.DEFAULT ?? undefined,
     });
@@ -218,7 +238,7 @@ export async function writeMemoryToCalendar(memory: {
  * why this exists beside the automatic path rather than instead of it.
  */
 export async function addMomentToCalendar(moment: {
-  title: string; occurredAt: string | Date;
+  title: string; occurredAt: string | Date; timeKnown?: boolean;
 }): Promise<boolean> {
   if (!canWriteToDeviceCalendar) return downloadIcs(moment);
   const state = await prepareCalendarWrite();

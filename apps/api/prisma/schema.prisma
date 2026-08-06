@@ -306,6 +306,19 @@ model Memory {
   conversation   String?   // "What did we talk about?"
   keepsake       String?   // "What do you want to remember about it?"
   occurredAt     DateTime  @default(now())
+  /// Whether the hour on `occurredAt` means anything.
+  ///
+  /// The column has always been a DateTime and has always carried a time, and
+  /// for most rows that time is when somebody typed — 44% of the archive had
+  /// `occurredAt` within a minute of `createdAt`. Showing it would put an
+  /// invented hour on somebody's evening, so the record has to say which of
+  /// the two it is holding rather than leaving every reader to guess.
+  ///
+  /// True only where the app genuinely watched the clock: a moment kept from
+  /// a finished mission, dated from `mission.completedAt`. False everywhere
+  /// else, including every row that existed before this column, which is why
+  /// the default is the cautious one.
+  timeKnown      Boolean   @default(false)
   createdAt      DateTime  @default(now())
 
   @@index([userId, occurredAt])

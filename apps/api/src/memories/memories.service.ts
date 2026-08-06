@@ -246,6 +246,29 @@ export class MemoriesService {
       return { ...memory, xp: null, alreadyKept: true };
     }
 
+    /**
+     * The hour the thing happened, when there is one.
+     *
+     * `new Date()` was the old answer, and it is the moment somebody pressed
+     * Save rather than the moment they finished — measurably so: kept at
+     * 07:05:51 against a mission completed at 07:04:57. Fifty-four seconds in
+     * a test, and however long it takes a real person to put the phone down,
+     * open the app and write something after a call that actually mattered.
+     *
+     * `mission.completedAt` is the moment the app was there for, and it has
+     * been sitting on the row the whole time. Everything else — a moment
+     * typed from nothing, a date chosen by hand — gets no claim to an hour at
+     * all, and `timeKnown` is what carries that distinction to every surface
+     * that might otherwise print one.
+     */
+    const fromMission = data.missionId
+      ? await this.prisma.mission.findFirst({
+        where: { id: data.missionId, userId },
+        select: { completedAt: true },
+      })
+      : null;
+    const knownAt = data.occurredAt ? null : fromMission?.completedAt ?? null;
+
     const memory = await this.prisma.memory.create({
       data: {
         userId,
@@ -260,7 +283,10 @@ export class MemoriesService {
         reflection: data.reflection ?? null,
         conversation: data.conversation ?? null,
         keepsake: data.keepsake ?? null,
-        occurredAt: data.occurredAt ? new Date(data.occurredAt) : new Date(),
+        occurredAt: data.occurredAt ? new Date(data.occurredAt) : (knownAt ?? new Date()),
+        /* Only an hour the app watched. A date somebody typed is a date,
+           and the time on it means nothing. */
+        timeKnown: !!knownAt,
       },
     });
     const xp = await this.game.award(
@@ -319,7 +345,20 @@ export class MemoriesService {
       if (data[field] !== undefined) patch[field] = data[field];
     }
     if (Array.isArray(data.peoplePresent)) patch.peoplePresent = data.peoplePresent;
-    if (data.occurredAt) patch.occurredAt = new Date(data.occurredAt);
+    /**
+     * A date set by hand gives up the hour, always.
+     *
+     * The edit form writes noon — `${occurredOn}T12:00:00.000Z` — because a
+     * date input has no time in it. On a moment kept from a mission that would
+     * have left `timeKnown` standing and printed "12:00 PM" over an evening
+     * nobody described, which is precisely the invention the flag exists to
+     * prevent. Correcting the year of a graduation must not manufacture a
+     * lunchtime.
+     */
+    if (data.occurredAt) {
+      patch.occurredAt = new Date(data.occurredAt);
+      patch.timeKnown = false;
+    }
     return this.prisma.memory.update({ where: { id }, data: patch });
   }
 

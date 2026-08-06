@@ -1,0 +1,13 @@
+-- Which memories have an hour anybody can stand behind.
+--
+-- `occurredAt` has always been a DateTime and has always held a time. For
+-- most rows that time is when somebody sat down to type: of 186 memories,
+-- 81 had `occurredAt` within a minute of `createdAt`, and only 26 came from
+-- a finished mission at all. Displaying it would put an invented hour on
+-- somebody's evening — "Called Amma, 9:16am" when the call was the night
+-- before and 9:16 is when they wrote it down.
+--
+-- Default false, deliberately: every row that already exists is one we
+-- cannot vouch for, and the cautious default is what stops this column
+-- turning old guesses into new claims.
+ALTER TABLE "Memory" ADD COLUMN "timeKnown" BOOLEAN NOT NULL DEFAULT false;

@@ -43,6 +43,11 @@ export class CreateMemoryDto {
      "Kerala trips with Amma" is not necessarily about this week. */
   @IsOptional() @IsISO8601({}, { message: 'occurredAt must be an ISO date' })
   occurredAt?: string;
+
+  /* `timeKnown` is deliberately absent, and not accepted from a caller. It is
+     a statement about what the app witnessed, not a claim a client gets to
+     make on its own behalf — the service derives it from whether a finished
+     mission supplied the hour. */
 }
 
 /** Everything optional: an edit says only what changed. */
