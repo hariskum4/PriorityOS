@@ -5,6 +5,7 @@ import { MissionsService } from '../missions/missions.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { InsightsService } from '../insights/insights.service';
 import { AiService } from '../ai/ai.service';
+import { DigestService } from '../life-os/digest.service';
 import { DAILY_FOCUS } from '@priority/ai-prompts';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class DashboardService {
     private game: GamificationService,
     private insights: InsightsService,
     private ai: AiService,
+    private digest: DigestService,
     private clock: UserClock,
   ) {}
 
@@ -103,14 +105,28 @@ export class DashboardService {
         'One honest step. That’s the whole assignment.',
       ];
       const dayIndex = Math.floor(Date.now() / 86_400_000) % encouragements.length;
+      /**
+       * The whole reading, not three numbers about one domain.
+       *
+       * "Why this mission, today" is a question about what it beats, and the
+       * context here could not answer it: the mission's own neglect risk and
+       * importance, and nothing about the rest of the life it was competing
+       * with. The digest is ~200 tokens and carries what is starving, who has
+       * slipped past their own rhythm, what is being kept and what the week
+       * left behind — every number of it already computed for a screen, so
+       * anything the model quotes is something the reader can check.
+       *
+       * Never fatal. A digest that fails to build leaves the model with the
+       * mission alone, which is what it had before this line existed.
+       */
+      const digest = await this.digest.forUser(userId).catch(() => null);
       whyToday = await this.ai.generate(
         userId,
         'daily_focus',
         DAILY_FOCUS,
         {
           mission: { title: topMission.title, domain: topMission.domainType, person: personName },
-          neglectRisk: Number(domain?.neglectRiskScore ?? 0),
-          importance: Number(domain?.importanceScore ?? 0),
+          digest,
         },
         { whyToday: fallbackWhy, encouragement: encouragements[dayIndex] },
         // One generation per mission per day — not one per page load.

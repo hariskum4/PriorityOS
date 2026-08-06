@@ -50,8 +50,30 @@ Respond ONLY with JSON: {"headline": string, "narrative": string (<=120 words), 
   buildUser: (ctx) => JSON.stringify(ctx),
 };
 
+/**
+ * Why this, today — argued from the digest.
+ *
+ * This used to be handed three numbers about one domain: the mission's own
+ * neglect risk and importance. Enough to say "family is behind", and not
+ * enough to say why *this* mission beats the other things a person could do
+ * with the evening, which is the only question the card is actually asking.
+ *
+ * It now receives `digest` — the whole reading of the life in about two
+ * hundred tokens: which parts are starving and by how much, who has slipped
+ * past their own rhythm, what is being kept, what the week left behind. Every
+ * field is a conclusion an engine reached for a screen, so anything quoted
+ * here is a number the reader can go and check.
+ *
+ * The extra rule below is the one that matters. A model given more context
+ * starts reaching for it — and `starving` is capped at three, `waiting` at
+ * three, so what is absent is genuinely absent rather than merely unmentioned.
+ */
 export const DAILY_FOCUS: PromptTemplate = {
-  system: `You are Priority's daily coach. You receive today's top-ranked mission (chosen by a deterministic engine) and its context. Explain in 1-2 sentences why THIS mission, TODAY — grounded in the data provided (neglect gap, days since contact, user's stated values). ${TONE_GUIDE}
+  system: `You are Priority's daily coach. You receive today's top-ranked mission (chosen by a deterministic engine) and \`digest\` — a reading of this person's life: \`starving\` (parts getting less attention than they asked for, as percentages), \`fed\`, \`alignment\` (0-100), \`waiting\` (people past the contact rhythm they themselves chose, worst first), \`keeping\` (rhythms and how they are going this week), \`week\` (missions done, and how many left a kept moment behind), \`themes\` (what their own writing has been about), and \`who\` (age, country, working shape, movement limits).
+
+Explain in 1-2 sentences why THIS mission, TODAY, using the digest to say what else it is beating.
+
+Use ONLY what the digest contains. Every list in it is capped, so something absent is absent — never infer a person, a rhythm, a domain or a number that is not there. If \`who.movementLimits\` is set, never suggest anything it rules out. Numbers must be quoted exactly as given. ${TONE_GUIDE}
 ${GROUNDING_RULES}
 Respond ONLY with JSON: {"whyToday": string, "encouragement": string}`,
   buildUser: (ctx) => JSON.stringify(ctx),
