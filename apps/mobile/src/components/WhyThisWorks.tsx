@@ -83,8 +83,17 @@ export function WhyThisWorks({ idOrTitle, evidence }: {
           ) : null}
           {/* Then how well it is known, which is a different question from
               how much it helps and is labelled so it cannot be read as the
-              same one. */}
-          <Text style={type.faint}>How well this is known: {GRADE_LABELS[ev.grade]}</Text>
+              same one.
+
+              Except for folk, where the sentence above has already said it —
+              "Nobody has studied whether making the bed changes anything",
+              followed by "How well this is known: nobody has studied this",
+              is the app repeating itself to fill a slot. The bank's tests
+              require every folk record to explain itself in the plain
+              sentence, which is what makes dropping the line safe. */}
+          {ev.grade === 'folk' ? null : (
+            <Text style={type.faint}>How well this is known: {GRADE_LABELS[ev.grade]}</Text>
+          )}
           {/* The caveat, kept rather than dropped for a tidier card. Dose
               gaps, replication trouble, and who the benefit actually lands
               on all live here. */}

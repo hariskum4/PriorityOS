@@ -537,7 +537,7 @@ const RUNG_EVIDENCE: Record<string, Evidence> = {
   'Learn one thing that outlasts this role': PRACTICE,
   'Ask for the thing you have been not asking for': {
     grade: 'folk',
-    plain: 'That people ask for far less than they could is well documented. That asking anyway helps is our inference from it, not a finding.',
+    plain: 'That people ask for far less than they could is well documented. Whether asking anyway helps is not something anybody has studied — that part is our inference.',
   },
   'Protect one evening a week from work, every week': DETACHMENT,
 
@@ -633,7 +633,7 @@ const RUNG_EVIDENCE: Record<string, Evidence> = {
   'Call the one who moved away': SOCIAL_CONNECTION,
   'Introduce two people who should know each other': {
     grade: 'folk',
-    plain: 'Well studied for careers, not at all for happiness. Kept because two people you like meeting each other costs nothing and occasionally changes both their lives.',
+    plain: 'Well studied for careers; nobody has studied it for happiness. Kept because two people you like meeting each other costs nothing and occasionally changes both their lives.',
   },
   'Host something small': SOCIAL_ACTIVATION,
   'Put a standing monthly catch-up in the calendar': IMPLEMENTATION_INTENTION,

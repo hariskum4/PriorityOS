@@ -294,6 +294,24 @@ describe('the plain sentence is the one a reader can use', () => {
    * "writing helps" would be a lie told by omission. Wherever the precise
    * version calls the effect small, the readable version has to say so too.
    */
+  /**
+   * Folk says so in the sentence, not only in the label.
+   *
+   * The panel drops the "How well this is known" line for folk, because
+   * printing "nobody has studied this" directly under "Nobody has studied
+   * whether making the bed changes anything" is the app repeating itself to
+   * fill a slot. That is only safe while every folk record admits what it is
+   * in the sentence a reader actually gets — so this is the check the
+   * suppression rests on.
+   */
+  it('lets a folk entry say out loud that it is folk', () => {
+    const ADMITS = /\b(nobody has|(?:anybody|anyone) has studied|no studies|no solid evidence|no trials|not (?:been )?studied|barely been studied|found no benefit|are thin|only by watching|only observed|no direct outcome|no evidence)\b/i;
+    const quiet = Object.entries({ ...EVIDENCE, ...PROPOSED })
+      .filter(([, ev]) => ev.grade === 'folk' && !ADMITS.test(ev.plain ?? ''))
+      .map(([id, ev]) => `${id}: ${ev.plain}`);
+    expect(quiet, quiet.join('\n')).toEqual([]);
+  });
+
   it('keeps a small finding small', () => {
     const SAYS_SMALL = /\b(small|tiny|modest|slight)\b/i;
     const STILL_SMALL = /\b(small|tiny|modest|slight(?:ly)?|a little|little|barely|not dramatic|only)\b/i;
