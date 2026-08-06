@@ -354,3 +354,82 @@ describe('a personal stack in the pool', () => {
     expect(out.stacks[0].key).not.toBe('gen.stack.idle');
   });
 });
+
+/**
+ * A stack you already took must stop being offered.
+ *
+ * The service excluded anything already on the missions list from the start —
+ * and compared it against the catalog's own phrasing, which is not the
+ * phrasing that reaches a list. The wording pass rewrites every action, and a
+ * mission taken from the card stores what the reader saw, so the two strings
+ * could never match. Accepting a stack on Today and reloading offered the same
+ * evening straight back; accepting it twice put two copies on the list.
+ *
+ * The fixture is the failure: the model returns the rewrite, and the pending
+ * mission is that rewrite. Nothing about the pre-craft wording can catch it.
+ */
+describe('a stack already on the missions list', () => {
+  const REWRITE = 'Walk the block with Priya and talk out the next chapter';
+
+  function prismaWithPending(titles: string[]) {
+    return {
+      lifeDomain: {
+        findMany: async () => [
+          { domainType: 'purpose', importanceScore: 60, attentionScore: 0 },
+          { domainType: 'health', importanceScore: 40, attentionScore: 35 },
+        ],
+      },
+      relationship: { findMany: async () => [] },
+      mission: { findMany: async ({ where }: any) => (
+        where.status === 'pending' ? titles.map((title) => ({ title })) : []
+      ) },
+      user: { findUnique: async () => USER },
+    } as any;
+  }
+
+  const personal = [{
+    key: 'gen.stack.walkthink',
+    action: 'Walk the block and talk out the next chapter',
+    domains: ['purpose', 'health'],
+    framing: 'The thinking happens better on your feet, and your legs get the hour',
+    setting: ['canMove'],
+  }];
+
+  /** The model, doing exactly its job: same slot, better words. */
+  const crafting = () => fakeAi(true, {
+    stacks: [{ key: 'gen.stack.walkthink', action: REWRITE, framing: 'One walk, two things.' }],
+  });
+
+  it('is offered when nothing like it is pending', async () => {
+    const out = await new StacksService(
+      prismaWithPending([]), crafting(), { stacksFor: async () => personal } as any,
+    ).forUser('u1', 3);
+    expect(out.stacks.map((s) => s.action)).toContain(REWRITE);
+  });
+
+  it('is dropped once the reader has taken it — matched on what they saw', async () => {
+    const out = await new StacksService(
+      prismaWithPending([REWRITE]), crafting(), { stacksFor: async () => personal } as any,
+    ).forUser('u1', 3);
+    expect(out.stacks.map((s) => s.action)).not.toContain(REWRITE);
+  });
+
+  it('does not care about capitals or stray spacing', async () => {
+    const out = await new StacksService(
+      prismaWithPending([`  ${REWRITE.toUpperCase()} `]), crafting(),
+      { stacksFor: async () => personal } as any,
+    ).forUser('u1', 3);
+    expect(out.stacks.map((s) => s.action)).not.toContain(REWRITE);
+  });
+
+  it('reports help only from the stacks it actually still offers', async () => {
+    /* `helps` is computed from the list, and computing it before the filter
+       would have the card claiming to feed a domain via a move the reader has
+       already taken. */
+    const out = await new StacksService(
+      prismaWithPending([REWRITE]), crafting(), { stacksFor: async () => personal } as any,
+    ).forUser('u1', 3);
+    const offered = new Set(out.stacks.flatMap((s) => s.covers));
+    for (const d of out.helps) expect(offered.has(d)).toBe(true);
+  });
+});

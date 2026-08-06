@@ -234,9 +234,34 @@ export class StacksService {
     );
 
     const merged = this.merge(engine, crafted?.stacks, stackPeople.map((p) => p.name));
+
+    /**
+     * And again, now that the words are final.
+     *
+     * `exclude` above is compared against the catalog's own phrasing, which is
+     * the phrasing the engine works in. It is not the phrasing that ends up on
+     * anybody's list: the wording pass below rewrites every action, and a
+     * mission taken from this card stores what the reader saw. "A monthly
+     * money review with Imran" becomes "Review monthly finances together over
+     * tea or dinner with Imran", and the two strings can never match — so a
+     * stack accepted on Today was offered again on the next load, and
+     * accepting it twice put two copies of the same evening on the list.
+     *
+     * Filtering after the merge is the whole fix. The right one is for a
+     * mission to record which stack it came from, which needs a column; this
+     * needs nothing, and it closes the case that actually happens.
+     *
+     * Dropping everything is a real answer. It means every move this person
+     * was going to be offered is already on their list, and the card correctly
+     * shows nothing rather than the same suggestion a third time.
+     */
+    const taken = new Set(exclude.map((t) => t.trim().toLowerCase()));
+    const fresh = merged.stacks.filter((s) => !taken.has(s.action.trim().toLowerCase()));
+
     return {
       ...base,
-      stacks: merged.stacks,
+      stacks: fresh,
+      helps: shortfallsCovered(fresh),
       source: merged.changed ? 'ai' : 'catalog',
     };
   }
