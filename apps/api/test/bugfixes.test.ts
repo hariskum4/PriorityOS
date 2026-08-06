@@ -365,7 +365,9 @@ describe('a habit remembers which catalog entry it is', () => {
  * arrive with no user error at all.
  */
 describe('a mission has one kept moment, however many times it is saved', () => {
-  const memoriesFor = () => new MemoriesService(prisma, gameStub as never);
+  /* Analytics is a side effect of keeping a moment, not part of the
+   idempotency these tests are about. */
+  const memoriesFor = () => new MemoriesService(prisma, gameStub as never, { track: async () => ({ ok: true }) } as never);
 
   it('does not write a second row for the same mission', async () => {
     const memories = memoriesFor();

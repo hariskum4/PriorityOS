@@ -47,7 +47,13 @@ function svc(opts: {
     },
   };
   return {
-    service: new MemoriesService(prisma as any, { award: async () => 0 } as any),
+    /* Analytics is fire-and-forget on the create path; these tests are about
+       the counts arithmetic and only need it not to throw. */
+    service: new MemoriesService(
+      prisma as any,
+      { award: async () => 0 } as any,
+      { track: async () => ({ ok: true }) } as any,
+    ),
     updates,
     memories,
   };

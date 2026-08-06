@@ -6,6 +6,7 @@ import { GamificationService } from '../gamification/gamification.service';
 import { AiService } from '../ai/ai.service';
 import { JOURNAL_DRAFT } from '@priority/ai-prompts';
 import { firstPersonPast, insightPrompt } from '@priority/scoring-engine';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 @Injectable()
 export class JournalService {
@@ -14,6 +15,7 @@ export class JournalService {
     private scoring: ScoringService,
     private game: GamificationService,
     private ai: AiService,
+    private analytics: AnalyticsService,
   ) {}
 
   /**
@@ -130,6 +132,24 @@ export class JournalService {
       data.gladNotPostponed,
       data.freeText,
     );
+
+    /**
+     * The other act nothing counted.
+     *
+     * Which of the boxes somebody actually fills is the most useful thing
+     * this event can carry: the journal asks four questions and a mood, and
+     * whether people answer the difficult one is a product question, not a
+     * curiosity. Booleans only — no word of anybody's entry leaves here, and
+     * the crisis flag is not sent at all. That one exists to offer somebody a
+     * phone number, not to be counted.
+     */
+    await this.analytics.track(userId, 'journal_entry_written', {
+      hasMood: data.mood != null,
+      hasWhatMattered: !!entry.whatMattered,
+      hasWhatIAvoided: !!entry.whatIAvoided,
+      hasGratitude: !!entry.gratitude,
+      tagged: (entry.domainTags as unknown[] ?? []).length > 0,
+    });
 
     return { ...entry, supportSuggested };
   }

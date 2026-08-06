@@ -33,8 +33,8 @@ beforeAll(async () => {
   prisma = await testPrisma();
   people = new RelationshipsService(prisma, aiStub as never);
   goals = new GoalsService(prisma);
-  journal = new JournalService(prisma, scoringStub as never, gameStub as never);
-  memories = new MemoriesService(prisma, gameStub as never);
+  journal = new JournalService(prisma, scoringStub as never, gameStub as never, { generate: async (_u: unknown, _k: unknown, _t: unknown, _c: unknown, fb: unknown) => fb } as never, { track: async () => ({ ok: true }) } as never);
+  memories = new MemoriesService(prisma, gameStub as never, { track: async () => ({ ok: true }) } as never);
 });
 
 beforeEach(async () => {

@@ -31,7 +31,8 @@ function make() {
   /* The draft path is the only thing that touches AI, and it is exercised in
      its own describe below with the model deliberately off. */
   const ai = { generate: vi.fn(async (_u: string, _k: string, _t: unknown, _c: unknown, fallback: unknown) => fallback) } as any;
-  return { svc: new JournalService(prisma, scoring, game, ai), created, scoring, game, ai };
+  const analytics = { track: vi.fn(async () => ({ ok: true })) } as any;
+  return { svc: new JournalService(prisma, scoring, game, ai, analytics), created, scoring, game, ai, analytics };
 }
 
 const USER = 'u1';

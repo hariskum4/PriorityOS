@@ -2,12 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ritualTokens } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { GamificationService } from '../gamification/gamification.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 @Injectable()
 export class MemoriesService {
   constructor(
     private prisma: PrismaService,
     private game: GamificationService,
+    private analytics: AnalyticsService,
   ) {}
 
   list(userId: string, filters: { person?: string; countKey?: string } = {}) {
@@ -267,6 +269,38 @@ export class MemoriesService {
       memory.domainType ?? 'reflection',
       memory.id,
     );
+    /**
+     * The act this whole product is arranged around, and it was the one act
+     * nothing measured.
+     *
+     * Two things were tracked server-side — a mission completed and
+     * onboarding finished — and the XP ledger has awarded `memory_logged`
+     * since the beginning, so the name existed and simply never reached
+     * analytics. Which left the funnel able to say how many people finished a
+     * task and unable to say whether anybody ever kept one, when keeping is
+     * the thing the Time tab counts toward and the archive exists for.
+     *
+     * The properties are the ones that answer a question later: whether a
+     * moment came from a finished mission or was written from nothing, and
+     * whether it was logged about today or about something years back —
+     * because "people come here to record the past" and "people come here to
+     * mark the present" are different products.
+     */
+    const daysBack = Math.round(
+      (Date.now() - memory.occurredAt.getTime()) / 86_400_000,
+    );
+    await this.analytics.track(userId, 'memory_logged', {
+      domainType: memory.domainType,
+      fromMission: !!memory.missionId,
+      withPeople: (memory.peoplePresent as unknown[] ?? []).length,
+      /* Banded rather than exact: the question is "was this today, this week,
+         or a long time ago", and a raw day count is a timestamp by another
+         name. */
+      age: daysBack <= 1 ? 'today' : daysBack <= 7 ? 'this-week' : daysBack <= 365 ? 'this-year' : 'older',
+      hasAccount: !!memory.reflection,
+      hasConversation: !!memory.conversation,
+      hasKeepsake: !!memory.keepsake,
+    });
     return { ...memory, xp };
   }
 
