@@ -91,17 +91,43 @@ export class CronController {
    *
    * These used to sit behind a pair of Vercel functions that took the
    * scheduler's GET and turned it into a POST against Render. With the API on
-   * Vercel there is nothing left in between and the scheduler calls this
+   * Vercel there is nothing between them and the scheduler calls this
    * directly — so the verb it actually sends is the one that has to work.
    *
    * A GET that starts work is normally a mistake: something will prefetch it.
-   * Here nothing can, because `assertInvited` gates both, and the jobs are
-   * idempotent besides — the daily batch's notification key is the date, and
-   * the weekly snapshot upserts on (user, domain, week).
+   * Here nothing can, because `assertInvited` gates every route below, and the
+   * jobs are idempotent besides — the daily batch's notification key is the
+   * date, and the weekly snapshot upserts on (user, domain, week).
+   *
+   * **Two handlers, not two decorators on one.** The first version of this
+   * stacked `@Get('daily')` and `@Post('daily')` on a single method, which
+   * reads as if it registers both and does not: Nest keeps one, and the
+   * deployed preview answered GET with 401 and POST with 404. The comment
+   * above it claimed both worked, so the only thing that caught it was
+   * curling the deployment. A thin pair delegating to one implementation is
+   * the shape that actually does what it says.
    */
   @Get('daily')
+  dailyByGet(@Headers('authorization') auth?: string) {
+    return this.daily(auth);
+  }
+
   @Post('daily')
-  daily(@Headers('authorization') auth?: string) {
+  dailyByPost(@Headers('authorization') auth?: string) {
+    return this.daily(auth);
+  }
+
+  @Get('weekly')
+  weeklyByGet(@Headers('authorization') auth?: string) {
+    return this.weekly(auth);
+  }
+
+  @Post('weekly')
+  weeklyByPost(@Headers('authorization') auth?: string) {
+    return this.weekly(auth);
+  }
+
+  daily(auth?: string) {
     this.assertInvited(auth);
     return this.runAll([
       ['morningRefresh', () => this.notifications.morningRefresh()],
@@ -111,9 +137,7 @@ export class CronController {
     ]);
   }
 
-  @Get('weekly')
-  @Post('weekly')
-  weekly(@Headers('authorization') auth?: string) {
+  weekly(auth?: string) {
     this.assertInvited(auth);
     return this.runAll([
       ['weeklyRollover', () => this.notifications.weeklyRollover()],
