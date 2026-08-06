@@ -86,6 +86,29 @@ export function countryName(code?: string | null): string | null {
   return BY_CODE.get(key)?.name ?? key;
 }
 
+/**
+ * The handful of names that take "the" in an English sentence.
+ *
+ * Needed because these names now appear in running copy rather than only in a
+ * picker: "counted on the figures for United States" is what the first pass
+ * produced, and a card whose whole job is to be trusted with somebody's
+ * remaining years cannot open by sounding like it was assembled by a machine.
+ */
+const TAKES_ARTICLE = new Set([
+  'US', 'GB', 'AE', 'NL', 'PH', 'DO', 'CD', 'CZ', 'BS', 'GM', 'SD', 'MV',
+]);
+
+/**
+ * The country's name as it belongs in a sentence — "India", "the Netherlands".
+ * Null when nothing is set, so callers can choose their own fallback wording
+ * rather than being handed the word "null" to print.
+ */
+export function countryInSentence(code?: string | null): string | null {
+  const name = countryName(code);
+  if (!name) return null;
+  return TAKES_ARTICLE.has((code ?? '').trim().toUpperCase()) ? `the ${name}` : name;
+}
+
 /** Spelling-tolerant enough for a phone keyboard: accents and case ignored. */
 function fold(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();

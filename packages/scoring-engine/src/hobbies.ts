@@ -119,3 +119,116 @@ export function readHobbies(current: unknown, lapsed: unknown): Hobbies {
 export function missedMost(hobbies: Hobbies): string | null {
   return hobbies.lapsed[0] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Finding one, without reading all of them
+// ---------------------------------------------------------------------------
+
+/**
+ * The shelf, as twenty-nine buttons, rendered twice.
+ *
+ * `COMMON_HOBBIES` was written to make the question cost a tap, and it does —
+ * for the person whose answer is in the first row. For everybody else it is a
+ * wall: fifty-eight controls between "what do you do for yourself" and "what
+ * do you miss", scanned twice, on a screen that also holds a profession, a
+ * country, a theme and a partner invite. A list stops being a shortcut at
+ * about the point it stops fitting on the screen, and this one passed that a
+ * long way back.
+ *
+ * So the shelf stays as the source of truth and stops being the interface.
+ * What a reader gets instead is a few they might plausibly say yes to, and a
+ * box that finds the rest as they type.
+ */
+
+/** Loose, per-domain associations. Never offered as advice — only as options. */
+const BY_DOMAIN: Record<string, string[]> = {
+  health: ['Walking', 'Swimming', 'Yoga', 'Cycling', 'Running', 'Badminton'],
+  growth: ['Reading', 'Languages', 'Writing', 'Chess'],
+  reflection: ['Reading', 'Writing', 'Walking', 'Birdwatching'],
+  experiences: ['Hiking', 'Photography', 'Fishing', 'Dancing'],
+  friends: ['Films', 'Dancing', 'Gaming', 'Badminton'],
+  family: ['Cooking', 'Baking', 'Gardening', 'Films'],
+  children: ['Gaming', 'Baking', 'Cooking', 'Cricket'],
+  partner: ['Cooking', 'Dancing', 'Films', 'Walking'],
+  purpose: ['Writing', 'Woodwork', 'Painting', 'Volunteering'],
+  impact: ['Volunteering', 'Languages', 'Writing'],
+  career: ['Reading', 'Languages', 'Writing'],
+  finance: ['Reading', 'Chess'],
+};
+
+/**
+ * The ones that need a body that will co-operate.
+ *
+ * Withheld from a reader who told us their movement is limited, for the same
+ * reason the rhythm catalog withholds a strength session: an option list is
+ * quieter than a suggestion, but offering a 71-year-old with `ask_doctor`
+ * "Running" as one of four hand-picked ideas is still the app deciding that
+ * is a reasonable thing for them to take up. They can still type it, and if
+ * they do it is theirs and the app believes them.
+ */
+const VIGOROUS = new Set(['Running', 'Football', 'Cricket', 'Cycling', 'Badminton', 'Swimming']);
+
+export interface SuggestHobbiesInput {
+  /** Their ranking, highest importance first — only the order is used. */
+  domains?: Array<{ domainType: string; importance?: number | null }>;
+  /** From the profile. `low_impact` and `ask_doctor` narrow the offer. */
+  movementLimits?: string | null;
+  /** Already chosen here or in the other list — never offered twice. */
+  exclude?: string[];
+  limit?: number;
+}
+
+/**
+ * A few they might plausibly say yes to, from what they have already said.
+ *
+ * Drawn from the domains they ranked highest, in that order, so the four are
+ * about the life they described rather than the first four somebody typed
+ * into an array. Falls back to the head of the shelf when nothing is ranked
+ * yet, which is the onboarding case and is exactly as good as what it
+ * replaces.
+ */
+export function suggestHobbies(input: SuggestHobbiesInput = {}): string[] {
+  const limit = input.limit ?? 4;
+  const skip = new Set((input.exclude ?? []).map((h) => h.toLowerCase()));
+  const limited = input.movementLimits && input.movementLimits !== 'none';
+
+  const ranked = [...(input.domains ?? [])]
+    .sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0))
+    .map((d) => d.domainType);
+
+  const pool = [
+    ...ranked.flatMap((d) => BY_DOMAIN[d] ?? []),
+    ...COMMON_HOBBIES,
+  ];
+
+  const out: string[] = [];
+  for (const h of pool) {
+    if (out.length >= limit) break;
+    if (skip.has(h.toLowerCase())) continue;
+    if (limited && VIGOROUS.has(h)) continue;
+    if (out.some((x) => x.toLowerCase() === h.toLowerCase())) continue;
+    out.push(h);
+  }
+  return out;
+}
+
+/**
+ * The shelf, filtered by what somebody is typing.
+ *
+ * Prefix matches first: a reader typing "wa" means Walking long before they
+ * mean Woodwork, and a plain `includes` puts them in list order instead. An
+ * empty query returns nothing rather than everything — the caller shows
+ * `suggestHobbies` in that state, and returning all twenty-nine here would
+ * rebuild the wall this exists to remove.
+ */
+export function searchHobbies(query: string, exclude: string[] = [], limit = 6): string[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const skip = new Set(exclude.map((h) => h.toLowerCase()));
+  const available = COMMON_HOBBIES.filter((h) => !skip.has(h.toLowerCase()));
+  const starts = available.filter((h) => h.toLowerCase().startsWith(q));
+  const contains = available.filter(
+    (h) => !h.toLowerCase().startsWith(q) && h.toLowerCase().includes(q),
+  );
+  return [...starts, ...contains].slice(0, limit);
+}

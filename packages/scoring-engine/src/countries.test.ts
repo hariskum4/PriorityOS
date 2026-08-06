@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  KNOWN_COUNTRIES, countryName, searchCountries, searchCities, CITIES_BY_COUNTRY,
+  KNOWN_COUNTRIES, countryName, countryInSentence, searchCountries, searchCities, CITIES_BY_COUNTRY,
   REGIONS_BY_COUNTRY, regionsOf, searchRegions, regionOfCity, citiesIn,
 } from './countries';
 import { timezoneCountryCodes } from './timezoneCountry';
@@ -42,6 +42,27 @@ describe('the countries a person can actually choose', () => {
     expect(countryName('')).toBeNull();
     expect(countryName(null)).toBeNull();
     expect(countryName(undefined)).toBeNull();
+  });
+
+  /**
+   * These names stopped being picker labels and started appearing in running
+   * copy — "counted on the averages for …" on a card about somebody's
+   * remaining years. A sentence that reads as machine-assembled is a sentence
+   * that gets trusted less, and this one is asking to be trusted.
+   */
+  it('puts the article on the names that take one, in a sentence', () => {
+    expect(countryInSentence('IN')).toBe('India');
+    expect(countryInSentence('JP')).toBe('Japan');
+    expect(countryInSentence('US')).toBe('the United States');
+    expect(countryInSentence('GB')).toBe('the United Kingdom');
+    expect(countryInSentence('NL')).toBe('the Netherlands');
+    expect(countryInSentence('PH')).toBe('the Philippines');
+  });
+
+  it('says nothing rather than "null" when no country is set', () => {
+    expect(countryInSentence(null)).toBeNull();
+    expect(countryInSentence(undefined)).toBeNull();
+    expect(countryInSentence('')).toBeNull();
   });
 
   it('lowercases and trims what was stored', () => {

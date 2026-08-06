@@ -1000,7 +1000,12 @@ export default function Onboarding() {
                   <HobbyPicker
                     value={hobbies}
                     onChange={setHobbies}
-                    placeholder="…or one of your own"
+                    placeholder="Search, or type your own"
+                    /* Already ordered highest-first, so position is the
+                       importance — the four offered come from the life they
+                       ranked two steps ago rather than the head of a list. */
+                    domains={ranking.map((domainType, i) => ({ domainType, importance: ranking.length - i }))}
+                    exclude={lapsedHobbies}
                   />
                 </View>
                 <View style={{ gap: space(2) }}>
@@ -1012,8 +1017,10 @@ export default function Onboarding() {
                   <HobbyPicker
                     value={lapsedHobbies}
                     onChange={setLapsedHobbies}
-                    placeholder="…or one of your own"
+                    placeholder="Search, or type your own"
                     max={4}
+                    domains={ranking.map((domainType, i) => ({ domainType, importance: ranking.length - i }))}
+                    exclude={hobbies}
                   />
                 </View>
               </>

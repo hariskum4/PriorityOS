@@ -115,6 +115,9 @@ export default function You() {
     && !sameZone(me.timezone, deviceZone) && !zoneDismissed;
 
   const { data: partners } = useQuery({ queryKey: ['partners'], queryFn: () => api<any>('/partners') });
+  /* Only for the hobby suggestions: four options drawn from what they
+     ranked beats the first four of an alphabetical shelf. */
+  const { data: dashboard } = useQuery({ queryKey: ['dashboard'], queryFn: () => api<any>('/dashboard') });
   const [inviteEmail, setInviteEmail] = useState('');
   const invite = useMutation({
     mutationFn: () => api('/partners/invite', { method: 'POST', body: { email: inviteEmail } }),
@@ -350,8 +353,11 @@ export default function You() {
           <HobbyPicker
             value={hobbies}
             onChange={(next) => { setHobbies(next); saveHobbies.mutate({ hobbies: next }); }}
-            placeholder="…or one of your own"
+            placeholder="Search, or type your own"
             disabled={saveHobbies.isPending}
+            domains={dashboard?.domains}
+            movementLimits={me?.movementLimits}
+            exclude={lapsedHobbies}
           />
         </View>
         <View style={{ gap: space(2) }}>
@@ -359,9 +365,12 @@ export default function You() {
           <HobbyPicker
             value={lapsedHobbies}
             onChange={(next) => { setLapsedHobbies(next); saveHobbies.mutate({ lapsedHobbies: next }); }}
-            placeholder="…or one of your own"
+            placeholder="Search, or type your own"
             max={4}
             disabled={saveHobbies.isPending}
+            domains={dashboard?.domains}
+            movementLimits={me?.movementLimits}
+            exclude={hobbies}
           />
         </View>
         <ErrorNote error={saveProfile.error} onRetry={() => saveProfile.reset()} />
