@@ -24,9 +24,34 @@ declare const __DEV__: boolean;
  */
 const DEV_FALLBACK = 'http://localhost:3001';
 
+/**
+ * A relative base is a web build talking to an API on its own origin.
+ *
+ * The API used to have its own hostname on another platform; it is now a
+ * function on the same deployment as this bundle, served under `/api`, so the
+ * web build addresses it relatively and there is no cross-origin request left
+ * to configure.
+ *
+ * A native build cannot do that — there is no origin to be relative to — so a
+ * relative value there is a build misconfiguration, and saying so beats every
+ * request failing against a URL that cannot resolve.
+ *
+ * `document` rather than `Platform.OS`, because importing `Platform` pulls
+ * react-native into this module and the unit tests cannot parse its Flow
+ * source. React Native defines a `window` shim but never a `document`, so its
+ * absence is the honest test for "there is no origin here".
+ */
 function resolveBase(): string {
   const configured = process.env.EXPO_PUBLIC_API_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, '');
+  if (configured) {
+    if (configured.startsWith('/') && typeof document === 'undefined') {
+      throw new Error(
+        `EXPO_PUBLIC_API_URL is "${configured}", which only works in a web build. `
+        + 'A native build needs the API\'s full URL.',
+      );
+    }
+    return configured.replace(/\/+$/, '');
+  }
   if (__DEV__) {
     console.warn(
       `[api] EXPO_PUBLIC_API_URL is not set — falling back to ${DEV_FALLBACK}. ` +

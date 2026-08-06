@@ -4,7 +4,28 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as argon2 from 'argon2';
+/**
+ * The prebuilt argon2, not the one that compiles itself.
+ *
+ * `argon2` is a native addon built with node-gyp at install time. That is
+ * fine in a Docker image and impossible in a Vercel function, where there is
+ * no compiler and the build machine's binary is not the one that runs. This
+ * package ships prebuilt binaries per platform and needs no build step.
+ *
+ * The hashes are the same thing, which is the only reason this swap is safe.
+ * Both write and read standard argon2id in PHC string format, so every
+ * password already in the database keeps working — verified against a real
+ * hash from the old library before this change was made, because the failure
+ * mode is that nobody can log in and the plaintext to re-hash from is gone.
+ *
+ * The default cost changes with it: `argon2` used m=64MB/t=3/p=4, this uses
+ * OWASP's current recommendation of m=19MB/t=2/p=1. Cheaper on purpose — the
+ * old settings were most of why registering took seven seconds on a shared
+ * CPU — and still the parameters the people who study this recommend. Old
+ * hashes carry their own parameters in the string, so they continue to verify
+ * at the cost they were written with.
+ */
+import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { createHash, randomInt, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto, LoginDto } from './auth.dto';
@@ -35,7 +56,7 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
-        passwordHash: await argon2.hash(dto.password),
+        passwordHash: await argonHash(dto.password),
         fullName: dto.fullName,
         timezone: dto.timezone,
         /* A fact the device already told us, read properly for once. It seeds
@@ -58,7 +79,7 @@ export class AuthService {
       where: { email: dto.email },
     });
     if (!user?.passwordHash) throw new UnauthorizedException('Invalid credentials');
-    const ok = await argon2.verify(user.passwordHash, dto.password);
+    const ok = await argonVerify(user.passwordHash, dto.password);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
     return this.issueTokens(user.id, user.email);
   }
@@ -151,7 +172,7 @@ export class AuthService {
 
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: await argon2.hash(password) },
+      data: { passwordHash: await argonHash(password) },
     });
     // Every session that knew the old password is out. Whoever holds the
     // inbox — presumably the owner — is in, freshly signed in below.

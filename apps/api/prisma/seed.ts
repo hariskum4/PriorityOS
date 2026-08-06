@@ -5,7 +5,7 @@
  * Login: demo@priority.app / priority123
  */
 import { PrismaClient } from '@prisma/client';
-import * as argon2 from 'argon2';
+import { hash as argonHash } from '@node-rs/argon2';
 
 const prisma = new PrismaClient();
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
@@ -21,7 +21,7 @@ async function main() {
   const user = await prisma.user.create({
     data: {
       email: 'demo@priority.app',
-      passwordHash: await argon2.hash('priority123'),
+      passwordHash: await argonHash('priority123'),
       fullName: 'Demo User',
       timezone: 'Asia/Kolkata',
       city: 'Bengaluru',

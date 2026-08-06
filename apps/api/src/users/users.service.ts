@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import * as argon2 from 'argon2';
+/* Prebuilt rather than compiled at install time — see the note in
+   auth.service.ts for why, and why the hashes are interchangeable. */
+import { verify as argonVerify } from '@node-rs/argon2';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -319,7 +321,7 @@ export class UsersService {
   async deleteAccount(userId: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.passwordHash) throw new UnauthorizedException('Invalid credentials');
-    if (!password || !(await argon2.verify(user.passwordHash, password))) {
+    if (!password || !(await argonVerify(user.passwordHash, password))) {
       throw new UnauthorizedException('Password does not match');
     }
 

@@ -8,7 +8,7 @@
  * nothing you did not already know.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import * as argon2 from 'argon2';
+import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { JwtService } from '@nestjs/jwt';
 import { UnauthorizedException } from '@nestjs/common';
 import type { PrismaService } from '../src/prisma/prisma.service';
@@ -44,7 +44,7 @@ beforeEach(async () => {
     data: {
       email: EMAIL,
       fullName: 'Meera Pillai',
-      passwordHash: await argon2.hash('old-password'),
+      passwordHash: await argonHash('old-password'),
     },
   });
 });
@@ -98,8 +98,8 @@ describe('using the code', () => {
     expect(tokens.accessToken).toBeTruthy();
 
     const user = await prisma.user.findUniqueOrThrow({ where: { email: EMAIL } });
-    expect(await argon2.verify(user.passwordHash!, 'brand-new-pass')).toBe(true);
-    expect(await argon2.verify(user.passwordHash!, 'old-password')).toBe(false);
+    expect(await argonVerify(user.passwordHash!, 'brand-new-pass')).toBe(true);
+    expect(await argonVerify(user.passwordHash!, 'old-password')).toBe(false);
 
     // The stale session is gone; only the freshly issued one remains.
     const remaining = await prisma.refreshToken.findMany();

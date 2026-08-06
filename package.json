@@ -2,16 +2,23 @@
   "name": "priority",
   "private": true,
   "version": "0.1.0",
-  "description": "Priority — AI life-prioritization operating system (monorepo)",
-  "workspaces": ["apps/*", "packages/*"],
+  "description": "Priority \u2014 AI life-prioritization operating system (monorepo)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "api:dev": "npm run start:dev -w apps/api",
     "api:build": "npm run build -w apps/api",
+    "build:packages": "npm run build -w packages/types && npm run build -w packages/scoring-engine && npm run build -w packages/ai-prompts && npm run build -w packages/life-os",
+    "build:vercel": "npm run build:packages && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build -w apps/api && EXPO_PUBLIC_API_URL=/api npm run build:web -w apps/mobile",
     "mobile:start": "npm run start -w apps/mobile",
     "db:migrate": "npm run prisma:migrate -w apps/api",
     "db:seed": "npm run prisma:seed -w apps/api",
     "test:scoring": "npm test -w packages/scoring-engine",
     "test": "npm test --workspaces --if-present"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

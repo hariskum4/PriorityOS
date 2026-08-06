@@ -1,10 +1,23 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd packages/types && npm run build && cd ../scoring-engine && npm run build && cd ../ai-prompts && npm run build && cd ../../apps/mobile && EXPO_PUBLIC_API_URL=https://priority-api-0mus.onrender.com npm run build:web",
+  "buildCommand": "npm run build:vercel",
   "installCommand": "npm install",
   "outputDirectory": "apps/mobile/dist",
   "framework": null,
+  "regions": [
+    "bom1"
+  ],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60,
+      "includeFiles": "{apps/api/dist/**,apps/api/prisma/**,node_modules/.prisma/**,node_modules/@prisma/**,packages/*/dist/**}"
+    }
+  },
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
