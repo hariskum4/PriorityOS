@@ -11,7 +11,7 @@ import { useMemoryDraft } from '@/store/memoryDraft';
 import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
-import { supportLines } from '@priority/scoring-engine';
+import { supportLines, insightPrompt } from '@priority/scoring-engine';
 import { colors, type, space, alpha, breakLongWords } from '@/theme';
 
 /**
@@ -647,24 +647,6 @@ function Memories() {
     onSuccess: invalidate,
   });
 
-  /**
-   * Draft a first line about a moment already in the archive.
-   *
-   * Same endpoint as the one that runs when a moment is first kept — the
-   * difference is only when it is asked for, which is the point: somebody
-   * coming back a week later has had a week to know what it meant.
-   */
-  const writeAbout = useMutation({
-    mutationFn: (m: any) => api<{ whatMattered?: string }>('/journal/draft', {
-      method: 'POST',
-      body: {
-        title: m.title,
-        personName: (m.peoplePresent ?? [])[0] ?? m.personName ?? undefined,
-        domainType: m.domainType ?? undefined,
-      },
-    }),
-    onSuccess: (d) => offerEntry(d?.whatMattered ?? '', (d as any)?.prompt ?? null),
-  });
 
   const togglePerson = (id: string) =>
     setPersonIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -859,19 +841,24 @@ function Memories() {
              * first. Without this the archive was a dead end — somewhere
              * moments went to be counted and never thought about again.
              */}
+            {/**
+             * Opens the moment itself, not today's page.
+             *
+             * This used to hand a drafted line to the Today composer, which
+             * is right for something kept an hour ago and wrong for anything
+             * older: a memory from three weeks back would have been written
+             * about inside today's daily entry, under today's date. A moment
+             * belongs to the day it happened on, and expanding it is editing
+             * it — not writing a new thing somewhere else.
+             */}
             <Pressable
-              onPress={() => writeAbout.mutate(m)}
-              disabled={writeAbout.isPending}
+              onPress={() => setEditing(m.id)}
               accessibilityRole="button"
-              accessibilityLabel={`Write about ${m.title}`}
+              accessibilityLabel={`Write more about ${m.title}`}
               style={({ pressed }) => [s.writeAbout, pressed && { opacity: 0.7 }]}
             >
               <Ionicons name="create-outline" size={14} color={colors.amber} />
-              <Text style={[type.faint, { color: colors.amber }]}>
-                {writeAbout.isPending && writeAbout.variables?.id === m.id
-                  ? 'Opening…'
-                  : 'Write about this'}
-              </Text>
+              <Text style={[type.faint, { color: colors.amber }]}>Write more about this</Text>
             </Pressable>
             <View style={{ alignSelf: 'flex-start', marginTop: space(1) }}>
               <DangerConfirm
@@ -936,7 +923,24 @@ function EditMemory({ memory, onClose, onSaved }: {
        * exactly the window the expressive-writing work is about.
        */}
       <Label>Back to this moment</Label>
-      <Input value={title} onChangeText={setTitle} placeholder="What happened?" />
+      {/**
+       * The question, asked where the moment is rather than on today's page.
+       *
+       * Somebody reopening an evening from three weeks ago is not short of a
+       * text box — they are short of a reason to start. This is the same
+       * deterministic question the composer uses, put next to the thing it is
+       * about, which is the only place it makes sense to answer it.
+       */}
+      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+        <Ionicons name="help-circle-outline" size={14} color={colors.amber} style={{ marginTop: 2 }} />
+        <Text style={[type.dim, { flex: 1, color: colors.amber }]}>
+          {insightPrompt({
+            title: memory.title,
+            personName: (memory.peoplePresent ?? [])[0] ?? memory.personName ?? null,
+          })}
+        </Text>
+      </View>
+      <Input value={title} onChangeText={setTitle} placeholder="What happened? One line is enough." />
       <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
         <Input
           value={occurredOn}
