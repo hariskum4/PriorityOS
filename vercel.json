@@ -1,10 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build -w packages/types && npm run build -w packages/scoring-engine && npm run build -w packages/ai-prompts && npm run build -w packages/life-os && npx prisma generate --schema apps/api/prisma/schema.prisma && npm run build -w apps/api && cd apps/mobile && EXPO_PUBLIC_API_URL=/api npm run build:web",
+  "buildCommand": "npm run build:vercel",
   "installCommand": "npm install",
   "outputDirectory": "apps/mobile/dist",
   "framework": null,
-  "regions": ["bom1"],
+  "regions": [
+    "bom1"
+  ],
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
