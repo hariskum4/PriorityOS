@@ -526,10 +526,36 @@ export default function Today() {
       invalidate();
     },
   });
+  /**
+   * "Not today" moves the due date and leaves the card exactly where it is.
+   *
+   * The mission is still pending, so the refetch hands it straight back as
+   * the hero and nothing on the screen has changed — a successful tap and a
+   * dead button look identical. Verified against the server: one tap gives
+   * `snoozeCount: 1` and a due date of tomorrow, while the reader sees the
+   * same words in the same place and reasonably taps again.
+   *
+   * The Missions tab already solved this with a receipt; this is the same
+   * answer on the surface where most people will meet the button. The
+   * existing note at `snoozeCount >= 2` stays — that one is about a pattern,
+   * this one is about the tap that just happened.
+   */
+  const [snoozedTitle, setSnoozedTitle] = React.useState<string | null>(null);
   const snooze = useMutation({
-    mutationFn: (id: string) => api(`/missions/${id}/snooze`, { method: 'POST' }),
-    onSuccess: invalidate,
+    mutationFn: (m: { id: string; title?: string }) =>
+      api(`/missions/${m.id}/snooze`, { method: 'POST' }),
+    onSuccess: (_res, m) => {
+      setSnoozedTitle(m.title ?? 'That one');
+      invalidate();
+    },
   });
+  React.useEffect(() => {
+    if (!snoozedTitle) return;
+    /* Long enough to read a mission title and believe it — the same seven
+       seconds the Missions tab settled on. */
+    const t = setTimeout(() => setSnoozedTitle(null), 7000);
+    return () => clearTimeout(t);
+  }, [snoozedTitle]);
   const dismiss = useMutation({
     mutationFn: (id: string) => api(`/missions/${id}`, { method: 'PATCH', body: { status: 'dismissed' } }),
     onSuccess: invalidate,
@@ -975,6 +1001,20 @@ export default function Today() {
           </View>
         </Rise>
 
+        {/* The receipt for "Not today" — see the snooze mutation above for
+            why a tap that worked needs one. Sits where the completion banner
+            sits, because it answers the same question: did the thing I just
+            pressed do anything. */}
+        {snoozedTitle && !justCompleted ? (
+          <View style={s.doneBanner}>
+            <Ionicons name="time-outline" size={17} color={obs.brass} />
+            <Text style={[obsType.dim, { flex: 1 }]}>
+              <Text style={{ color: obs.ink }}>Moved to tomorrow. </Text>
+              {snoozedTitle} will be waiting.
+            </Text>
+          </View>
+        ) : null}
+
         {/* ── the completion moment ────────────────────────────────── */}
         {justCompleted ? (
           <View style={s.doneBanner}>
@@ -1095,7 +1135,7 @@ export default function Today() {
                 </Pressable>
                 <Pressable
                   disabled={complete.isPending || snooze.isPending}
-                  onPress={() => snooze.mutate(m.id)}
+                  onPress={() => snooze.mutate({ id: m.id, title: m.title })}
                   accessibilityRole="button"
                   accessibilityLabel={`Not today: ${m.title}`}
                   accessibilityState={{ disabled: complete.isPending || snooze.isPending }}
@@ -1353,6 +1393,13 @@ export default function Today() {
             {lens ? (
               <Pressable
                 onPress={() => setPicked(null)}
+                /* Reached the accessibility tree as a bare focusable div with
+                   no role and no name — and the empty state two cards up says
+                   'Tap "Show all" to see the rest of your life', which is an
+                   instruction to press something a screen reader cannot find
+                   or announce. The only way out of a filtered view. */
+                accessibilityRole="button"
+                accessibilityLabel={`Showing ${lens} only — show all`}
                 style={({ pressed }) => [s.lensRow, pressed && { opacity: 0.7 }]}
               >
                 <View style={[s.orb, { backgroundColor: activeColor, marginTop: 0 }]} />
