@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ClockModule } from './common/clock.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { RetentionJobs } from './common/retention.jobs';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { RelationshipsModule } from './relationships/relationships.module';
 import { GoalsModule } from './goals/goals.module';
@@ -54,7 +55,7 @@ import { HealthController } from './health.controller';
     PartnersModule,
     LifeOsModule,
   ],
-  providers: [
+  providers: [RetentionJobs, 
     /**
      * Registering ThrottlerModule alone does nothing: without this guard the
      * `@Throttle` decorators on login and register are inert documentation,

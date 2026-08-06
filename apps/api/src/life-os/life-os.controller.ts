@@ -21,6 +21,10 @@ import { FocusService } from './focus.service';
 import { BlueprintService } from './blueprint.service';
 import { RankingService } from './ranking.service';
 import { DigestService } from './digest.service';
+import {
+  CaptureDto, AcceptCaptureDto, DismissCaptureDto, CreateDecisionDto,
+  DecideDto, AddKnowledgeDto, UpdateKnowledgeDto,
+} from './life-os.dto';
 import { SetDomainRankingDto } from './ranking.dto';
 import { MarkSeenDto } from './mark-seen.dto';
 
@@ -358,20 +362,20 @@ export class LifeOsController {
    * why, so the guess can be corrected rather than trusted.
    */
   @Post('capture')
-  capture(@CurrentUser() u: JwtUser, @Body() body: any) {
+  capture(@CurrentUser() u: JwtUser, @Body() body: CaptureDto) {
     return this.lifeOs.capture(u.userId, body);
   }
 
   // ---- acting on a proposal ---------------------------------------------
 
   @Post('proposals/:id/accept')
-  accept(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
+  accept(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: AcceptCaptureDto) {
     return this.lifeOs.acceptProposal(u.userId, id, body);
   }
 
   /** `{ forever: true, domain }` retires the whole topic, permanently. */
   @Post('proposals/:id/dismiss')
-  dismiss(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
+  dismiss(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: DismissCaptureDto) {
     return this.lifeOs.dismissProposal(u.userId, id, body);
   }
 
@@ -394,7 +398,7 @@ export class LifeOsController {
   }
 
   @Post('decisions')
-  createDecision(@CurrentUser() u: JwtUser, @Body() body: any) {
+  createDecision(@CurrentUser() u: JwtUser, @Body() body: CreateDecisionDto) {
     return this.lifeOs.createDecision(u.userId, body);
   }
 
@@ -406,7 +410,7 @@ export class LifeOsController {
 
   /** Record what they actually chose — the raw material for judging our leans. */
   @Patch('decisions/:id')
-  decide(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
+  decide(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: DecideDto) {
     return this.lifeOs.decide(u.userId, id, body);
   }
 
@@ -418,12 +422,12 @@ export class LifeOsController {
   }
 
   @Post('knowledge')
-  addKnowledge(@CurrentUser() u: JwtUser, @Body() body: any) {
+  addKnowledge(@CurrentUser() u: JwtUser, @Body() body: AddKnowledgeDto) {
     return this.lifeOs.addKnowledge(u.userId, body);
   }
 
   @Patch('knowledge/:id')
-  updateKnowledge(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
+  updateKnowledge(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: UpdateKnowledgeDto) {
     return this.lifeOs.updateKnowledge(u.userId, id, body);
   }
 

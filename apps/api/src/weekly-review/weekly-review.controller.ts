@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { WeeklyReviewService } from './weekly-review.service';
+import { CompleteSessionDto } from './weekly-review.dto';
 
 @UseGuards(JwtGuard)
 @Controller('weekly-review')
@@ -19,7 +20,7 @@ export class WeeklyReviewController {
   }
 
   @Post('session')
-  completeSession(@CurrentUser() u: JwtUser, @Body() body: any) {
+  completeSession(@CurrentUser() u: JwtUser, @Body() body: CompleteSessionDto) {
     return this.reviews.completeSession(u.userId, body ?? {});
   }
 
