@@ -135,23 +135,27 @@ export class OnboardingService {
    * identical to one added by hand, because it is the same record under the
    * same key.
    */
-  private async seedCountablesFromTheirWords(userId: string): Promise<void> {
-    const [people, existing] = await Promise.all([
-      this.prisma.relationship.findMany({
-        where: { userId },
-        select: {
-          id: true, name: true, relationType: true, closenessScore: true,
-          wantsMoreTime: true, desiredCallFrequency: true, meaningfulMomentTypes: true,
-          /* The seeded rows are the ones people actually keep, so this is
-             where a ritual with somebody abroad has to get it right. */
-          locationType: true,
-        },
-      }),
-      this.prisma.onboardingAnswer.findMany({
-        where: { userId, section: 'counts' },
-        select: { key: true },
-      }),
-    ]);
+  /**
+   * The two reads this used to make are now passed in.
+   *
+   * Both were already being fetched by `complete` a few lines later — the
+   * relationships for the Reveal, the answers to read the ranking out of — so
+   * making them again cost two more round trips inside a request somebody is
+   * watching a spinner for. The seeding logic is unchanged; only where its
+   * inputs come from is.
+   */
+  private async seedCountablesFromTheirWords(
+    userId: string,
+    people: Array<{
+      id: string; name: string; relationType: string;
+      closenessScore?: number | null; wantsMoreTime?: boolean | null;
+      desiredCallFrequency?: string | null; locationType?: string | null;
+      meaningfulMomentTypes?: unknown;
+    }>,
+    /** Every answer this account has; the counts section is filtered out here. */
+    answers: Array<{ section: string; key: string }>,
+  ): Promise<void> {
+    const existing = answers.filter((a) => a.section === 'counts');
 
     const suggestions = suggestCountables({
       existing: existing.map((a) => ({ key: a.key, label: a.key })),
@@ -351,145 +355,32 @@ export class OnboardingService {
    * scores, generates opportunity insights and the AI Life Reveal.
    */
   async complete(userId: string) {
-    const answers = await this.getAnswers(userId);
-    const get = (section: string, key: string) =>
-      answers.find((a) => a.section === section && a.key === key)?.value as any;
-
-    // 1. Domain ranks + flags
-    //
-    // Matching was exact-string against the canonical slugs, so a caller
-    // saying "finances" or "friendships" — perfectly reasonable names for the
-    // same domains — had those ranks silently dropped: the reveal echoed the
-    // list back while the rows underneath kept priorityRank NULL. Normalise
-    // the common variants; a name that still doesn't resolve is skipped, but
-    // it no longer takes its neighbours' semantics down with it.
-    const ranked: string[] = normalizeDomains(get('values', 'priorityRanking'));
-    const neglected: string[] = normalizeDomains(get('values', 'neglectedDomains'));
-    const regrets: string[] = normalizeDomains(get('values', 'regretRisks'));
-    /* Twelve updates, sent together. Awaiting them one at a time is free on a
-       laptop and three seconds in production, where the API is in Oregon and
-       the database is in Mumbai — a quarter of a second on the wire, twelve
-       times, for writes that never depended on each other. */
-    await Promise.all(
-      (await this.prisma.lifeDomain.findMany({ where: { userId } })).map((domain) => {
-        const rank = ranked.indexOf(domain.domainType);
-        return this.prisma.lifeDomain.update({
-          where: { id: domain.id },
-          data: {
-            priorityRank: rank >= 0 ? rank + 1 : null,
-            flaggedAsNeglected: neglected.includes(domain.domainType),
-            regretRiskFlagged: regrets.includes(domain.domainType),
-          },
-        });
-      }),
-    );
-
-    // 2. Scores + opportunity insights
-    //
-    // Neither may block step 3. Insight generation threw on one unusable
-    // number and the exception propagated out of this method, so
-    // `onboardingCompleted` was never set and the account was stranded on the
-    // last screen of sign-up with no way forward — the worst possible place to
-    // fail. Both of these are enrichment; finishing onboarding is not.
     /**
-     * Started, not waited for.
+     * Everything this method reads, read at once.
      *
-     * These three were already understood to be enrichment — the comment
-     * above says finishing onboarding is not — and they were already wrapped
-     * so a failure could not strand anybody. They were still awaited, which
-     * on real infrastructure is the whole problem: measured from production,
-     * one database round trip from Oregon to the pooler in ap-south-1 costs
-     * about 1.2 seconds, and these three make roughly eighteen of them in
-     * order. That is twenty-one seconds of a twenty-six second request, for
-     * work whose result nobody is waiting to see.
+     * These four were spread across the method in the order the code happened
+     * to need them — answers at the top, the domains a few lines down, the
+     * relationships and the goal two hundred lines later — and awaited one at
+     * a time. On a laptop that costs nothing. In production the API is in
+     * Oregon and the database behind the pooler in ap-south-1, and a round
+     * trip measures about 1.2 seconds; sequencing seven of them put this
+     * request at nineteen seconds against a client that gives up at fifteen.
+     * The last screen of sign-up then read "That took too long", over an
+     * account the server was still busy finishing.
      *
-     * `recalcUserDomains` is the clearest case. On a brand-new account it
-     * reads missions, habits and journal entries that do not exist yet and
-     * computes attention scores of zero — twelve round trips to arrive at the
-     * number the rows already hold. The Reveal below does not read them: its
-     * drift warning comes from the answers they just gave, not from a score.
-     *
-     * Render runs a persistent process, so a promise left running after the
-     * response survives to finish. Errors are logged and go nowhere near the
-     * reader, exactly as before.
+     * None of the four depends on another. Together they cost one round trip.
      */
-    const enrich = (name: string, run: () => Promise<unknown>) => {
-      void Promise.resolve()
-        .then(run)
-        .catch((err) => this.logger.error(`${name} failed for ${userId}`, err as Error));
-    };
-    enrich('recalcUserDomains', () => this.scoring.recalcUserDomains(userId));
-    enrich('regenerateForUser', () => this.insights.regenerateForUser(userId));
-
-    /**
-     * Seeding the countables stays on the request, and is the exception that
-     * proves the rule above.
-     *
-     * It is the cheapest of the three — two round trips against a dozen — and
-     * the only one with a contract somebody can observe: completing onboarding
-     * twice must not seed a second copy of the same ritual. `upsert` on the
-     * key makes true duplication impossible either way, but deferring it means
-     * a caller can no longer know the work is done when the call returns, and
-     * there is a test that rightly asserts it can. Two seconds is a fair price
-     * for a guarantee that still holds.
-     */
-    try {
-      await this.seedCountablesFromTheirWords(userId);
-    } catch (err) {
-      this.logger.error(`seedCountables failed for ${userId}`, err as Error);
-    }
-
-    // 3. Mark complete
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { onboardingCompleted: true },
-    });
-
-    // 3b. The 10x moment: extract values from the future-self + eulogy words.
-    // Deterministic fallback keeps it meaningful with AI off; lights up fully
-    // the instant AI_ENABLED=true with a key.
-    const futureSelf = get('reflection', 'futureSelf');
-    const eulogy = get('reflection', 'eulogy');
-    /**
-     * Started here, awaited at the very end.
-     *
-     * This and the Life Reveal below are two independent model calls that
-     * were made one after the other, so their waits added up inside a request
-     * somebody is watching a spinner for. Nothing in the Reveal reads what
-     * this produces — they only meet in the response object — so they can run
-     * together and cost the longer of the two instead of the sum.
-     */
-    let extractedValues: Promise<{ values: string[]; reflection: string }> | null = null;
-    if (futureSelf || eulogy) {
-      // Fallback mirrors a fragment of THEIR words back — the difference
-      // between "an app" and "it heard me", even with the LLM off.
-      const fragment = this.quoteFragment(String(eulogy || futureSelf || ''), 90);
-      extractedValues = this.ai.generate(
-        userId,
-        'values_extraction',
-        VALUES_EXTRACTION,
-        { futureSelf, eulogy },
-        {
-          values: ranked.slice(0, 5),
-          reflection: fragment
-            ? `"${fragment}" — hold onto that. Everything Priority asks of you is in service of that person.`
-            : 'You described a life measured in people and presence, not achievements. That is what Priority will help you protect.',
-        },
-        { timeoutMs: ONBOARDING_AI_BUDGET_MS },
-      );
-    }
-
-    // 4. Life Reveal narrative
-    /* Three independent reads for one screen. Awaited one after another they
-       cost three round trips, and a round trip from production is about a
-       second and a quarter — see the note on the enrichment above. */
-    const [domains, relationships, postponingGoal] = await Promise.all([
+    const [answers, currentDomains, relationships, postponingGoal] = await Promise.all([
+      this.getAnswers(userId),
       this.prisma.lifeDomain.findMany({ where: { userId } }),
       this.prisma.relationship.findMany({
         where: { userId },
         select: {
           id: true, name: true, relationType: true, wantsMoreTime: true,
           priorityScore: true, age: true, locationType: true,
+          /* The countable seeding below reads these three; it used to fetch
+             the same rows a second time to get them. */
+          closenessScore: true, desiredCallFrequency: true, meaningfulMomentTypes: true,
         },
         /**
          * The person the Reveal names is `relationships[0]`, and this had no
@@ -507,6 +398,38 @@ export class OnboardingService {
         select: { id: true, domainType: true },
       }),
     ]);
+    const get = (section: string, key: string) =>
+      answers.find((a) => a.section === section && a.key === key)?.value as any;
+
+    // 1. Domain ranks + flags
+    //
+    // Matching was exact-string against the canonical slugs, so a caller
+    // saying "finances" or "friendships" — perfectly reasonable names for the
+    // same domains — had those ranks silently dropped: the reveal echoed the
+    // list back while the rows underneath kept priorityRank NULL. Normalise
+    // the common variants; a name that still doesn't resolve is skipped, but
+    // it no longer takes its neighbours' semantics down with it.
+    const ranked: string[] = normalizeDomains(get('values', 'priorityRanking'));
+    const neglected: string[] = normalizeDomains(get('values', 'neglectedDomains'));
+    const regrets: string[] = normalizeDomains(get('values', 'regretRisks'));
+
+    /**
+     * What the twelve rows are about to become, computed rather than read back.
+     *
+     * The old code wrote the updates, then fetched the same rows again to hand
+     * them to the Reveal — a round trip to learn a value it had just chosen.
+     * These are the exact objects the writes below persist, so the screen and
+     * the database cannot disagree about them.
+     */
+    const domains = currentDomains.map((domain) => {
+      const rank = ranked.indexOf(domain.domainType);
+      return {
+        ...domain,
+        priorityRank: rank >= 0 ? rank + 1 : null,
+        flaggedAsNeglected: neglected.includes(domain.domainType),
+        regretRiskFlagged: regrets.includes(domain.domainType),
+      };
+    });
     const top3 = ranked.slice(0, 3);
 
     // Personalized deterministic fallback: their #1 domain, their self-rated
@@ -570,7 +493,75 @@ export class OnboardingService {
       narrativeParts.push(`Seven days from now, you said you want to feel ${feeling}. That's the finish line we're building toward.`);
     }
 
-    const reveal = await this.ai.generate(
+    // The 10x moment: extract values from the future-self + eulogy words.
+    // Deterministic fallback keeps it meaningful with AI off; lights up fully
+    // the instant AI_ENABLED=true with a key.
+    const futureSelf = get('reflection', 'futureSelf');
+    const eulogy = get('reflection', 'eulogy');
+    /**
+     * Started here, awaited alongside the Reveal.
+     *
+     * Two independent model calls that were made one after the other, so their
+     * waits added up inside a request somebody is watching a spinner for.
+     * Nothing in the Reveal reads what this produces — they only meet in the
+     * response object — so they run together and cost the longer of the two
+     * instead of the sum. Both are bounded by `ONBOARDING_AI_BUDGET_MS`; a
+     * model that misses it leaves the engine's version on screen.
+     */
+    let extractedValues: Promise<{ values: string[]; reflection: string }> | null = null;
+    if (futureSelf || eulogy) {
+      // Fallback mirrors a fragment of THEIR words back — the difference
+      // between "an app" and "it heard me", even with the LLM off.
+      const fragment = this.quoteFragment(String(eulogy || futureSelf || ''), 90);
+      extractedValues = this.ai.generate(
+        userId,
+        'values_extraction',
+        VALUES_EXTRACTION,
+        { futureSelf, eulogy },
+        {
+          values: ranked.slice(0, 5),
+          reflection: fragment
+            ? `"${fragment}" — hold onto that. Everything Priority asks of you is in service of that person.`
+            : 'You described a life measured in people and presence, not achievements. That is what Priority will help you protect.',
+        },
+        { timeoutMs: ONBOARDING_AI_BUDGET_MS },
+      );
+    }
+
+    /**
+     * Everything this method writes, written at once — and underneath the
+     * model calls rather than in front of them.
+     *
+     * Twelve domain updates, the countable seeding and the flag that ends
+     * onboarding are independent of each other and of the narrative above, so
+     * they are one round trip that costs nothing: it finishes long before the
+     * model does. The reader waits for the slower of the two, not the sum.
+     *
+     * Seeding is inside the batch rather than deferred because it is the one
+     * piece here with a contract somebody can observe — completing onboarding
+     * twice must not seed a second copy of the same ritual, and there is a
+     * test that rightly asserts the caller can know it is done when the call
+     * returns. Its failures are caught: a ritual that did not get written is
+     * not worth failing a sign-up over.
+     */
+    const written = Promise.all([
+      Promise.all(domains.map((d) => this.prisma.lifeDomain.update({
+        where: { id: d.id },
+        data: {
+          priorityRank: d.priorityRank,
+          flaggedAsNeglected: d.flaggedAsNeglected,
+          regretRiskFlagged: d.regretRiskFlagged,
+        },
+      }))),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { onboardingCompleted: true },
+      }),
+      this.seedCountablesFromTheirWords(userId, relationships, answers)
+        .catch((err) => this.logger.error(`seedCountables failed for ${userId}`, err as Error)),
+    ]);
+
+    const revealing = this.ai.generate(
       userId,
       'life_reveal',
       LIFE_REVEAL,
@@ -615,10 +606,46 @@ export class OnboardingService {
       { timeoutMs: ONBOARDING_AI_BUDGET_MS },
     );
 
-    await this.analytics.track(userId, 'onboarding_completed', {
+    /* The account is finished when the writes land; the narrative is what the
+       reader is actually waiting to read. */
+    const [reveal] = await Promise.all([revealing, written]);
+
+    /**
+     * The enrichment, started only now.
+     *
+     * These were already understood to be enrichment — insight generation once
+     * threw on one unusable number and the exception propagated out of this
+     * method, so `onboardingCompleted` was never set and the account was
+     * stranded on the last screen of sign-up with no way forward. Both are
+     * wrapped so a failure cannot strand anybody, and neither is awaited: on
+     * production they make roughly eighteen round trips in order, for numbers
+     * the Reveal does not read. `recalcUserDomains` on a brand-new account
+     * reads missions, habits and journal entries that do not exist yet and
+     * computes attention scores of zero.
+     *
+     * What is new is *when*. They used to start before the ranks were written,
+     * so `recalcUserDomains` could read a set of domains that still had no
+     * priority at all and persist scores computed from it. Chaining them
+     * behind `written` costs the reader nothing — the response has already
+     * gone — and means they see the account as the reader left it.
+     *
+     * Render runs a persistent process, so a promise left running after the
+     * response survives to finish. Errors are logged and go nowhere near the
+     * reader.
+     */
+    const enrich = (name: string, run: () => Promise<unknown>) => {
+      void Promise.resolve()
+        .then(run)
+        .catch((err) => this.logger.error(`${name} failed for ${userId}`, err as Error));
+    };
+    enrich('recalcUserDomains', () => this.scoring.recalcUserDomains(userId));
+    enrich('regenerateForUser', () => this.insights.regenerateForUser(userId));
+    /* Telemetry is not something a reader waits on. It was the last round trip
+       in the request and its result is read by nobody. */
+    enrich('onboarding_completed event', () => this.analytics.track(userId, 'onboarding_completed', {
       rankedCount: ranked.length,
       hasEulogy: !!eulogy,
-    });
+    }));
 
     /**
      * Write this person's catalog, and do not wait for it.
