@@ -70,6 +70,34 @@ describe('a rewrite that may change the words but not the facts', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('will not let the person the plan is about disappear', () => {
+    /* Live on production, on the Life Reveal: given "And Amma is in this plan
+       by name" among three sentences, the model returned four fluent ones
+       with no Amma in them. Nothing invented, nothing misread — the writing
+       simply stopped being about anybody, which is what it was for. No rule
+       derivable from the sentence alone catches that, so the caller names
+       what may not be lost. */
+    const src = 'You put family first and rated it 2/5. And Amma is in this plan by name.';
+    const r = safeRephrase(src, 'You put family first and rated it 2/5 — the gap is the whole story.', { mustKeep: ['Amma'] });
+    expect(r.used).toBe('engine');
+    expect(r.reasons.join()).toContain('Amma');
+    expect(r.sentence).toBe(src);
+  });
+
+  it('accepts a rewrite that moves the person rather than losing them', () => {
+    const src = 'You put family first and rated it 2/5. And Amma is in this plan by name.';
+    const r = safeRephrase(src, 'Amma is in this plan by name, and family — which you put first — you rated 2/5.', { mustKeep: ['Amma'] });
+    expect(r.used).toBe('model');
+  });
+
+  it('asks for nothing when the reader named nobody', () => {
+    /* An account with no relationships has no person to protect, and an empty
+       requirement must not fail every rewrite. */
+    const src = 'You put family first and rated it 2/5.';
+    expect(safeRephrase(src, 'Family comes first for you, and you rated it 2/5.',
+      { mustKeep: [undefined] }).used).toBe('model');
+  });
+
   it('keeps the numbers checkable, which is the whole point', () => {
     /* Whatever a reader sees, they can find on another screen — because every
        figure came from the engine and the rewrite could not add one. */

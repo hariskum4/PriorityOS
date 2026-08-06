@@ -43,10 +43,40 @@ Respond ONLY with JSON: {"values": string[5], "reflection": string (<=40 words, 
   buildUser: (ctx) => JSON.stringify(ctx),
 };
 
+/**
+ * The Reveal, edited rather than written.
+ *
+ * This used to receive the whole onboarding — domains, relationships, ranks,
+ * scores — and compose the Reveal from scratch. Given a real account one
+ * minute old, a good model returned: *"your life reads as paused across the
+ * board — nothing is moving, nothing is being tended"* and *"Everything is at
+ * zero attention right now."*
+ *
+ * Both sentences are false in the same way. A brand-new account has zeros
+ * because nothing has happened yet, not because a life is being neglected —
+ * an error the engine's own drift copy was fixed for months ago, reintroduced
+ * by the model on the one screen where it matters most. And in getting there
+ * it dropped Amma, whom the reader had just named as the person they are
+ * missing; dropped the 2/5 and the 1/5 they had just rated themselves; and
+ * dropped how they said they wanted to feel in a week. Four sentences of
+ * fluent prose about nobody in particular.
+ *
+ * So the reasoning goes back to the engine, which knows the account is a
+ * minute old, and the model gets the part it is genuinely better at. It
+ * receives three finished sentences and returns three finished sentences.
+ * `safeRephrase` then rejects any of them that gained a number, a name or a
+ * unit — or lost the person the plan is named for.
+ */
 export const LIFE_REVEAL: PromptTemplate = {
-  system: `You are Priority's life-alignment coach. You receive a user's onboarding data plus deterministic domain scores. Produce the "Life Reveal": a short, emotionally intelligent summary of what matters to them, where their life is drifting, and the first week's focus. ${TONE_GUIDE}
+  system: `You are Priority's editor. You receive three short pieces of writing the app has already composed about somebody who has just finished signing up, and you return the same three, written better.
+
+Keep every fact exactly as given. Every number must appear in your version, and every person named must still be named — the figures and the name are the whole point of these sentences. Do not add a number, a name, a date, a comparison or a conclusion that is not already there. You are not being asked what this person's life is like, whether they are neglecting anything, or what they should do; all of that has already been decided and is in front of you.
+
+You may reorder, tighten, warm the tone, and cut anything that does not earn its place. Shorter is better. If a piece is already good, return it unchanged.
+
+Never address the reader as anything but "you". No greeting, no sign-off, no emoji. ${TONE_GUIDE}
 ${GROUNDING_RULES}
-Respond ONLY with JSON: {"headline": string, "narrative": string (<=120 words), "topPriorities": string[3], "driftWarning": string, "firstWeekFocus": string[3]}`,
+Respond ONLY with JSON: {"headline": string (<=8 words), "narrative": string (<=120 words), "driftWarning": string}`,
   buildUser: (ctx) => JSON.stringify(ctx),
 };
 

@@ -8,7 +8,7 @@ import { BlueprintService } from '../life-os/blueprint.service';
 import { LIFE_REVEAL, VALUES_EXTRACTION } from '@priority/ai-prompts';
 import {
   deriveGoalTitle, namesAThing, suggestCountables, countKeyOf,
-  detectCrisisLanguage,
+  detectCrisisLanguage, safeRephrase,
 } from '@priority/scoring-engine';
 import { ALL_DOMAINS, domainForRelationType } from '@priority/types';
 
@@ -561,54 +561,117 @@ export class OnboardingService {
         .catch((err) => this.logger.error(`seedCountables failed for ${userId}`, err as Error)),
     ]);
 
+    /**
+     * The Reveal the engine writes, before anything is asked of a model.
+     *
+     * Every sentence here comes from an answer this person gave in the last
+     * few minutes: the domain they put first, the score they gave it, the
+     * thing they said keeps sliding, the person they said they are missing,
+     * how they said they want to feel in a week. It is already the Reveal;
+     * what follows only changes the wording.
+     */
+    const engineReveal = {
+      headline: person ? `A plan with ${person} in it` : 'What you said, next to what you do',
+      narrative: narrativeParts.join(' '),
+      // "You flagged X" described a screen that no longer exists: drift is
+      // derived from the 1-5 scores now, so the warning quotes the number
+      // they actually gave. A domain they named without ranking has no
+      // score to quote, and is described as what it was — named.
+      driftWarning: neglected.length
+        ? typeof currentReality[neglected[0]] === 'number'
+          ? `You rated ${neglected[0]} ${currentReality[neglected[0]]}/5 — that's the gap that compounds quietly. It gets first attention.`
+          : `You named ${neglected[0]} as slipping — that's the gap that compounds quietly. It gets first attention.`
+        /**
+         * Day one has no drift DATA — which is not the same as no drift.
+         * The old fallback ("nothing is drifting — rare, and worth
+         * protecting") congratulated a person the app had never watched,
+         * two lines under bars showing say-90/do-0, and it said the same
+         * thing to someone who had answered nothing at all.
+         */
+        : 'Drift shows up in how real weeks get spent, and Priority has not watched one of yours yet. A few ordinary days will show where it lives.',
+    };
+
+    /**
+     * The model edits those three sentences. It does not receive the account.
+     *
+     * It used to get the whole of onboarding and compose the Reveal itself,
+     * and on a one-minute-old account it wrote "your life reads as paused
+     * across the board — nothing is moving, nothing is being tended" and
+     * "Everything is at zero attention right now." Both false in the same
+     * way: a new account reads zero because nothing has happened yet, which
+     * the engine knows and the model cannot. Getting there it also dropped
+     * Amma — the person the reader had just named — along with the two scores
+     * they had just given and the feeling they were aiming for.
+     *
+     * `topPriorities` and `firstWeekFocus` are not sent at all. They are a
+     * list of domains and a set of missions with ids attached; there is no
+     * version of "said better" that applies to them, and every way a model
+     * could touch them is a way for the first week to point somewhere the
+     * reader never chose.
+     */
     const revealing = this.ai.generate(
       userId,
       'life_reveal',
       LIFE_REVEAL,
-      { domains, relationships, ranked, neglected, regrets, postponing, feeling },
-      {
-        headline: person ? `A plan with ${person} in it` : 'What you said, next to what you do',
-        narrative: narrativeParts.join(' '),
-        topPriorities: top3,
-        // "You flagged X" described a screen that no longer exists: drift is
-        // derived from the 1-5 scores now, so the warning quotes the number
-        // they actually gave. A domain they named without ranking has no
-        // score to quote, and is described as what it was — named.
-        driftWarning: neglected.length
-          ? typeof currentReality[neglected[0]] === 'number'
-            ? `You rated ${neglected[0]} ${currentReality[neglected[0]]}/5 — that's the gap that compounds quietly. It gets first attention.`
-            : `You named ${neglected[0]} as slipping — that's the gap that compounds quietly. It gets first attention.`
-          /**
-           * Day one has no drift DATA — which is not the same as no drift.
-           * The old fallback ("nothing is drifting — rare, and worth
-           * protecting") congratulated a person the app had never watched,
-           * two lines under bars showing say-90/do-0, and it said the same
-           * thing to someone who had answered nothing at all.
-           */
-          : 'Drift shows up in how real weeks get spent, and Priority has not watched one of yours yet. A few ordinary days will show where it lives.',
-        firstWeekFocus: this.firstWeekOptions({
-          top3,
-          person,
-          personDomain: focusPerson
-            ? domainForRelationType(focusPerson.relationType)
-            : null,
-          personId: focusPerson?.id ?? null,
-          personAge: focusPerson?.age ?? null,
-          personLocation: focusPerson?.locationType ?? null,
-          personRelation: focusPerson?.relationType ?? null,
-          postponing,
-          postponingDomain: postponingGoalDomain,
-          postponingGoalId: postponingGoal?.id ?? null,
-          neglected,
-          currentReality,
-        }),
-      },
+      engineReveal,
+      engineReveal,
       { timeoutMs: ONBOARDING_AI_BUDGET_MS },
     );
 
     /* The account is finished when the writes land; the narrative is what the
        reader is actually waiting to read. */
-    const [reveal] = await Promise.all([revealing, written]);
+    const [edited] = await Promise.all([revealing, written]);
+
+    /**
+     * Checked, then used — the same guarantee the daily card gets.
+     *
+     * Each of the three is compared against the sentence it came from: a
+     * rewrite that gained a number, a name or a unit is rejected, and so is
+     * one that lost a number. The person is added to that list explicitly,
+     * because "And Amma is in this plan by name" losing Amma is not a
+     * stylistic choice, and no rule derivable from the sentence alone would
+     * have caught it.
+     *
+     * A rejection is not an error state. It means the app declined to say
+     * something it could not stand behind, and the engine's own words — which
+     * are quotations of this person's answers — go on screen instead.
+     */
+    const keep = { mustKeep: [person] };
+    const checked = {
+      headline: safeRephrase(engineReveal.headline, edited?.headline, keep),
+      narrative: safeRephrase(engineReveal.narrative, edited?.narrative, keep),
+      driftWarning: safeRephrase(engineReveal.driftWarning, edited?.driftWarning),
+    };
+    for (const [field, r] of Object.entries(checked)) {
+      if (r.used === 'engine' && r.reasons.length) {
+        this.logger.warn(`life_reveal ${field} rejected: ${r.reasons.join('; ')}`);
+      }
+    }
+
+    const reveal = {
+      headline: checked.headline.sentence,
+      narrative: checked.narrative.sentence,
+      driftWarning: checked.driftWarning.sentence,
+      /* Never model-touched: a list of domains, and missions carrying the ids
+         of the goal and the person they are filed under. */
+      topPriorities: top3,
+      firstWeekFocus: this.firstWeekOptions({
+        top3,
+        person,
+        personDomain: focusPerson
+          ? domainForRelationType(focusPerson.relationType)
+          : null,
+        personId: focusPerson?.id ?? null,
+        personAge: focusPerson?.age ?? null,
+        personLocation: focusPerson?.locationType ?? null,
+        personRelation: focusPerson?.relationType ?? null,
+        postponing,
+        postponingDomain: postponingGoalDomain,
+        postponingGoalId: postponingGoal?.id ?? null,
+        neglected,
+        currentReality,
+      }),
+    };
 
     /**
      * The enrichment, started only now.

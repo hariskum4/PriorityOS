@@ -67,9 +67,35 @@ export interface RephraseCheck {
  * which is what makes "the numbers on this screen are checkable" survive
  * contact with a language model.
  */
-export function checkRephrase(original: string, rewritten: string): RephraseCheck {
+export interface RephraseRules {
+  /**
+   * Words the rewrite is not allowed to lose.
+   *
+   * Numbers already survive by rule, because a figure is checkable and a
+   * feeling is not. Some words are load-bearing in exactly the same way and
+   * cannot be recognised from the sentence alone — the caller knows which.
+   *
+   * The case this exists for: the Life Reveal's whole promise is a plan with
+   * a particular person in it, and the engine's last line is "And Amma is in
+   * this plan by name." A model handed that wrote four fluent sentences with
+   * no Amma in them. Nothing was invented, nothing was misread; the sentence
+   * simply stopped being about anybody, which is the one thing it was for.
+   */
+  mustKeep?: Array<string | null | undefined>;
+}
+
+export function checkRephrase(
+  original: string,
+  rewritten: string,
+  rules: RephraseRules = {},
+): RephraseCheck {
   const reasons: string[] = [];
   const clean = (rewritten ?? '').trim();
+
+  const lostWords = (rules.mustKeep ?? [])
+    .map((w) => (w ?? '').trim())
+    .filter((w) => w && !clean.toLowerCase().includes(w.toLowerCase()));
+  if (lostWords.length) reasons.push(`dropped: ${lostWords.join(', ')}`);
 
   if (!clean) reasons.push('empty');
   /* A rewrite that has grown by half is not a rewrite. Generous, because
@@ -119,11 +145,15 @@ export function checkRephrase(original: string, rewritten: string): RephraseChec
  * stand behind, and the engine's sentence was always going to be good
  * enough on its own.
  */
-export function safeRephrase(original: string, rewritten: string | null | undefined): {
+export function safeRephrase(
+  original: string,
+  rewritten: string | null | undefined,
+  rules: RephraseRules = {},
+): {
   sentence: string; used: 'model' | 'engine'; reasons: string[];
 } {
   if (!rewritten) return { sentence: original, used: 'engine', reasons: ['nothing returned'] };
-  const check = checkRephrase(original, rewritten);
+  const check = checkRephrase(original, rewritten, rules);
   return check.ok
     ? { sentence: rewritten.trim(), used: 'model', reasons: [] }
     : { sentence: original, used: 'engine', reasons: check.reasons };
