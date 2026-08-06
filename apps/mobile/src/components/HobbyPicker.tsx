@@ -195,9 +195,20 @@ export function HobbyPicker({
         </View>
       )}
 
+      {/**
+        * The at-cap line, which has to survive a caller that did not ask for
+        * eight.
+        *
+        * It said "eight is more than anybody keeps" whatever `max` was — so
+        * the Time tab, which asks for exactly one thing to put in a free
+        * evening, told a reader who had picked one that eight was plenty. The
+        * cap is a prop; the sentence about it has to be too.
+        */}
       {full && (
         <Text style={type.faint}>
-          That is plenty — eight is more than anybody keeps. Remove one to add another.
+          {max === 1
+            ? 'One is the question. Remove it to choose something else.'
+            : `That is plenty — ${max} is more than anybody keeps. Remove one to add another.`}
         </Text>
       )}
     </View>

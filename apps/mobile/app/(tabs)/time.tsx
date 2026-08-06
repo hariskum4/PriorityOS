@@ -72,6 +72,7 @@ import { useRefresh } from '@/hooks/useRefresh';
 import { useNow } from '@/hooks/useNow';
 import { Button, Card, Chip, DomainDot, ErrorNote, HourField, Input, Label } from '@/components/ui';
 import { YearGrid } from '@/components/YearGrid';
+import { HobbyPicker } from '@/components/HobbyPicker';
 import { colors, type, space, domainColor, alpha, liningNums } from '@/theme';
 
 /**
@@ -925,6 +926,25 @@ export default function TimeReality() {
     }
   };
   const [minutes, setMinutes] = useState<number>(30);
+  /**
+   * What the thirty minutes are actually for, when they have not said.
+   *
+   * The card offered a rhythm called "30 minutes on something that
+   * compounds", which is vaguer than this app allows itself anywhere else —
+   * and a vague commitment is the exact thing implementation intentions
+   * exist to replace. So it asks, in one control, and the answer is only
+   * written down if they go on to start the rhythm: naming a thing you are
+   * considering is not the same as claiming you already do it.
+   */
+  const [craftDraft, setCraftDraft] = useState<string[]>([]);
+  const saveHobbies = useMutation({
+    mutationFn: (list: string[]) =>
+      api('/onboarding/answers', {
+        method: 'POST',
+        body: { answers: [{ section: 'life', key: 'hobbies', value: list }] },
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding-answers'] }),
+  });
 
   /**
    * The daily screen hours, which are a fact about this person and so live on
@@ -2355,14 +2375,18 @@ export default function TimeReality() {
    * will only ever offer it, once" — and a line printed on a tab every time
    * it opens is not once.
    */
-  const ownCraft = (() => {
+  const savedCrafts: string[] = (() => {
     const saved = (answers ?? []).find((a: any) => a.key === 'hobbies')?.value;
-    return Array.isArray(saved) && typeof saved[0] === 'string' ? saved[0] : null;
+    return Array.isArray(saved) ? saved.filter((h: unknown): h is string => typeof h === 'string') : [];
   })();
+  const ownCraft = savedCrafts[0] ?? null;
+  /* Theirs already, or the one they just named in the card. Both are a real
+     answer; only the first has been written down. */
+  const namedCraft = ownCraft ?? craftDraft[0] ?? null;
   const creative = craftWindow({
     stretches: openStretches,
     minutesPerDay: minutes,
-    craft: ownCraft,
+    craft: namedCraft,
   });
   /**
    * Now, against a day that runs from waking to waking.
@@ -2553,7 +2577,11 @@ export default function TimeReality() {
           <Label>Horizon numbers are off</Label>
           <Text style={type.body}>
             You've turned off finite-time framing (You → Time reality insights).
-            The money and craft calculators below still work.
+            {/* Named for the sections that are actually still down there.
+                "The money and craft calculators" outlived the section it was
+                describing by one commit. */}
+            {' '}The hours you already have — and the compounding window, if
+            money is part of your plan — still work below.
           </Text>
         </Card>
       ) : (
@@ -2688,6 +2716,53 @@ export default function TimeReality() {
                 />
               </View>
               <Text style={[type.faint, { textAlign: 'center' }]}>{windows.freeTime.detail}</Text>
+              {/**
+                * How many more years of working, and what is on the other side
+                * of them.
+                *
+                * This question spent a release inside the compounding card,
+                * which read fine while that card was always on screen. It is
+                * not: money is now shown to people who put finance in their
+                * plan, and the answer here feeds `lifeWindows` and the
+                * sharp-hours budget in Health and energy — so gating the card
+                * had quietly hidden the only control for a number two other
+                * sections are drawn from.
+                *
+                * It belongs here anyway. "How many more years do you want to
+                * work" is a question about the shape of a life, and the
+                * sentence it produces — what the years after are for — is a
+                * horizon sentence that was sitting under a savings
+                * projection.
+                *
+                * Asked only of somebody still working. A retired reader gets
+                * it in the money card instead, where it means the investing
+                * horizon and is a question they can still answer.
+                */}
+              {stillWorking && (
+                <View style={{ gap: space(3) }}>
+                  <Text style={type.dim}>How many more years do you want to work?</Text>
+                  <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+                    {[5, 10, 15, 20, 25].map((y) => (
+                      <Pressable
+                        key={y}
+                        onPress={() => setMoreYears(y)}
+                        style={[s.chip, moreYears === y && s.chipOn]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: moreYears === y }}
+                        accessibilityLabel={`${y} more working years`}
+                      >
+                        <Text style={[type.body, moreYears === y && { color: colors.amber, fontWeight: '700' }]}>
+                          {y} yrs
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={type.faint}>
+                    After that, ~{windows.career.postCareerYears} years that are almost
+                    entirely yours — the plan is for both halves.
+                  </Text>
+                </View>
+              )}
             </Card>
           </Section>
 
@@ -4553,27 +4628,65 @@ export default function TimeReality() {
               Started — it will show up in your rhythms, {formatClock(creative.from.startMinutes)} on weekdays.
             </Text>
           ) : (
-            <Button
-              title={ownCraft ? `Put ${ownCraft} at ${formatClock(creative.from.startMinutes)}` : `Start it at ${formatClock(creative.from.startMinutes)}`}
-              small
-              kind="ghost"
-              onPress={() => startLever.mutate({
-                key: 'craft',
-                title: ownCraft
-                  ? `${ownCraft}, ${creative.minutesUsed} minutes`
-                  : `${creative.minutesUsed} minutes on something that compounds`,
-                target: 5,
-                domain: 'growth',
-                plannedMinute: creative.from!.startMinutes,
-                /* The days the arithmetic was done for. "Five days a week" in
-                   the sentence and an everyday rhythm on the row would be two
-                   different promises. */
-                plannedDays: Array.isArray(me.workDays) && me.workDays.length
-                  ? me.workDays
-                  : [1, 2, 3, 4, 5],
-              })}
-              disabled={startLever.isPending}
-            />
+            <>
+              {/**
+                * The question the card never asked.
+                *
+                * "30 minutes on something that compounds" was the rhythm this
+                * planted for anybody who had not listed a hobby — a
+                * commitment with no object, which is the vagueness the whole
+                * anchoring idea exists to remove. One control, the same one
+                * onboarding and the You tab use, so an answer typed here is
+                * an answer in the place the rest of the app already reads.
+                *
+                * Only when nothing is on file: somebody who has already told
+                * this app what they do should not be asked again on a tab
+                * about time.
+                */}
+              {!ownCraft && (
+                <View style={{ gap: space(2) }}>
+                  <Text style={type.dim}>What would you put there?</Text>
+                  <HobbyPicker
+                    value={craftDraft}
+                    onChange={setCraftDraft}
+                    placeholder="Search, or type your own"
+                    max={1}
+                    domains={activeDomains.map((d: any) => ({
+                      domainType: d.domainType, importance: d.importance,
+                    }))}
+                    movementLimits={me.movementLimits ?? null}
+                  />
+                </View>
+              )}
+              <Button
+                title={namedCraft
+                  ? `Put ${namedCraft} at ${formatClock(creative.from.startMinutes)}`
+                  : `Name it to put it at ${formatClock(creative.from.startMinutes)}`}
+                small
+                kind="ghost"
+                onPress={() => {
+                  if (!namedCraft) return;
+                  /* Written down only now. Until this press it was a thing
+                     they were considering, and recording it as something they
+                     do would have been the app putting words in their mouth. */
+                  if (!ownCraft) saveHobbies.mutate([namedCraft, ...savedCrafts].slice(0, 8));
+                  startLever.mutate({
+                    key: 'craft',
+                    title: `${namedCraft}, ${creative.minutesUsed} minutes`,
+                    target: 5,
+                    domain: 'growth',
+                    plannedMinute: creative.from!.startMinutes,
+                    /* The days the arithmetic was done for. "Five days a week"
+                       in the sentence and an everyday rhythm on the row would
+                       be two different promises. */
+                    plannedDays: Array.isArray(me.workDays) && me.workDays.length
+                      ? me.workDays
+                      : [1, 2, 3, 4, 5],
+                  });
+                }}
+                disabled={!namedCraft || startLever.isPending}
+              />
+            </>
           )
         ) : null}
       </Card>
@@ -4605,29 +4718,44 @@ export default function TimeReality() {
         {/* No in-card label: the section it now owns carries the same words,
             and the heading was printed twice the moment this stopped being
             one half of "Money and craft". */}
-        {/* The years question lives here rather than in a card of its own,
-            because here the answer does something you can watch: the horizon
-            of the compounding number is age plus this. Its old home printed
-            "~480 working weeks left", which was a countdown wearing a
-            question as a disguise. */}
-        <Text style={type.dim}>
-          {stillWorking
-            ? 'How many more years do you want to work?'
-            : 'How many more years do you want to keep adding to this?'}
-        </Text>
-        <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
-          {[5, 10, 15, 20, 25].map((y) => (
-            <Pressable
-              key={y}
-              onPress={() => setMoreYears(y)}
-              style={[s.chip, moreYears === y && s.chipOn]}
-            >
-              <Text style={[type.body, moreYears === y && { color: colors.amber, fontWeight: '700' }]}>
-                {y} yrs
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        {/**
+          * The working-years question lives in the horizon card above, where
+          * its answer is about a life rather than about a portfolio — and
+          * where it stays reachable when this card is not shown at all.
+          *
+          * It comes back here in the two cases where that card cannot ask it.
+          * Somebody who has stopped working never sees it there, because it
+          * asks about work. And somebody who has turned finite-time framing
+          * off has hidden the entire horizon block — this card is explicitly
+          * one of the two that still work with it off, so it has to carry its
+          * own question rather than quietly run on a number they can no
+          * longer reach.
+          */}
+        {(!stillWorking || intensityOff) && (
+          <>
+            <Text style={type.dim}>
+              {stillWorking
+                ? 'How many more years do you want to work?'
+                : 'How many more years do you want to keep adding to this?'}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: space(2), flexWrap: 'wrap' }}>
+              {[5, 10, 15, 20, 25].map((y) => (
+                <Pressable
+                  key={y}
+                  onPress={() => setMoreYears(y)}
+                  style={[s.chip, moreYears === y && s.chipOn]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: moreYears === y }}
+                  accessibilityLabel={`${y} more years of adding to this`}
+                >
+                  <Text style={[type.body, moreYears === y && { color: colors.amber, fontWeight: '700' }]}>
+                    {y} yrs
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        )}
         <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
           <Text style={type.dim}>Investing</Text>
           <Input
@@ -4655,17 +4783,9 @@ export default function TimeReality() {
               : ' '}
           </Text>
         )}
-        {/* What the working years are for, in one quiet line — the part of
-            the old card worth keeping. */}
-        {/* "After that, N years that are almost entirely yours" is a sentence
-            about a career ending. Said to somebody whose already has, it
-            describes a wait they are not in. */}
-        {!intensityOff && stillWorking && (
-          <Text style={type.faint}>
-            After that, ~{windows.career.postCareerYears} years that are almost
-            entirely yours — the plan is for both halves.
-          </Text>
-        )}
+        {/* "After that, N years that are almost entirely yours" went with the
+            question that produces it. It is a sentence about a career ending,
+            and it was being read as a footnote to a savings total. */}
         <Text style={type.faint}>{money.assumptions[0]}.</Text>
         {/**
           * "The window is not closed — it is open right now" was an
