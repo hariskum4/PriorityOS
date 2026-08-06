@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { useMemoryDraft } from '@/store/memoryDraft';
+import { writeMemoryToCalendar } from '@/services/calendarWrite';
 import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
@@ -606,10 +607,23 @@ function Memories() {
     mutationKey: ['memory', 'create'],
     mutationFn: (body: ReturnType<typeof momentBody>) =>
       api<any>('/memories', { method: 'POST', body }),
-    onSuccess: () => {
+    onSuccess: (saved: any) => {
       /* Remembered before the draft is cleared, so the banner that sent us
          here stops offering to save a moment that is already kept. */
       if (draft?.missionId) markKept(draft.missionId);
+      /**
+       * And onto the phone's calendar, if the reader asked for that.
+       *
+       * Fire and forget, and silent about failing. The moment is already in
+       * the archive by the time this runs — a refused permission or a phone
+       * with no calendar app is not a reason to tell somebody their evening
+       * did not save. `writeMemoryToCalendar` checks the preference itself,
+       * so the default path here is a no-op that costs nothing.
+       */
+      void writeMemoryToCalendar({
+        title: saved?.title ?? title.trim(),
+        occurredAt: saved?.occurredAt ?? new Date(),
+      });
       /**
        * And the other half of the tab, which until now never heard about any
        * of this. The archive got a row and the written journal stayed empty,

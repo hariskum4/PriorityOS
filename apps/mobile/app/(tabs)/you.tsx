@@ -11,6 +11,9 @@ import { CountryField } from '@/components/CountryField';
 import { CityField } from '@/components/CityField';
 import { RegionField } from '@/components/RegionField';
 import { HobbyPicker } from '@/components/HobbyPicker';
+import {
+  calendarWriteSupported, calendarWriteEnabled, setCalendarWriteEnabled, prepareCalendarWrite,
+} from '@/services/calendarWrite';
 import { canonicalTimezone, regionOfCity } from '@priority/scoring-engine';
 import {
   colors, type, space, levelProgress, themeMode, setThemeMode, isLight,
@@ -36,6 +39,25 @@ const levelTitle = (lvl: number) =>
 
 export default function You() {
   const qc = useQueryClient();
+  /* Device-local, so it is read straight from the device rather than through
+     a query — there is no server copy of this and there should not be. */
+  const [calWrite, setCalWrite] = React.useState(false);
+  const [calDenied, setCalDenied] = React.useState(false);
+  React.useEffect(() => { calendarWriteEnabled().then(setCalWrite); }, []);
+  const toggleCalendarWrite = useMutation({
+    mutationFn: async (on: boolean) => {
+      /* Ask before promising. A switch that flips on and silently writes
+         nothing for a week is worse than one that says no now. */
+      if (on) {
+        const state = await prepareCalendarWrite();
+        if (state.status !== 'ready') { setCalDenied(true); return false; }
+      }
+      setCalDenied(false);
+      await setCalendarWriteEnabled(on);
+      return on;
+    },
+    onSuccess: (on) => setCalWrite(on),
+  });
   const logout = useAuth((s) => s.logout);
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api<any>('/me') });
   const { data: profile } = useQuery({
@@ -459,6 +481,47 @@ export default function You() {
         )}
       </Card>
 
+      {/**
+       * Moments on the phone's own calendar.
+       *
+       * The one place this app writes to the device, and off until asked.
+       * Hidden entirely on web, where there is no device calendar to write
+       * to — a switch that cannot do anything is worse than no switch.
+       */}
+      {calendarWriteSupported && (
+        <Card style={{ gap: space(3) }}>
+          <Label>Moments on your calendar</Label>
+          <Text style={type.faint}>
+            Kept moments appear on a calendar of their own, on the day they happened.
+            The title only — never what you wrote about it. Delete the calendar any
+            time and nothing here changes.
+          </Text>
+          <View style={{ flexDirection: 'row', gap: space(2) }}>
+            {([true, false] as const).map((on) => (
+              <Pressable
+                key={String(on)}
+                onPress={() => toggleCalendarWrite.mutate(on)}
+                disabled={toggleCalendarWrite.isPending}
+                accessibilityRole="button"
+                accessibilityLabel={on ? 'Save moments to my calendar' : 'Do not save moments to my calendar'}
+                aria-selected={calWrite === on}
+                style={[s.modeChip, calWrite === on && s.modeChipOn]}
+              >
+                <Text style={[type.body, calWrite === on && { color: colors.amber, fontWeight: '700' }]}>
+                  {on ? 'on' : 'off'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {calDenied ? (
+            <Text style={[type.faint, { color: colors.rose }]}>
+              Your phone declined calendar access, so nothing can be written. It is
+              in Settings if you change your mind.
+            </Text>
+          ) : null}
+        </Card>
+      )}
+
       {/* Accountability partner — the shared-life moat */}
       <Card style={{ gap: space(3) }}>
         <Label>Accountability partner</Label>
@@ -602,5 +665,6 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 12,
     paddingVertical: 9, paddingHorizontal: 14,
   },
+  modeChipOn: { borderColor: colors.amber, backgroundColor: colors.amberFaint },
   partnerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
 });
