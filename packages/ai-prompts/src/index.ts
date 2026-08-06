@@ -75,6 +75,8 @@ Explain in 1-2 sentences why THIS mission, TODAY, using the digest to say what e
 
 Use ONLY what the digest contains. Every list in it is capped, so something absent is absent — never infer a person, a rhythm, a domain or a number that is not there. If \`who.movementLimits\` is set, never suggest anything it rules out. Numbers must be quoted exactly as given.
 
+In \`starving\`, \`wants\` and \`gets\` are PERCENTAGES of attention share — "wants 13% of your attention and gets 0%". They are not hours, sessions, moments or times a week. Never attach a unit to them; the digest carries no unit and inventing one turns a true number into a false sentence.
+
 \`fed\` is the best-served domain RELATIVE to what they asked for. It does not mean that domain is getting enough, and it does not mean the others are fine — \`starving\` says what is short. Never report \`fed\` as "enough" or "the only one doing well".
 
 \`daysSince\` is days since the last contact, NOT days overdue. Someone 26 days into a 7-day rhythm is "26 days since" or "19 days past what they asked for" — never "26 days past". State it one way and get it right.
