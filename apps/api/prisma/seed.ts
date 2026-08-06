@@ -67,13 +67,32 @@ const DOMAINS = [
 const EMAIL = 'demo@priority.app';
 
 async function main() {
-  const password = process.env.DEMO_PASSWORD;
-  if (!password || password.length < 8) {
-    throw new Error(
-      'DEMO_PASSWORD is not set (or is under 8 characters). This account is '
-      + 'reachable from the internet, so it does not get a default.\n\n'
-      + "  DEMO_PASSWORD='…' npm run db:seed\n",
-    );
+  /**
+   * A default password, on purpose, for this one account.
+   *
+   * This was `DEMO_PASSWORD` with no default an hour ago, because a hardcoded
+   * password had been sitting in this file and shipping inside the web bundle
+   * by accident. The reasoning has not changed — it has been overtaken.
+   *
+   * The demo login is now pre-filled on the sign-in screen so that anyone
+   * shown the app can press one button and be inside it. That is a decision
+   * about what the demo is for, and it makes the password public by design:
+   * it is printed on the first screen, so there is no secret here left to
+   * protect. A value in this file is then not a leak, it is documentation.
+   *
+   * What stays true is everything around it. This account is a fixture, not a
+   * person — it holds no real writing, and re-running this script resets it in
+   * two seconds. `DEMO_PASSWORD` still wins if it is set, so a deployment that
+   * wants a private demo can have one without touching the code.
+   *
+   * **When this stops being a demo-stage app, both halves come out together**
+   * — this default and the pre-fill in `apps/mobile/app/(auth)/login.tsx`.
+   * They are one decision in two files, and leaving either behind is the
+   * accident this was, before it was a choice.
+   */
+  const password = process.env.DEMO_PASSWORD ?? 'demo@4321';
+  if (password.length < 8) {
+    throw new Error('DEMO_PASSWORD is under 8 characters.');
   }
 
   /* Only ever this one row. The demo is rebuilt from scratch each run so it
@@ -434,7 +453,9 @@ async function main() {
   console.log(`Seeded ${EMAIL} — Arun Krishnan, 36, Chennai.`);
   console.log('  work 47h/wk · commute 63min each way · 5h/day on the phone');
   console.log('  4 people · 3 rhythms · 12 weeks of history · 8 missions · 3 kept moments');
-  console.log('  password: the DEMO_PASSWORD you passed in (not stored here).');
+  console.log(process.env.DEMO_PASSWORD
+    ? '  password: the DEMO_PASSWORD you passed in.'
+    : `  password: ${password} — the default, and the one the login screen fills in.`);
 }
 
 main()

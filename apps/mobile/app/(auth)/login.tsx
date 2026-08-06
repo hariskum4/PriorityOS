@@ -8,30 +8,35 @@ import { Button, Input } from '@/components/ui';
 import { colors, type, space, skyGradient } from '@/theme';
 
 /**
- * The seed account, and only where it exists.
+ * The demo account, filled in and labelled as such.
  *
- * These two lines were unconditional, so the first screen of the deployed app
- * arrived with an email and a password already typed into it. The seed has
- * never been run against the production database — `demo@priority.app` is not
- * a row there — so the form was pre-filled with credentials that cannot work.
- * Somebody opening the app for the first time sees a completed sign-in, taps
- * the only large button on the screen, and is told "Invalid credentials"
- * before they have done anything at all. The way in, "Create an account", is
- * the quietest thing on the page.
+ * This is a shipped credential and that is the point: while the app is being
+ * shown to people rather than used by them, the fastest way in is the whole
+ * job of this screen. `demo@priority.app` is a fixture — Arun Krishnan, whose
+ * every number comes out of published time-use data — holding no real writing
+ * and rebuilt from scratch by `npm run db:seed` in about two seconds.
  *
- * It is also a shipped credential. The pair is compiled into the web bundle
- * and readable by anyone, so the day that seed ever does run in production,
- * the demo account belongs to whoever looked.
+ * It was removed earlier today for a good reason that has since been
+ * overtaken. The pair was pre-filled *and the account did not exist*, so the
+ * first thing the app ever said to somebody was "Invalid credentials", before
+ * they had typed a character, with "Create an account" as the quietest line on
+ * the page. That was an accident. This is a decision, and the difference is
+ * whether the account on the other end is real — it is now.
  *
- * Kept for local development, where the seed is real and typing it forty
- * times a day is genuinely tedious. `__DEV__` is false in every build that
- * reaches anybody else.
+ * The line under the fields is what keeps it a decision. Credentials sitting
+ * in a form with nothing to explain them read as *yours*, already remembered,
+ * which is how somebody signs into a stranger's account without noticing they
+ * have. Saying whose they are costs one sentence.
+ *
+ * **This comes out with the default in `apps/api/prisma/seed.ts`, together.**
+ * One decision in two files: the day real people are signing in, a pre-filled
+ * public login is the accident it used to be.
  */
-const SEED = { email: 'demo@priority.app', password: 'priority123' };
+const DEMO = { email: 'demo@priority.app', password: 'demo@4321' };
 
 export default function Login() {
-  const [email, setEmail] = useState(__DEV__ ? SEED.email : '');
-  const [password, setPassword] = useState(__DEV__ ? SEED.password : '');
+  const [email, setEmail] = useState(DEMO.email);
+  const [password, setPassword] = useState(DEMO.password);
   const [error, setError] = useState('');
   const setTokens = useAuth((s) => s.setTokens);
 
@@ -65,12 +70,19 @@ export default function Login() {
       <View style={{ gap: space(3) }}>
         <Input placeholder="Email" autoCapitalize="none" value={email} onChangeText={setEmail} />
         <Input placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
+        {/* Whose account this is. Without it, a filled-in form reads as the
+            reader's own, already remembered — and somebody signs into a
+            stranger's life without noticing they have. */}
+        {email === DEMO.email && (
+          <Text style={[type.dim, { textAlign: 'center' }]}>
+            Filled in with the demo account — press Log in to look around,
+            or clear it to use your own.
+          </Text>
+        )}
         {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
-        {/* The prefill was hiding this: with both fields filled in from the
-            start, the button was never pressed empty. Now that the form opens
-            blank, an eager tap would post two empty strings and come back with
-            whatever the DTO says about them — a validation message as the
-            first sentence the app ever addresses to somebody. */}
+        {/* Kept from when this form opened blank: nothing else stops an eager
+            tap posting two empty strings and getting a validation message back
+            as the first sentence the app ever addresses to somebody. */}
         <Button title="Log in" onPress={submit} disabled={!email.trim() || !password} />
         <Link href="/(auth)/forgot" style={[type.dim, { textAlign: 'center', padding: 8 }]}>
           Forgot password?
