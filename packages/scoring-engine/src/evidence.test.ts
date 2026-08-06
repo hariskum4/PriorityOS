@@ -150,3 +150,61 @@ describe('which catalog entry a title is', () => {
     }
   });
 });
+
+/**
+ * The `note` field is read by a person, not by us.
+ *
+ * It is documented as "dose gaps, replication caveats, who the benefit
+ * actually lands on", and most of the bank honours that. Some entries did
+ * not, and nothing caught it because nothing was looking: a reader who
+ * opened "Why this works" under *Move three times a week* was told
+ *
+ *   The catalog asks 3×40 = 120 min/wk; the cardio lever quotes 150.
+ *   Reconcile the twins to one number.
+ *
+ * — an instruction to a developer, printed on a card about walking. Yoga's
+ * note explained how the lookup resolves, and stretching's quoted a code
+ * identifier in backticks. Found by opening the screen, which is not a
+ * reliable way to find things.
+ */
+describe('every receipt is written for the person reading it', () => {
+  /* Words that only mean something to somebody holding the source. `catalog`,
+     `rung` and `lever` are this codebase's nouns, not anybody else's. */
+  const OUR_VOCABULARY = /\b(catalog|rung|lever|blueprint|generator|telemetry|the bank|this receipt|identity)\b/i;
+  /* Things said to a maintainer rather than to a reader. */
+  const ADDRESSED_TO_US = /\b(reconcile|refactor|TODO|FIXME|we should|needs? fixing|should be read as)\b/i;
+
+  const notes = Object.entries(EVIDENCE)
+    .filter(([, e]) => e.note)
+    .map(([key, e]) => [key, e.note as string] as const);
+
+  it('has notes to check at all', () => {
+    expect(notes.length).toBeGreaterThan(20);
+  });
+
+  it('never uses a word that only means something inside this repo', () => {
+    for (const [key, note] of notes) {
+      expect(OUR_VOCABULARY.test(note), `${key}: ${note}`).toBe(false);
+    }
+  });
+
+  it('never addresses the maintainer instead of the reader', () => {
+    for (const [key, note] of notes) {
+      expect(ADDRESSED_TO_US.test(note), `${key}: ${note}`).toBe(false);
+    }
+  });
+
+  it('never quotes a code identifier', () => {
+    for (const [key, note] of notes) {
+      expect(note.includes('`'), `${key}: ${note}`).toBe(false);
+      expect(/\b[a-z]+[A-Z][a-zA-Z]*\b/.test(note), `${key} has camelCase: ${note}`).toBe(false);
+    }
+  });
+
+  it('says nothing in the register this app does not use', () => {
+    const FORBIDDEN = /\b(die|dying|death|deathbed|lifespan|too late|you failed|guilty|ashamed)\b/i;
+    for (const [key, note] of notes) {
+      expect(FORBIDDEN.test(note), `${key}: ${note}`).toBe(false);
+    }
+  });
+});

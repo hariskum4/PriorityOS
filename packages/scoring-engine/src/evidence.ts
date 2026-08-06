@@ -85,7 +85,7 @@ const MOVEMENT: Evidence = {
   grade: 'A',
   effect: 'walking/jogging g ≈ −0.62 for low mood vs active control; benefits rise with intensity',
   source: 'Noetel 2024, BMJ',
-  note: 'The catalog asks 3×40 = 120 min/wk; the cardio lever quotes 150. Reconcile the twins to one number.',
+  note: 'This asks for about 120 minutes a week; the usual public-health figure is 150. The measured benefits start well below either.',
 };
 
 const STRENGTH: Evidence = {
@@ -318,7 +318,7 @@ const RHYTHM_EVIDENCE: Record<string, Evidence> = {
     grade: 'B',
     effect: 'stretching improves range of motion in trials',
     source: 'Cochrane reviews (stretching & flexibility)',
-    note: 'The ROM gain is real; injury-prevention and later-life claims are extrapolation, and the `because` line should be read as stake, not finding.',
+    note: 'The range-of-motion gain is well measured. Claims about preventing injury or protecting later-life mobility go further than the evidence does.',
   },
   'health.vitamins': {
     grade: 'folk',
@@ -338,7 +338,7 @@ const RHYTHM_EVIDENCE: Record<string, Evidence> = {
     grade: 'A',
     effect: 'g ≈ −0.55 for low mood vs active control; among the best-tolerated modalities in the network meta',
     source: 'Noetel 2024, BMJ',
-    note: 'The word was already recognised by the catalog and resolved to stretching, whose own evidence stops at range of motion. Pointing it at its own identity is what lets this receipt be printed instead of that one.',
+    note: 'Measured for low mood rather than for flexibility or strength, and among the gentlest of the movement options the trials compared.',
   },
   'health.cook': COOKING,
   'health.water': {
@@ -484,7 +484,7 @@ const RUNG_EVIDENCE: Record<string, Evidence> = {
     grade: 'B',
     effect: 'experiences beat possessions for remembered happiness; spending on others beat spending on self, d ≈ 0.2',
     source: 'Van Boven & Gilovich 2003, J Pers Soc Psychol; Dunn 2008, Science',
-    note: 'Two small experimental literatures pointing the same way, both honestly sized after replication. The rung is where they meet: an experience, with somebody, on purpose.',
+    note: 'Two small experimental literatures point the same way — money spent on experiences, and money spent with someone. Both honestly sized after replication. This is where they meet.',
   },
   'Write the will, or the list of what is where': {
     grade: 'folk',
@@ -511,13 +511,13 @@ const RUNG_EVIDENCE: Record<string, Evidence> = {
     grade: 'C',
     effect: 'support that was not announced ("invisible support") helped partners most in daily-diary studies',
     source: 'Bolger 2000, J Pers Soc Psychol',
-    note: 'Do the thing; skip the press release. The literature is on the rung\'s side about that specifically.',
+    note: 'Do the thing; skip the announcement. That specific distinction is what the studies tested.',
   },
   'Plan something you both used to do': {
     grade: 'C',
     effect: 'shared pleasant time helps; the trials favored NOVEL over familiar-pleasant',
     source: 'Aron 2000, J Pers Soc Psychol',
-    note: 'This rung is the gentler on-ramp — the experimentally stronger version is the new-together evening two rungs up.',
+    note: 'The gentler starting point. Doing something new together tested stronger than repeating something familiar.',
   },
   'Say the specific thing you appreciate': GRATITUDE_EXPRESS,
   'Put a recurring evening in the calendar': IMPLEMENTATION_INTENTION,
@@ -563,7 +563,7 @@ const RUNG_EVIDENCE: Record<string, Evidence> = {
   },
   'Take on something you are not qualified for': {
     grade: 'folk',
-    note: 'Stretch-assignment development is an associational organizational literature; as a personal rung it is folklore with good aim.',
+    note: 'Stretch-assignment research comes from organisations and is associational. As personal advice it is folklore with good aim.',
   },
   'Learn for thirty minutes a day for a month': HABIT_FORMATION,
 
