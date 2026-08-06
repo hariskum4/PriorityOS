@@ -20,6 +20,7 @@ import { RhythmsService } from './rhythms.service';
 import { FocusService } from './focus.service';
 import { BlueprintService } from './blueprint.service';
 import { RankingService } from './ranking.service';
+import { DigestService } from './digest.service';
 import { SetDomainRankingDto } from './ranking.dto';
 import { MarkSeenDto } from './mark-seen.dto';
 
@@ -36,6 +37,7 @@ export class LifeOsController {
     private focusSvc: FocusService,
     private blueprint: BlueprintService,
     private ranking: RankingService,
+    private digest: DigestService,
   ) {}
 
   /**
@@ -82,6 +84,17 @@ export class LifeOsController {
    * so nothing calling it breaks, and it no longer means anything — every
    * read is a preview.
    */
+  /**
+   * The reading of this life, small enough to hand to something that has to
+   * reason about it — and to a person who wants to see what the app thinks it
+   * knows. About two hundred tokens, a fixed shape, and every number in it is
+   * one some engine already computed for a screen.
+   */
+  @Get('digest')
+  digestFor(@CurrentUser() u: JwtUser) {
+    return this.digest.forUser(u.userId);
+  }
+
   @Get('today')
   async today(@CurrentUser() u: JwtUser) {
     const result = await this.lifeOs.runToday(u.userId, { persist: false });

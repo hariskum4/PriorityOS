@@ -10,6 +10,7 @@ import { RhythmsService } from './rhythms.service';
 import { FocusService } from './focus.service';
 import { BlueprintService } from './blueprint.service';
 import { RankingService } from './ranking.service';
+import { DigestService } from './digest.service';
 import { ScoringModule } from '../scoring/scoring.module';
 
 /**
@@ -24,12 +25,12 @@ import { ScoringModule } from '../scoring/scoring.module';
   providers: [
     LifeOsService, LifeOsJobs, LifeDocumentService,
     LifeTimelineService, LifeOrganismService, StacksService, FocusService,
-    RhythmsService, BlueprintService, RankingService,
+    RhythmsService, BlueprintService, RankingService, DigestService,
   ],
   exports: [
     LifeOsService, LifeDocumentService, LifeTimelineService,
     LifeOrganismService, StacksService, FocusService, RhythmsService,
-    BlueprintService,
+    BlueprintService, DigestService,
   ],
 })
 export class LifeOsModule {}
