@@ -1,224 +1,445 @@
 /**
- * Seed: one fully-lived-in demo account so the dashboard, missions,
- * relationships, weekly review and insights all render on first run.
+ * The demo account: one ordinary week, built out of published numbers.
  *
- * Login: demo@priority.app / priority123
+ * A demo is an argument about who the app is for, and the temptation is to
+ * invent somebody with a dramatic problem — an estranged parent, a crisis, a
+ * life visibly going wrong. That demo persuades nobody, because the person
+ * watching it does not recognise themselves in it and concludes the app is
+ * for someone else.
+ *
+ * So this one is deliberately unremarkable, and every number in it comes from
+ * a survey rather than from imagination:
+ *
+ *   **Work: 473 minutes a day.** India's Time Use Survey 2024 puts men at 473
+ *   and women at 341 on employment and related activities (440 overall). The
+ *   male column is used here because the persona holds a full-time office job;
+ *   the female column would make the same point harder, since it comes with
+ *   289–305 minutes of unpaid domestic work against a man's 88.
+ *
+ *   **Commute: 63 minutes each way.** Chennai's 2025 average, over 22 km. It
+ *   is the country's *fastest* major metro; Mumbai is 66 and Bengaluru 63 over
+ *   shorter and longer distances respectively.
+ *
+ *   **Phone: 5 hours a day.** EY's 2025 India media report, of which roughly
+ *   70% is social, video and gaming.
+ *
+ * Add those up and the day is spoken for before anything he said mattered
+ * gets a minute: 7.9 hours of work, 2.1 of commuting, 5 on a screen. That is
+ * the whole argument this app makes, and it is made here by arithmetic on
+ * public data rather than by a sad story.
+ *
+ * The rest — a mother in another city, a marriage, a seven-year-old, a friend
+ * who moved — is the most common shape of an Indian urban professional's life,
+ * and it is what gives every screen something true to draw.
+ *
+ * **The password is not in this file.** It used to be, which meant the demo
+ * credentials shipped inside the web bundle for anyone to read. It comes from
+ * `DEMO_PASSWORD` now, and this script refuses to run without one.
+ *
+ *   DEMO_PASSWORD='…' npm run db:seed
  */
 import { PrismaClient } from '@prisma/client';
 import { hash as argonHash } from '@node-rs/argon2';
+import { startOfWeekIn } from '../src/common/time';
 
 const prisma = new PrismaClient();
+const TZ = 'Asia/Kolkata';
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
 
+/**
+ * The app's own idea of where a week starts, not a second one.
+ *
+ * `DomainAttentionSample` is unique on (user, domain, week) and the Sunday
+ * Session is looked up by `weekStart`, both derived from `startOfWeekIn` in
+ * the reader's timezone. A seed that computed Monday itself would agree with
+ * that for most of the year and disagree across a DST-style boundary or a
+ * timezone that is not the server's — and the symptom would be a demo whose
+ * twelve weeks of history silently became thirteen rows of nothing, or a
+ * Sunday Session that exists in the database and cannot be found.
+ */
+const weeksAgo = (n: number) => startOfWeekIn(TZ, daysAgo(n * 7));
+
 const DOMAINS = [
-  'family', 'partner', 'children', 'health', 'career',
-  'finance', 'growth', 'friends', 'experiences', 'reflection',
+  'family', 'partner', 'children', 'health', 'career', 'finance',
+  'growth', 'friends', 'experiences', 'reflection', 'purpose', 'impact',
 ];
 
+const EMAIL = 'demo@priority.app';
+
 async function main() {
-  await prisma.user.deleteMany({ where: { email: 'demo@priority.app' } });
+  const password = process.env.DEMO_PASSWORD;
+  if (!password || password.length < 8) {
+    throw new Error(
+      'DEMO_PASSWORD is not set (or is under 8 characters). This account is '
+      + 'reachable from the internet, so it does not get a default.\n\n'
+      + "  DEMO_PASSWORD='…' npm run db:seed\n",
+    );
+  }
+
+  /* Only ever this one row. The demo is rebuilt from scratch each run so it
+     is always the same week; nothing else in the database is touched. */
+  await prisma.user.deleteMany({ where: { email: EMAIL } });
 
   const user = await prisma.user.create({
     data: {
-      email: 'demo@priority.app',
-      passwordHash: await argonHash('priority123'),
-      fullName: 'Demo User',
+      email: EMAIL,
+      passwordHash: await argonHash(password),
+      fullName: 'Arun Krishnan',
+      /* 36 — the middle of the working life this app is aimed at, and old
+         enough that the arithmetic about a parent's remaining visits is real
+         rather than theoretical. */
+      dob: new Date('1990-02-14'),
       timezone: 'Asia/Kolkata',
-      city: 'Bengaluru',
+      city: 'Chennai',
       country: 'IN',
-      profession: 'Software Engineer',
-      workHoursPerWeek: 50,
+      profession: 'IT services — delivery manager',
+      workType: 'office_9_5',
+      /* 473 min/day × 6 days ≈ 47 hours. Six-day weeks are ordinary in Indian
+         IT services, and the survey's figure is per day, not per workday. */
+      workHoursPerWeek: 47,
+      workStartHour: 10,
+      workEndHour: 19,
+      workDays: [1, 2, 3, 4, 5, 6],
+      commuteMinutes: 63,
+      screenHoursPerDay: 5,
       maritalStatus: 'married',
+      childrenCount: 1,
       livesAwayFromParents: true,
+      parentsInLife: true,
+      motivationStyle: 'gentle',
       onboardingCompleted: true,
       preferences: { create: { insightIntensity: 'gentle' } },
+      /* Enough history to have earned something, not enough to look gamified. */
       gamification: {
-        create: { totalXp: 320, level: 3, dailyStreak: 4, bestStreak: 9 },
+        create: { totalXp: 285, level: 3, dailyStreak: 3, bestStreak: 8 },
       },
     },
   });
 
-  // Life domains with onboarding-derived ranks/flags
-  const rankMap: Record<string, number> = {
-    family: 1, health: 2, partner: 3, career: 4, finance: 5,
+  /**
+   * What he said mattered, in the order he said it.
+   *
+   * Family first and health second is the most common ranking this app sees,
+   * and it is also the one the numbers above make hardest to keep.
+   */
+  const RANK: Record<string, number> = {
+    family: 1, health: 2, partner: 3, children: 4, career: 5, finance: 6,
   };
-  for (const domainType of DOMAINS) {
-    await prisma.lifeDomain.create({
-      data: {
-        userId: user.id,
-        domainType,
-        priorityRank: rankMap[domainType] ?? null,
-        flaggedAsNeglected: ['family', 'health'].includes(domainType),
-        regretRiskFlagged: domainType === 'family',
-      },
-    });
-  }
+  const domainRows = await Promise.all(DOMAINS.map((domainType) => prisma.lifeDomain.create({
+    data: {
+      userId: user.id,
+      domainType,
+      priorityRank: RANK[domainType] ?? null,
+      flaggedAsNeglected: ['family', 'health'].includes(domainType),
+      regretRiskFlagged: domainType === 'family',
+    },
+  })));
 
-  // Relationships
+  /**
+   * The answers the Reveal, the drift copy and the countables all read back.
+   *
+   * Without these the account is complete but mute: several screens quote the
+   * reader's own words, and an account with none of them shows the generic
+   * branch of every sentence.
+   */
+  const answers: Array<[string, string, unknown]> = [
+    ['values', 'priorityRanking', ['family', 'health', 'partner', 'children', 'career', 'finance']],
+    ['values', 'neglectedDomains', ['family', 'health']],
+    ['values', 'regretRisks', ['family']],
+    /* Self-rated 1–5, and the gap between the 1 and the ranking is the app's
+       entire opening line. */
+    ['values', 'currentReality', { family: 2, health: 1, partner: 3, children: 3, career: 4 }],
+    ['values', 'firstWeekFeeling', 'less rushed'],
+    ['reflection', 'futureSelf', 'Someone Kavya still rings on a Tuesday for no particular reason.'],
+    ['reflection', 'eulogy', 'He was in the room. Not on his phone, in the room.'],
+    ['reflection', 'postponing', 'the trip to Madurai I keep saying I will take next month'],
+    ['life', 'hobbies', ['Cricket', 'Reading']],
+    ['life', 'lapsedHobbies', ['Cycling']],
+  ];
+  await Promise.all(answers.map(([section, key, value]) => prisma.onboardingAnswer.create({
+    data: { userId: user.id, section, key, value: value as object },
+  })));
+
+  /* ── the people ───────────────────────────────────────────────────────── */
+
+  /**
+   * The mother in another city.
+   *
+   * The most common shape there is: work moved him to Chennai and she stayed.
+   * Wants weekly calls, gets them roughly fortnightly, sees him at festivals.
+   * That gap is not neglect and the app must never call it that — it is what
+   * a 473-minute working day does to good intentions.
+   */
   const amma = await prisma.relationship.create({
     data: {
-      userId: user.id, name: 'Amma', relationType: 'mother', age: 62,
-      city: 'Ranchi', closenessScore: 10, inPersonFrequency: 'quarterly',
-      callFrequency: 'monthly', desiredCallFrequency: 'weekly',
-      wantsMoreTime: true, lastContactAt: daysAgo(18),
-      lastVisitAt: daysAgo(95),
-      meaningfulMomentTypes: ['home-cooked meals', 'temple visits'],
-    },
-  });
-  const appa = await prisma.relationship.create({
-    data: {
-      userId: user.id, name: 'Appa', relationType: 'father', age: 66,
-      city: 'Ranchi', closenessScore: 9, inPersonFrequency: 'quarterly',
-      callFrequency: 'monthly', desiredCallFrequency: 'weekly',
-      wantsMoreTime: true, lastContactAt: daysAgo(18),
-    },
-  });
-  const spouse = await prisma.relationship.create({
-    data: {
-      userId: user.id, name: 'Priya', relationType: 'spouse', age: 32,
-      closenessScore: 10, inPersonFrequency: 'daily', callFrequency: 'daily',
-      desiredCallFrequency: 'daily', wantsMoreTime: true,
-      lastContactAt: daysAgo(0),
-      meaningfulMomentTypes: ['date nights', 'weekend hikes'],
-    },
-  });
-  const friend = await prisma.relationship.create({
-    data: {
-      userId: user.id, name: 'Arjun', relationType: 'friend', age: 33,
-      city: 'Pune', closenessScore: 8, inPersonFrequency: 'yearly',
-      callFrequency: 'quarterly', desiredCallFrequency: 'monthly',
-      wantsMoreTime: true, lastContactAt: daysAgo(70),
+      userId: user.id, name: 'Amma', relationType: 'mother', age: 68,
+      city: 'Madurai', locationType: 'different_city', closenessScore: 10,
+      inPersonFrequency: 'quarterly', callFrequency: 'biweekly',
+      desiredCallFrequency: 'weekly', wantsMoreTime: true,
+      healthStatus: 'good',
+      lastContactAt: daysAgo(11), lastVisitAt: daysAgo(84),
+      meaningfulMomentTypes: ['long phone calls', 'her cooking', 'temple on festival mornings'],
     },
   });
 
-  // Goals
+  const divya = await prisma.relationship.create({
+    data: {
+      userId: user.id, name: 'Divya', relationType: 'spouse', age: 34,
+      locationType: 'same_home', closenessScore: 9,
+      inPersonFrequency: 'daily', callFrequency: 'daily',
+      desiredCallFrequency: 'daily', wantsMoreTime: true,
+      lastContactAt: daysAgo(0),
+      meaningfulMomentTypes: ['dinner without the phone', 'the Sunday morning coffee'],
+    },
+  });
+
+  const kavya = await prisma.relationship.create({
+    data: {
+      userId: user.id, name: 'Kavya', relationType: 'daughter', age: 7,
+      locationType: 'same_home', closenessScore: 10,
+      inPersonFrequency: 'daily', wantsMoreTime: true,
+      lastContactAt: daysAgo(0),
+      meaningfulMomentTypes: ['bedtime stories', 'Saturday cycling'],
+    },
+  });
+
+  /* The friendship that distance quietly ended. Nobody fell out. */
+  const rahul = await prisma.relationship.create({
+    data: {
+      userId: user.id, name: 'Rahul', relationType: 'friend', age: 37,
+      city: 'Pune', locationType: 'different_city', closenessScore: 8,
+      inPersonFrequency: 'yearly', callFrequency: 'quarterly',
+      desiredCallFrequency: 'monthly', wantsMoreTime: true,
+      lastContactAt: daysAgo(62),
+      meaningfulMomentTypes: ['the long catch-up calls'],
+    },
+  });
+
+  /* ── what he means to do about it ─────────────────────────────────────── */
+
   await prisma.goal.createMany({
     data: [
-      { userId: user.id, domainType: 'family', title: 'Visit parents at least 4 times this year', horizon: '1y' },
-      { userId: user.id, domainType: 'health', title: 'Run a 10K by December', horizon: '1y' },
-      { userId: user.id, domainType: 'finance', title: 'Build a 12-month emergency fund', horizon: '1y' },
+      { userId: user.id, domainType: 'family', title: 'See Amma four times this year, not two', horizon: '1y' },
+      { userId: user.id, domainType: 'health', title: 'Cycle again — three mornings a week', horizon: '3m' },
+      { userId: user.id, domainType: 'finance', title: 'Six months of expenses set aside', horizon: '1y' },
     ],
   });
 
-  // Missions — mix of pending + completed
   await prisma.mission.createMany({
     data: [
       {
-        userId: user.id, relationshipId: amma.id, title: 'Call Amma this evening',
-        description: 'She mentioned the garden — ask about it.',
+        userId: user.id, relationshipId: amma.id, title: 'Call Amma tonight',
+        description: 'She mentioned the knee again last time. Ask.',
         domainType: 'family', missionType: 'relationship', dueDate: daysAgo(0),
-        estimatedMinutes: 20, xpReward: 40, sourceType: 'AI',
-        aiRationale: 'Family is your #1 stated priority and 18 days have passed since your last call — twice your desired weekly cadence.',
+        estimatedMinutes: 15, xpReward: 40, sourceType: 'AI',
+        aiRationale: 'Family is what you put first, and it has been eleven days — you asked for weekly.',
       },
       {
-        userId: user.id, relationshipId: friend.id,
-        title: 'Message Arjun to plan the Pune catch-up',
-        domainType: 'friends', missionType: 'relationship',
-        dueDate: daysAgo(-2), estimatedMinutes: 10, xpReward: 40, sourceType: 'AI',
-        snoozeCount: 2,
+        userId: user.id, relationshipId: kavya.id, title: 'Bedtime story with Kavya',
+        domainType: 'children', missionType: 'ritual', dueDate: daysAgo(0),
+        estimatedMinutes: 15, xpReward: 25, sourceType: 'AI',
       },
+      {
+        userId: user.id, relationshipId: rahul.id,
+        title: 'Message Rahul — actually pick a date this time',
+        domainType: 'friends', missionType: 'relationship', dueDate: daysAgo(-2),
+        estimatedMinutes: 10, xpReward: 40, sourceType: 'AI', snoozeCount: 2,
+      },
+      /* Kept deliberately: the catalog's own honest entry about checkups is
+         the one that makes every confident card believable. */
       {
         userId: user.id, title: 'Book the annual health checkup',
-        domainType: 'health', missionType: 'recovery',
-        dueDate: daysAgo(-5), estimatedMinutes: 15, xpReward: 25, sourceType: 'AI',
+        domainType: 'health', missionType: 'recovery', dueDate: daysAgo(-9),
+        estimatedMinutes: 15, xpReward: 25, sourceType: 'AI', snoozeCount: 3,
       },
-      {
-        userId: user.id, relationshipId: spouse.id, title: 'Plan Saturday date night',
-        domainType: 'partner', missionType: 'ritual',
-        status: 'completed', completedAt: daysAgo(2), xpReward: 40, sourceType: 'user',
-      },
-      {
-        userId: user.id, title: '20-minute evening walk',
-        domainType: 'health', missionType: 'ritual',
-        status: 'completed', completedAt: daysAgo(1), xpReward: 25, sourceType: 'AI',
-      },
+      { userId: user.id, relationshipId: divya.id, title: 'Dinner with Divya, phones in the other room', domainType: 'partner', missionType: 'ritual', status: 'completed', completedAt: daysAgo(2), xpReward: 40, sourceType: 'user' },
+      { userId: user.id, relationshipId: kavya.id, title: 'Cycle with Kavya before the heat', domainType: 'children', missionType: 'one_time', status: 'completed', completedAt: daysAgo(5), xpReward: 25, sourceType: 'AI' },
+      { userId: user.id, title: 'Twenty minutes on the cycle', domainType: 'health', missionType: 'ritual', status: 'completed', completedAt: daysAgo(3), xpReward: 25, sourceType: 'AI' },
+      { userId: user.id, relationshipId: amma.id, title: 'Call Amma', domainType: 'family', missionType: 'relationship', status: 'completed', completedAt: daysAgo(11), xpReward: 40, sourceType: 'AI' },
     ],
   });
 
-  // Habits with logs
-  const callParents = await prisma.habit.create({
+  const cycle = await prisma.habit.create({
     data: {
-      userId: user.id, title: 'Sunday call with parents', domainType: 'family',
-      relationshipId: amma.id, targetPerWeek: 1, streakCurrent: 2, streakBest: 5,
-      xpReward: 15, sourceType: 'AI',
+      userId: user.id, title: 'Cycle twenty minutes', domainType: 'health',
+      targetPerWeek: 3, streakCurrent: 2, streakBest: 5, sourceType: 'AI',
+      plannedMinute: 6 * 60 + 15, plannedDays: [2, 4, 6],
     },
   });
-  const walk = await prisma.habit.create({
+  const sundayCall = await prisma.habit.create({
     data: {
-      userId: user.id, title: '20-minute walk', domainType: 'health',
-      targetPerWeek: 4, streakCurrent: 3, streakBest: 6, sourceType: 'AI',
+      userId: user.id, title: 'Sunday call with Amma', domainType: 'family',
+      relationshipId: amma.id, targetPerWeek: 1, streakCurrent: 0, streakBest: 4,
+      xpReward: 15, sourceType: 'AI', plannedMinute: 19 * 60, plannedDays: [0],
+    },
+  });
+  const bedtime = await prisma.habit.create({
+    data: {
+      userId: user.id, title: 'Bedtime story, no phone in the room',
+      domainType: 'children', relationshipId: kavya.id, targetPerWeek: 5,
+      streakCurrent: 4, streakBest: 11, sourceType: 'user',
+      plannedMinute: 20 * 60 + 30, plannedDays: [1, 2, 3, 4, 5],
     },
   });
   await prisma.habitLog.createMany({
     data: [
-      { habitId: walk.id, completedAt: daysAgo(1) },
-      { habitId: walk.id, completedAt: daysAgo(2) },
-      { habitId: walk.id, completedAt: daysAgo(4) },
-      { habitId: callParents.id, completedAt: daysAgo(7) },
+      ...[1, 3, 6, 8, 10, 13].map((d) => ({ habitId: bedtime.id, completedAt: daysAgo(d) })),
+      ...[3, 6, 10].map((d) => ({ habitId: cycle.id, completedAt: daysAgo(d) })),
+      /* One Sunday kept, then two missed — which is why the streak is zero and
+         the family domain is where it is. */
+      { habitId: sundayCall.id, completedAt: daysAgo(25) },
     ],
   });
 
-  // Journal
-  await prisma.journalEntry.create({
-    data: {
-      userId: user.id, mood: 4,
-      whatMattered: 'Dinner together without phones.',
-      whatIAvoided: 'Still have not booked the health checkup.',
-      domainTags: ['partner', 'health'],
-      createdAt: daysAgo(1),
-    },
+  /* ── what he kept ─────────────────────────────────────────────────────── */
+
+  await prisma.memory.createMany({
+    data: [
+      {
+        userId: user.id, relationshipId: kavya.id, personName: 'Kavya',
+        title: 'She rode the whole way without the stabilisers',
+        memoryType: 'relationship', domainType: 'children',
+        location: 'Besant Nagar beach road', occurredAt: daysAgo(5), timeKnown: true,
+        reflection: 'Did not tell her I had let go. She got to the end and turned round looking for me.',
+        keepsake: 'The face she made when she realised.',
+      },
+      {
+        userId: user.id, relationshipId: amma.id, personName: 'Amma',
+        title: 'Pongal at home', memoryType: 'experience', domainType: 'family',
+        location: 'Madurai', occurredAt: daysAgo(84),
+        reflection: 'Three days. She cooked every meal and refused all help, as always.',
+        conversation: 'She asked when we were coming next. I said soon.',
+      },
+      {
+        userId: user.id, relationshipId: divya.id, personName: 'Divya',
+        title: 'Dinner with the phones in the other room',
+        memoryType: 'moment', domainType: 'partner', occurredAt: daysAgo(2), timeKnown: true,
+        reflection: 'Forty minutes. We talked about her sister, then about nothing.',
+      },
+    ],
   });
 
-  // Opportunity insight (framed as estimate, with assumptions)
+  await prisma.journalEntry.createMany({
+    data: [
+      {
+        userId: user.id, mood: 4,
+        whatMattered: 'Kavya rode the whole way on her own.',
+        whatIAvoided: 'Still have not called Amma back.',
+        domainTags: ['children', 'family'], createdAt: daysAgo(5),
+      },
+      {
+        userId: user.id, mood: 3,
+        whatMattered: 'Dinner with Divya, no phones. Should be a normal Tuesday, not an event.',
+        whatIAvoided: 'The checkup. Third time I have moved it.',
+        domainTags: ['partner', 'health'], createdAt: daysAgo(2),
+      },
+    ],
+  });
+
+  /**
+   * Twelve weeks of history, so the sky has something to draw.
+   *
+   * The shape is the point: `family` claimed at 92 and drifting down through
+   * the autumn as work took the evenings, `children` holding because bedtime
+   * is at a fixed hour, `health` flat and low. Nothing collapses — this is a
+   * life going quietly sideways, which is the condition the app is for.
+   */
+  const CURVE: Record<string, { importance: number; from: number; to: number }> = {
+    family: { importance: 92, from: 46, to: 22 },
+    health: { importance: 84, from: 30, to: 19 },
+    partner: { importance: 76, from: 44, to: 38 },
+    children: { importance: 70, from: 52, to: 55 },
+    career: { importance: 62, from: 74, to: 81 },
+    finance: { importance: 54, from: 21, to: 18 },
+  };
+  const samples = [];
+  for (let w = 11; w >= 0; w -= 1) {
+    const t = (11 - w) / 11;
+    for (const [domainType, c] of Object.entries(CURVE)) {
+      samples.push({
+        userId: user.id,
+        domainType,
+        weekOf: weeksAgo(w),
+        importance: c.importance,
+        /* A small wobble, or twelve points on a ruler reads as a graph nobody
+           measured. */
+        attention: Math.round((c.from + (c.to - c.from) * t + (w % 3 === 0 ? 4 : -2)) * 100) / 100,
+      });
+    }
+  }
+  await prisma.domainAttentionSample.createMany({ data: samples, skipDuplicates: true });
+
+  /* Scores that agree with the twelve weeks above, so nothing has to be
+     recomputed before the first screen renders honestly. */
+  await Promise.all(domainRows.map((d) => {
+    const c = CURVE[d.domainType];
+    return prisma.lifeDomain.update({
+      where: { id: d.id },
+      data: {
+        importanceScore: c?.importance ?? 0,
+        attentionScore: c?.to ?? 0,
+        prevAttentionScore: c?.from ?? 0,
+        neglectRiskScore: c ? Math.max(0, Math.round(c.importance - c.to)) : 0,
+        healthScore: c?.to ?? 0,
+        lastMeaningfulActionAt: d.domainType === 'family' ? daysAgo(11) : daysAgo(3),
+      },
+    });
+  }));
+
   await prisma.opportunityInsight.create({
     data: {
       userId: user.id, relationshipId: amma.id, domainType: 'family',
       kind: 'visits_remaining',
-      headline: 'At your current pace: ~40 visits with Amma over the next 10 years.',
-      detail: 'This is simple arithmetic on your stated visit frequency — a planning lens, not a prediction.',
+      headline: 'At two visits a year, about 30 more with Amma.',
+      detail: 'Arithmetic on the pace you gave, against an ordinary life expectancy for her age. A planning lens, not a prediction — and the pace is the part you control.',
       assumptions: [
-        'Current pace of about 4 visits per year continues unchanged',
-        '10-year planning horizon (adjustable)',
-        'No assumptions about anyone\u2019s health or lifespan',
+        'Two visits a year, which is what the last twelve months came to',
+        "India life-expectancy tables for a woman of 68, and nothing about her health",
+        'It is a rate, not a countdown: four visits a year doubles it',
       ],
-      estimate: 40, unit: 'visits',
+      estimate: 30, unit: 'visits',
     },
   });
 
-  // Sample weekly review
-  const weekStart = daysAgo(7);
-  weekStart.setHours(0, 0, 0, 0);
+  /**
+   * This week's, not last week's.
+   *
+   * `/weekly-review/current` looks up exactly `weekStart` for the week the
+   * reader is in, so a review seeded against last Monday exists in the table
+   * and is invisible on the screen — which for a demo means the Sunday
+   * Session, one of the app's signature moments, opens empty.
+   */
+  const weekStart = weeksAgo(0);
   await prisma.weeklyReview.create({
     data: {
-      userId: user.id, weekStart, weekEnd: daysAgo(1),
-      completedMissions: 2, completedHabits: 4, journalEntries: 1,
-      topWins: ['Date night with Priya', '3 walks despite the release week'],
+      userId: user.id, weekStart, weekEnd: daysAgo(0),
+      completedMissions: 3, completedHabits: 5, journalEntries: 2,
+      topWins: ['Kavya rode the whole way on her own', 'Dinner with Divya, phones away'],
       neglectedDomains: ['family', 'friends'],
-      regretRiskFocus: 'One call home before next Sunday',
+      regretRiskFocus: 'One call to Madurai before Sunday',
       nextWeekFocus: [
-        'Call Amma and Appa',
-        'Book the health checkup you keep postponing',
-        'Message Arjun about Pune',
+        'Call Amma — it has been eleven days against a weekly intention',
+        'Book the checkup you have moved three times',
+        'Give Rahul a date rather than a maybe',
       ],
       aiNarrative:
-        'A strong week for your marriage and a decent one for health — but family, your #1 stated priority, got zero minutes. The 18-day silence with your parents is the single biggest gap between what you say matters and where your time went.',
+        'A good week for the people in the house and a quiet one for everyone outside it. Family is what you put first and it got one call; the eleven days since is the widest gap between what you said mattered and where the week actually went.',
     },
   });
 
-  // App config: scoring weights are tunable without redeploy
   await prisma.appConfig.upsert({
-    where: { key: 'scoring' },
-    create: { key: 'scoring', value: {} },
-    update: {},
+    where: { key: 'scoring' }, create: { key: 'scoring', value: {} }, update: {},
   });
 
-  console.log('Seeded demo@priority.app / priority123');
-  console.log('Relationships:', { amma: amma.id, appa: appa.id, spouse: spouse.id, friend: friend.id });
+  console.log(`Seeded ${EMAIL} — Arun Krishnan, 36, Chennai.`);
+  console.log('  work 47h/wk · commute 63min each way · 5h/day on the phone');
+  console.log('  4 people · 3 rhythms · 12 weeks of history · 8 missions · 3 kept moments');
+  console.log('  password: the DEMO_PASSWORD you passed in (not stored here).');
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error(e instanceof Error ? e.message : e);
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());
