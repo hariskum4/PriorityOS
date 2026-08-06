@@ -14,6 +14,7 @@ import {
   dedupeRituals,
   matchRitual,
   suggestCountables,
+  money as formatMoney,
   type ArchiveTheme,
   estimateTimeReality,
   screenTrade,
@@ -1750,6 +1751,8 @@ export default function TimeReality() {
     monthlyAmount: parseInt(monthly, 10) || 0,
     currentAge: age,
     targetAge: age + moreYears,
+    /* So the figures carry a unit. Unknown country still renders bare. */
+    country: me?.country,
   });
   const creative = estimateCreativeCompounding(minutes);
   const weeks = lifeInWeeks(age);
@@ -4338,7 +4341,7 @@ export default function TimeReality() {
         // "by 60" carries the unit the bare number lacked: collapsed, this row
         // used to read "~2,323,391" of nothing in particular. The figure is in
         // whatever currency the person types below — same as the body copy.
-        preview={`~${money.corpusStartingNow.toLocaleString()} by ${age + moreYears} · ${minutes} min/day`}
+        preview={`~${formatMoney(money.corpusStartingNow, me?.country)} by ${age + moreYears} · ${minutes} min/day`}
       >
       <Card style={{ gap: space(3) }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -4379,7 +4382,7 @@ export default function TimeReality() {
           <Text style={type.dim}>a month until {age + moreYears}</Text>
         </View>
         <Text style={type.serif}>
-          grows to ~{money.corpusStartingNow.toLocaleString()}.
+          grows to ~{formatMoney(money.corpusStartingNow, me?.country)}.
         </Text>
         <Text style={[type.dim, { color: colors.green }]}>{money.framingText}</Text>
         {/* What the working years are for, in one quiet line — the part of

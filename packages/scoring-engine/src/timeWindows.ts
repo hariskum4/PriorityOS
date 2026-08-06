@@ -22,6 +22,8 @@
  */
 
 import { softRound } from './timeReality';
+import { NORMS } from './norms';
+import { money } from './countries';
 
 // ---------------------------------------------------------------------------
 // 1. Tail End share — % of in-person time together that is still ahead
@@ -168,6 +170,12 @@ export interface CompoundingInput {
   targetAge?: number;      // default 60
   annualReturnPct?: number; // default 12 (long-run equity assumption, stated)
   delayYears?: number;      // default 5
+  /**
+   * Where they live, for the currency symbol. Omitted or unrecognised leaves
+   * the figures bare, which is what every reader saw before — a wrong symbol
+   * is worse than none.
+   */
+  country?: string | null;
 }
 
 export interface CompoundingResult {
@@ -188,7 +196,7 @@ function futureValueOfSip(monthly: number, years: number, annualPct: number): nu
 
 export function estimateCostOfWaiting(input: CompoundingInput): CompoundingResult {
   const targetAge = input.targetAge ?? 60;
-  const rate = input.annualReturnPct ?? 12;
+  const rate = input.annualReturnPct ?? NORMS.annualReturnPct.value;
   const delay = input.delayYears ?? 5;
   const years = Math.max(targetAge - input.currentAge, 1);
   const now = Math.round(futureValueOfSip(input.monthlyAmount, years, rate));
@@ -201,7 +209,7 @@ export function estimateCostOfWaiting(input: CompoundingInput): CompoundingResul
     corpusIfDelayed: delayed,
     gainFromStartingNow: gain,
     framingText:
-      `Starting this month instead of in ${delay} years adds ~${gain.toLocaleString()} ` +
+      `Starting this month instead of in ${delay} years adds ~${money(gain, input.country)} ` +
       `to what compounds by ${targetAge}. The window is not closed — it is open right now.`,
     assumptions: [
       `Assumes ~${rate}% average annual return — a long-run equity assumption, not a promise`,

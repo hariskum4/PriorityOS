@@ -19,6 +19,8 @@
  *     urgency pressure — pressure on top of grief is harm, not help.
  */
 
+import { NORMS } from './norms';
+
 export type HealthStatus = 'good' | 'declining' | 'serious';
 /**
  * `same_home` is a real value, not an alias.
@@ -117,7 +119,7 @@ const LIFE_EXPECTANCY: Record<string, number> = {
   EG: 70, NG: 63, KE: 66, ZA: 66, GH: 64, ET: 65, MA: 74,
   RU: 73, UA: 71,
 };
-const DEFAULT_LIFE_EXPECTANCY = 75;
+const DEFAULT_LIFE_EXPECTANCY = NORMS.defaultLifeExpectancy.value;
 
 /** Beyond statistical expectancy, conditional expectancy keeps rising —
  * and telling someone their parent is "out of years" is both wrong and

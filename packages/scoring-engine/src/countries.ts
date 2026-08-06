@@ -466,3 +466,53 @@ export function regionOfCity(country?: string | null, city?: string | null): str
   }
   return null;
 }
+
+/**
+ * What money is counted in, where somebody lives.
+ *
+ * The compounding card printed "Investing 10000 a month … grows to
+ * ~2,323,391" with no unit anywhere on it. That was a considered choice, and
+ * the reasoning was sound as far as it went: the reader types a bare number,
+ * so the figure inherits whatever currency they were thinking in and the card
+ * does not have to guess. What it missed is that a quantity of money with no
+ * unit is not neutral — it is unreadable, and the reader has to supply from
+ * memory the one fact the screen is for.
+ *
+ * The app already localises arithmetic by country and says so out loud
+ * ("Time numbers use India's life expectancy"). Money is the same kind of
+ * fact, so it follows the same field rather than inventing a second one.
+ *
+ * Symbol, not ISO code: "₹2,323,391" reads as money and "INR 2,323,391" reads
+ * as a bank statement. Countries not listed get no symbol at all, which
+ * restores exactly the old behaviour for them rather than guessing wrong —
+ * and an expat thinking in another currency can change the country field,
+ * which is the same lever that already moves their life-expectancy figures.
+ */
+const CURRENCY_BY_COUNTRY: Record<string, string> = {
+  IN: '₹', US: '$', CA: 'C$', AU: 'A$', NZ: 'NZ$', SG: 'S$', HK: 'HK$',
+  GB: '£', IE: '€', DE: '€', FR: '€', ES: '€', IT: '€', NL: '€', BE: '€',
+  AT: '€', PT: '€', FI: '€', GR: '€', SK: '€', SI: '€', EE: '€', LV: '€',
+  LT: '€', LU: '€', MT: '€', CY: '€', HR: '€',
+  JP: '¥', CN: '¥', KR: '₩', CH: 'CHF ', SE: 'kr ', NO: 'kr ', DK: 'kr ',
+  PL: 'zł ', CZ: 'Kč ', HU: 'Ft ', RU: '₽', TR: '₺', BR: 'R$', MX: 'MX$',
+  AR: 'AR$', CL: 'CL$', CO: 'CO$', ZA: 'R', NG: '₦', KE: 'KSh ', EG: 'E£',
+  AE: 'AED ', SA: 'SAR ', QA: 'QAR ', KW: 'KWD ', BH: 'BHD ', OM: 'OMR ',
+  IL: '₪', PK: '₨', BD: '৳', LK: 'Rs ', NP: 'रू', ID: 'Rp ', MY: 'RM ',
+  TH: '฿', VN: '₫', PH: '₱', TW: 'NT$',
+};
+
+/** The symbol for a country, or null when we would only be guessing. */
+export function currencySymbol(code?: string | null): string | null {
+  if (!code) return null;
+  return CURRENCY_BY_COUNTRY[code.trim().toUpperCase()] ?? null;
+}
+
+/**
+ * An amount with its unit, or the bare number when the country is unknown.
+ * Never a wrong symbol: not knowing is a better answer than dollars in Delhi.
+ */
+export function money(amount: number, country?: string | null): string {
+  const symbol = currencySymbol(country);
+  const n = Math.round(amount).toLocaleString();
+  return symbol ? `${symbol}${n}` : n;
+}

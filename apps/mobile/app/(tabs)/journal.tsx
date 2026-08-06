@@ -375,13 +375,29 @@ function Reflect() {
         <Card key={e.id} style={{ backgroundColor: colors.surfaceSunken, gap: space(2) }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={[type.faint, { flex: 1 }]}>{fmtDate(e.createdAt)}</Text>
-            {e.mood ? (
-              <Ionicons
-                name={(MOODS.find(([v]) => v === e.mood)?.[1] ?? 'ellipse-outline') as never}
-                size={15}
-                color={colors.textFaint}
-              />
-            ) : null}
+            {/* The word as well as the glyph.
+                Saying how a day felt is the one thing this screen asks for
+                before anything else, and reading it back gave a grey icon in
+                the same faint colour whether the answer was "hard" or
+                "bright" — unnamed to a screen reader, and to anyone who has
+                not memorised five weather symbols. The composer above shows
+                both; so does the record. */}
+            {e.mood ? (() => {
+              const mood = MOODS.find(([v]) => v === e.mood);
+              return (
+                <View
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  accessibilityLabel={mood ? `Today was ${mood[2]}` : undefined}
+                >
+                  <Ionicons
+                    name={(mood?.[1] ?? 'ellipse-outline') as never}
+                    size={15}
+                    color={colors.textFaint}
+                  />
+                  {mood ? <Text style={type.faint}>{mood[2]}</Text> : null}
+                </View>
+              );
+            })() : null}
             {(e.domainTags ?? []).slice(0, 4).map((d: string) => <DomainDot key={d} domain={d} size={7} />)}
           </View>
           {e.whatMattered ? <Text style={[type.serif, breakLongWords]}>{e.whatMattered}</Text> : null}

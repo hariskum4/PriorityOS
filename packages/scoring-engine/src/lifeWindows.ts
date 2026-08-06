@@ -15,23 +15,27 @@
 
 import { softRound } from './timeReality';
 import { lifeShape } from './lifeShape';
+import { NORMS } from './norms';
 
 // Generous by design: a 100-year horizon (people are living longer, and a
 // tool that tells an 80-year-old their life is spent is both wrong and
 // cruel). The horizon MOVES — nobody ever sees fewer than 15 years ahead,
 // so at 90 the lens simply extends past 100. A planning lens, never a countdown.
-export const PLANNING_HORIZON_AGE = 100;
+/* Read from `norms.ts`, which holds the source for each of these. A constant
+   whose provenance lives only in the comment beside it is a constant nobody
+   can check. */
+export const PLANNING_HORIZON_AGE = NORMS.planningHorizonAge.value;
 const MIN_HORIZON_YEARS = 15;
-const SLEEP_HOURS_PER_NIGHT = 7.5;
+const SLEEP_HOURS_PER_NIGHT = NORMS.sleepHoursPerNight.value;
 /** Commute, chores, errands, admin — the invisible tax on a week. */
-const LIFE_OVERHEAD_HOURS_PER_WEEK = 24;
+const LIFE_OVERHEAD_HOURS_PER_WEEK = NORMS.lifeOverheadHoursPerWeek.value;
 /**
  * When the stated hours ARE the household — a homemaker — the 24h overhead
  * would count the same cooking and errands twice. What is genuinely left
  * over is the personal slice: their own admin, appointments, upkeep.
  */
-const CARE_WORK_OVERHEAD_HOURS_PER_WEEK = 8;
-const WORKING_WEEKS_PER_YEAR = 48;
+const CARE_WORK_OVERHEAD_HOURS_PER_WEEK = NORMS.careWorkOverheadHoursPerWeek.value;
+const WORKING_WEEKS_PER_YEAR = NORMS.workingWeeksPerYear.value;
 
 // ---------------------------------------------------------------------------
 // Free time — the most confronting honest number

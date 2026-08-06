@@ -10,12 +10,13 @@
  */
 
 import { yearsToHorizon } from './lifeWindows';
+import { NORMS } from './norms';
 
 // ---------------------------------------------------------------------------
 // Healthspan — the years that actually matter
 // ---------------------------------------------------------------------------
 
-const TYPICAL_UNWELL_YEARS = 10; // the frail tail most people experience
+const TYPICAL_UNWELL_YEARS = NORMS.typicalUnwellYears.value;
 
 export type LeverKey = 'strength' | 'cardio' | 'sleep' | 'social';
 /**
@@ -322,7 +323,7 @@ function summaryFor(x: {
  * for every reader. It is named here and stated on the card rather than
  * quietly multiplied into a total that looks like a personal measurement.
  */
-const PEAK_HOURS_PER_DAY = 3;
+const PEAK_HOURS_PER_DAY = NORMS.peakHoursPerDay.value;
 
 /**
  * How much of a working hour is a sharp hour. Roughly one in three — the rest
