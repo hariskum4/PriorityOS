@@ -529,6 +529,21 @@ function Memories() {
   const [personIds, setPersonIds] = useState<string[]>([]);
   const [countKey, setCountKey] = useState<string>('');
   const [reflection, setReflection] = useState('');
+  /**
+   * The two beats that turn a row into something worth going back to.
+   *
+   * A memory had one prose box, so the archive read as a list of titles with
+   * dates — a thing that counts rather than a thing anybody re-reads. What
+   * people return to a diary for is the substance: what was actually said,
+   * and the part that stayed with them.
+   *
+   * Behind a disclosure, and staying there. Three questions where there was
+   * one is how a journal empties — the same restraint the hobby picker
+   * needed, for the same reason.
+   */
+  const [conversation, setConversation] = useState('');
+  const [keepsake, setKeepsake] = useState('');
+  const [moreBeats, setMoreBeats] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   /**
@@ -579,6 +594,8 @@ function Memories() {
     relationshipId: personIds.length === 1 ? personIds[0] : draft?.relationshipId,
     countKey: countKey || undefined,
     reflection: reflection.trim() || undefined,
+    conversation: conversation.trim() || undefined,
+    keepsake: keepsake.trim() || undefined,
     missionId: draft?.missionId,
     domainType: draft?.domainType,
     // Noon UTC, so a date never lands on the previous day in a western
@@ -616,7 +633,8 @@ function Memories() {
           .then((d) => { if (d) offerEntry(d.whatMattered ?? '', (d as any).prompt ?? null); })
           .catch(() => {});
       }
-      setTitle(''); setReflection(''); setPersonIds([]); setCountKey(''); setOccurredOn('');
+      setTitle(''); setReflection(''); setConversation(''); setKeepsake(''); setMoreBeats(false);
+      setPersonIds([]); setCountKey(''); setOccurredOn('');
       clear();
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2500);
@@ -740,10 +758,44 @@ function Memories() {
         )}
         <Input
           multiline
-          placeholder="What will you remember about this?"
+          /* Not "What happened?" — the title field one row up already asks
+             that, and two identical prompts on one form is how somebody
+             types their account into the one-line name. I did exactly that
+             while testing it. */
+          placeholder="The longer version — how it actually went"
+          accessibilityLabel="The longer version — how it actually went"
           value={reflection}
           onChangeText={setReflection}
         />
+        {moreBeats ? (
+          <>
+            <Input
+              multiline
+              placeholder="What did you talk about?"
+              accessibilityLabel="What did you talk about?"
+              value={conversation}
+              onChangeText={setConversation}
+            />
+            <Input
+              multiline
+              placeholder="What do you want to remember about it?"
+              accessibilityLabel="What do you want to remember about it?"
+              value={keepsake}
+              onChangeText={setKeepsake}
+            />
+          </>
+        ) : (
+          <Pressable
+            onPress={() => setMoreBeats(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add what you talked about and what you want to remember"
+            hitSlop={8}
+          >
+            <Text style={[type.faint, { color: colors.amber }]}>
+              + what you talked about, what you want to remember
+            </Text>
+          </Pressable>
+        )}
         <ErrorNote error={save.error} onRetry={() => save.mutate(momentBody())} retrying={save.isPending} />
         {justSaved ? (
           <View style={s.savedRow}>
@@ -777,7 +829,28 @@ function Memories() {
             {(m.peoplePresent ?? []).length > 0 && (
               <Text style={type.faint}>With {(m.peoplePresent as string[]).join(', ')}</Text>
             )}
+            {/**
+             * Read as an entry, not as a row.
+             *
+             * The account first and plainest, then what was said, then the
+             * part that stayed — which is the order somebody re-reading it
+             * wants them in, and the reason the archive is worth opening at
+             * all. Each is absent when it is absent; a moment with only a
+             * title still renders as a moment.
+             */}
             {m.reflection ? <Text style={type.serif}>{m.reflection}</Text> : null}
+            {m.conversation ? (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: space(1) }}>
+                <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.textFaint} style={{ marginTop: 3 }} />
+                <Text style={[type.dim, { flex: 1, minWidth: 0 }, breakLongWords]}>{m.conversation}</Text>
+              </View>
+            ) : null}
+            {m.keepsake ? (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: space(1) }}>
+                <Ionicons name="bookmark-outline" size={14} color={colors.amber} style={{ marginTop: 3 }} />
+                <Text style={[type.dim, { flex: 1, minWidth: 0 }, breakLongWords]}>{m.keepsake}</Text>
+              </View>
+            ) : null}
             {/**
              * The way out of the archive and into the written half.
              *
@@ -828,6 +901,10 @@ function EditMemory({ memory, onClose, onSaved }: {
 }) {
   const [title, setTitle] = useState(memory.title ?? '');
   const [reflection, setReflection] = useState(memory.reflection ?? '');
+  /* The beats are why somebody reopens a moment, so the edit form has to
+     hold them — otherwise coming back can only correct a title. */
+  const [conversation, setConversation] = useState(memory.conversation ?? '');
+  const [keepsake, setKeepsake] = useState(memory.keepsake ?? '');
   const [occurredOn, setOccurredOn] = useState(
     memory.occurredAt ? new Date(memory.occurredAt).toISOString().slice(0, 10) : '',
   );
@@ -840,6 +917,8 @@ function EditMemory({ memory, onClose, onSaved }: {
         body: {
           title: title.trim(),
           reflection: reflection.trim() || null,
+          conversation: conversation.trim() || null,
+          keepsake: keepsake.trim() || null,
           occurredAt: `${occurredOn}T12:00:00.000Z`,
         },
       }),
@@ -869,7 +948,9 @@ function EditMemory({ memory, onClose, onSaved }: {
           {dateValid ? 'Lands on that year' : 'Needs to look like 2009-06-14'}
         </Text>
       </View>
-      <Input multiline value={reflection} onChangeText={setReflection} placeholder="What do you remember about it now?" />
+      <Input multiline value={reflection} onChangeText={setReflection} placeholder="The longer version — how it actually went" accessibilityLabel="The longer version — how it actually went" />
+      <Input multiline value={conversation} onChangeText={setConversation} placeholder="What did you talk about?" accessibilityLabel="What did you talk about?" />
+      <Input multiline value={keepsake} onChangeText={setKeepsake} placeholder="What do you want to remember about it?" accessibilityLabel="What do you want to remember about it?" />
       <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
       <View style={{ flexDirection: 'row', gap: space(2) }}>
         <View style={{ flex: 1 }}>

@@ -294,7 +294,17 @@ model Memory {
   countKey       String?   // links to a custom Time Reality count
   peoplePresent  Json      @default("[]")
   location       String?
-  reflection     String?   // "What will you remember about this?"
+  reflection     String?   // "What happened?" — the account of the thing
+  /// The two beats that turn a row into something worth re-reading.
+  ///
+  /// A memory had one prose field, which made the archive a list of titles
+  /// with dates. What people go back to a diary for is the substance — what
+  /// was actually said, and the part that stayed with them — and neither had
+  /// anywhere to live. Both optional and both hidden until asked for: the
+  /// form must not become a questionnaire, which is the failure mode that
+  /// empties a journal faster than a blank page.
+  conversation   String?   // "What did we talk about?"
+  keepsake       String?   // "What do you want to remember about it?"
   occurredAt     DateTime  @default(now())
   createdAt      DateTime  @default(now())
 

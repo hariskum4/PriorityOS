@@ -230,7 +230,7 @@ export class MemoriesService {
 
     if (already) {
       const patch: Record<string, unknown> = {};
-      for (const field of ['title', 'domainType', 'countKey', 'location', 'reflection', 'relationshipId']) {
+      for (const field of ['title', 'domainType', 'countKey', 'location', 'reflection', 'conversation', 'keepsake', 'relationshipId']) {
         const v = data[field];
         if (v !== undefined && v !== null && v !== '') patch[field] = v;
       }
@@ -256,6 +256,8 @@ export class MemoriesService {
         peoplePresent: Array.isArray(data.peoplePresent) ? data.peoplePresent : [],
         location: data.location ?? null,
         reflection: data.reflection ?? null,
+        conversation: data.conversation ?? null,
+        keepsake: data.keepsake ?? null,
         occurredAt: data.occurredAt ? new Date(data.occurredAt) : new Date(),
       },
     });
@@ -279,7 +281,7 @@ export class MemoriesService {
   async update(userId: string, id: string, data: any) {
     await this.assertOwned(userId, id);
     const patch: Record<string, unknown> = {};
-    for (const field of ['title', 'memoryType', 'domainType', 'countKey', 'location', 'reflection', 'relationshipId']) {
+    for (const field of ['title', 'memoryType', 'domainType', 'countKey', 'location', 'reflection', 'conversation', 'keepsake', 'relationshipId']) {
       if (data[field] !== undefined) patch[field] = data[field];
     }
     if (Array.isArray(data.peoplePresent)) patch.peoplePresent = data.peoplePresent;

@@ -4,6 +4,7 @@ import {
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser, JwtUser } from '../common/current-user.decorator';
 import { MemoriesService } from './memories.service';
+import { CreateMemoryDto, UpdateMemoryDto } from './memories.dto';
 
 @UseGuards(JwtGuard)
 @Controller('memories')
@@ -50,12 +51,12 @@ export class MemoriesController {
   }
 
   @Post()
-  create(@CurrentUser() u: JwtUser, @Body() body: any) {
+  create(@CurrentUser() u: JwtUser, @Body() body: CreateMemoryDto) {
     return this.memories.create(u.userId, body ?? {});
   }
 
   @Patch(':id')
-  update(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: any) {
+  update(@CurrentUser() u: JwtUser, @Param('id') id: string, @Body() body: UpdateMemoryDto) {
     return this.memories.update(u.userId, id, body ?? {});
   }
 
