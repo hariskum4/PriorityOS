@@ -414,6 +414,20 @@ export class MemoriesService {
       personName: peopleCount > 1 ? null : named || null,
       peopleCount,
       daysAgo,
+      /**
+       * And what they have already told us about it.
+       *
+       * Without this the form asked for what it had been given one line up:
+       * an account reading *"Forty minutes. We talked about her sister, then
+       * about nothing."* was still met with *"What did you and Divya
+       * actually talk about?"*. The engine reads every box and spends its
+       * questions on ground that is still empty.
+       */
+      written: {
+        reflection: memory.reflection,
+        conversation: memory.conversation,
+        keepsake: memory.keepsake,
+      },
     });
 
     /**
@@ -446,10 +460,17 @@ export class MemoriesService {
         keepsake: engine.keepsake,
       },
       { insight: '', account: '', conversation: '', keepsake: '' },
-      /* Keyed on the moment and the parts of it the questions are built from,
-         so reopening the same evening asks the same thing — and editing the
-         title or the date earns a fresh set. */
-      { cacheKey: `moment:${memory.id}:${memory.title}:${named}:${daysAgo}` },
+      /**
+       * Keyed on the engine's own questions, which is the exact fingerprint
+       * of every input that matters.
+       *
+       * It used to key on the title, the person and the date, and that went
+       * stale the moment the questions started depending on what had been
+       * written: adding a paragraph about the conversation changed the
+       * question and not the key, so the cache kept serving a polished
+       * rewrite of a question the form was no longer asking.
+       */
+      { cacheKey: `moment:${memory.id}:${[engine.insight, engine.reflection, engine.conversation, engine.keepsake].join('|')}` },
     );
 
     /**
@@ -475,6 +496,9 @@ export class MemoriesService {
       reflection: isUsableAccountLine(account) ? account : engine.reflection,
       conversation: question(engine.conversation, edited.conversation),
       keepsake: question(engine.keepsake, edited.keepsake),
+      /* Never model-edited. It is a control label rather than a question,
+         and a reworded control is a different control. */
+      disclosure: engine.disclosure,
     };
   }
 

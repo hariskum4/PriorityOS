@@ -13,7 +13,7 @@ import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
 import {
-  supportLines, momentPrompts, momentDisclosure, type MomentPrompts,
+  supportLines, momentPrompts, type MomentPrompts,
 } from '@priority/scoring-engine';
 import { colors, type, space, alpha, breakLongWords } from '@/theme';
 
@@ -691,8 +691,14 @@ function Memories() {
    * screen: only the opening question is seeded by it, and the composer does
    * not show one. A placeholder that rewrote itself on every keystroke would
    * be the worst version of this idea.
+   *
+   * `written` is the live account, which does move things — on purpose.
+   * Describe the conversation in the first box and the hidden box below it
+   * stops asking what you talked about, because you have just said. The
+   * engine ignores anything shorter than a clause, so this settles once
+   * rather than flickering word by word.
    */
-  const describing = {
+  const askAbout = momentPrompts({
     title: title.trim(),
     memoryType,
     personName: personIds.length === 1 ? nameOf(personIds[0]) : null,
@@ -700,12 +706,8 @@ function Memories() {
     daysAgo: occurredOn && dateValid
       ? Math.max(0, Math.floor((Date.now() - new Date(`${occurredOn}T12:00:00.000Z`).getTime()) / 86_400_000))
       : 0,
-  };
-  const askAbout = momentPrompts(describing);
-  /* The link that hides the last two boxes names them, so it has to move
-     with them — it was promising a conversation to somebody who spent the
-     evening on their own. */
-  const moreLabel = momentDisclosure(describing);
+    written: { reflection, conversation, keepsake },
+  });
 
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -847,11 +849,11 @@ function Memories() {
           <Pressable
             onPress={() => setMoreBeats(true)}
             accessibilityRole="button"
-            accessibilityLabel={`Add ${moreLabel}`}
+            accessibilityLabel={`Add ${askAbout.disclosure}`}
             hitSlop={8}
           >
             <Text style={[type.faint, { color: colors.amber }]}>
-              {`+ ${moreLabel}`}
+              {`+ ${askAbout.disclosure}`}
             </Text>
           </Pressable>
         )}
@@ -1006,11 +1008,15 @@ function EditMemory({ memory, onClose, onSaved }: {
    * The server returns the same four with the wording sharpened, and only
    * replaces them once it has them.
    *
-   * Built from the *saved* moment, not from the fields being edited: the
-   * questions must not rewrite themselves while somebody is typing an answer
-   * to them, which is also why the query is keyed on the id and left stale
-   * for an hour. Change the title and save, and the next opening asks
-   * accordingly.
+   * Built from the *saved* moment, not from the fields being edited — and
+   * that distinction is doing real work here now that the questions depend
+   * on what has been written. Typing into the account must not rewrite the
+   * question two boxes down mid-sentence; the composer can get away with
+   * that because its boxes start empty, and this one cannot because they do
+   * not. Save, reopen, and the form has caught up.
+   *
+   * Which is also why the query is keyed on the id and left stale for an
+   * hour.
    */
   const present: string[] = Array.isArray(memory.peoplePresent) ? memory.peoplePresent : [];
   const named: string | null = memory.personName
@@ -1025,6 +1031,11 @@ function EditMemory({ memory, onClose, onSaved }: {
     daysAgo: memory.occurredAt
       ? Math.max(0, Math.floor((Date.now() - new Date(memory.occurredAt).getTime()) / 86_400_000))
       : 0,
+    written: {
+      reflection: memory.reflection,
+      conversation: memory.conversation,
+      keepsake: memory.keepsake,
+    },
   });
   const { data: sharpened } = useQuery({
     queryKey: ['memory-prompts', memory.id],

@@ -47,6 +47,11 @@ const engineFor = (memory: Record<string, any> = MOMENT) => momentPrompts({
   personName: memory.personName,
   peopleCount: (memory.peoplePresent ?? []).length,
   daysAgo: 0,
+  written: {
+    reflection: memory.reflection,
+    conversation: memory.conversation,
+    keepsake: memory.keepsake,
+  },
 });
 
 describe('a rewrite that is still a question is used', () => {
@@ -111,12 +116,68 @@ describe('with the model off, the form is still asked four real things', () => {
   it('returns the engine set when nothing comes back', async () => {
     const out = await svc({ insight: '', account: '', conversation: '', keepsake: '' })
       .prompts('u1', 'm1');
-    expect(out).toEqual({
-      insight: engineFor().insight,
-      reflection: engineFor().reflection,
-      conversation: engineFor().conversation,
-      keepsake: engineFor().keepsake,
-    });
+    expect(out).toEqual(engineFor());
+  });
+});
+
+describe('the endpoint reads what is already on the moment', () => {
+  /**
+   * The reported bug, end to end.
+   *
+   * The account narrates the conversation and the next box asked for the
+   * conversation. The service has to hand the written fields to the engine
+   * for this to be caught — the engine cannot read the database.
+   */
+  it('stops asking what was said once the account has said it', async () => {
+    const written = {
+      ...MOMENT,
+      title: 'Dinner with the phones in the other room',
+      personName: 'Divya',
+      peoplePresent: ['Divya'],
+      reflection: 'Forty minutes. We talked about her sister, then about nothing.',
+    };
+    const out = await svc({}, written).prompts('u1', 'm1');
+    expect(out.conversation).not.toMatch(/talk/i);
+    expect(out.conversation).toBe('What do you still see when you picture it?');
+  });
+
+  it('still asks it when the account is empty', async () => {
+    const blank = {
+      ...MOMENT,
+      title: 'Dinner with the phones in the other room',
+      personName: 'Divya',
+      peoplePresent: ['Divya'],
+      reflection: null,
+    };
+    const out = await svc({}, blank).prompts('u1', 'm1');
+    expect(out.conversation).toBe('What did you and Divya actually talk about?');
+  });
+
+  it('reads the keepsake and the conversation, not only the account', async () => {
+    const out = await svc({}, {
+      ...MOMENT,
+      conversation: 'She asked when we were coming next and I told her soon.',
+    }).prompts('u1', 'm1');
+    expect(out.conversation).not.toMatch(/talk about/i);
+  });
+
+  /* The link is a control label, so the model never touches it — but it
+     still has to follow the box it opens. */
+  it('moves the disclosure label with the question', async () => {
+    const out = await svc({}, {
+      ...MOMENT,
+      title: 'Dinner with the phones in the other room',
+      personName: 'Divya',
+      peoplePresent: ['Divya'],
+      reflection: 'Forty minutes. We talked about her sister, then about nothing.',
+    }).prompts('u1', 'm1');
+    expect(out.disclosure).toBe('what you still see, what you want to remember');
+  });
+
+  it('never lets the model rewrite the disclosure label', async () => {
+    const out = await svc({ insight: 'What shifted between you and Amma?' } as any)
+      .prompts('u1', 'm1');
+    expect(out.disclosure).toBe(engineFor().disclosure);
   });
 });
 
@@ -127,7 +188,11 @@ describe('who was there decides what can be asked', () => {
       personName: null, peoplePresent: [],
     };
     const out = await svc({}, alone).prompts('u1', 'm1');
-    expect(out.conversation).toBe('What did it take to get there?');
+    expect(out.conversation).not.toMatch(/talk|said|told/i);
+    /* Effort is asked for in the amber question, so the box below moves on
+       rather than asking the same thing twice. */
+    expect(out.insight).toBe('What did that take that nobody saw?');
+    expect(out.conversation).toBe('Where were you?');
   });
 
   it('gives a gathering the plural rather than one name out of four', async () => {

@@ -1,36 +1,66 @@
 /**
- * The questions a particular moment deserves, instead of the same four.
+ * The questions a particular moment deserves, and never one it has already
+ * been answered.
  *
- * "Back to this moment" asked everybody the same things — *What did you talk
- * about?*, *What do you want to remember about it?* — and a fixed question is
- * a form field. Asked about a call with Amma it is nearly right; asked about
- * shipping something alone at midnight it is nonsense, because there was
- * nobody to talk to. A question that does not fit the thing it is under reads
- * as a template, and a template is the thing people stop filling in.
+ * ## What this is for
  *
- * Which is the whole reason this file exists rather than a longer list of
- * placeholder strings: the leverage in a journal is not the box, it is the
- * question. The expressive-writing trials found the benefit tracked causal
- * and insight words — because, realised, why — not emotional ones. So the
- * useful thing to personalise is the ask, and the useful thing to never touch
- * is the answer.
+ * "Back to this moment" asked everybody the same four things. A fixed
+ * question is a form field, and a form field is what people stop filling in.
+ * Worse, it can be redundant: a moment whose account already reads *"Forty
+ * minutes. We talked about her sister, then about nothing."* was still being
+ * asked, in the very next box, *"What did you and Divya actually talk
+ * about?"* — the app asking for something it had been given, one line up.
  *
- * The hard line inherited from `journalVoice`, unchanged and worth restating
- * because this file is where it would be most tempting to cross:
+ * ## Why probing facets is the right shape, and not just tidier
  *
- *   **The app writes the question. The person writes the answer.**
+ * Conway and Pleydell-Pearce's self-memory system holds autobiographical
+ * knowledge at three levels: lifetime periods, general events, and
+ * event-specific knowledge — the perceptual, sensory layer. A title and a
+ * paragraph capture the top two. The bottom one is what makes a memory feel
+ * like being there rather than knowing about, and it is the layer that goes
+ * first. Nobody volunteers it into an empty box; it comes out when something
+ * asks for it.
  *
- * Nothing here proposes what the reader might say, how the evening went, or
- * how they felt about it. Every string below ends in a question mark on
- * purpose.
+ * What asks for it well is already known. The cognitive interview's context
+ * reinstatement raises accurate recall across seven separable categories —
+ * who, what was said, what was done, where, when, how, why — and Madore and
+ * Schacter's episodic specificity induction shows that a few minutes of
+ * exactly this kind of structured probing selectively increases *internal*
+ * (episodic) detail, with the effect carrying beyond the task into imagining
+ * the future and solving problems.
  *
- * Each of the four differs for exactly one reason, so the set stays legible
- * rather than looking shuffled:
+ * Two consequences, and both are the whole design:
  *
- *   `insight`      — who was there, and what kind of thing it was
- *   `reflection`   — what kind of thing it was
- *   `conversation` — whether there was anybody to talk to
- *   `keepsake`     — how long ago it happened
+ *   **Probing a facet twice is a wasted probe.** That is the bug above.
+ *   **Leaving one unprobed loses the detail nobody volunteers.** That is the
+ *   bug underneath it, and it was costing more.
+ *
+ * So every question below is tagged with the facet it opens, everything the
+ * person has already written is scanned for which facets are taken, and each
+ * slot asks for ground that is still empty.
+ *
+ * ## The line this file will not cross
+ *
+ * The app writes the question. The person writes the answer.
+ *
+ * That was inherited from `journalVoice` as a matter of taste, and the
+ * memory literature turns out to make it a safety rule. Retrieving an
+ * autobiographical memory returns it to a labile state in which it can be
+ * rewritten; Loftus's misinformation work is fifty years of evidence that
+ * details supplied around a retrieval get absorbed and later reported as
+ * one's own, and imagination inflation shows that merely picturing a
+ * suggested detail raises confidence it happened. A box pre-filled with a
+ * plausible sentence about somebody's evening with their mother is not a
+ * convenience. It is a suggestion delivered at the exact moment the memory
+ * is open for editing.
+ *
+ * A question cannot do that. It supplies no content to absorb — which is why
+ * personalising the ask is safe and personalising the answer is not, and why
+ * none of the strings below contain a fact about anybody.
+ *
+ * Note how narrow the escape hatch is: a question is one word away from a
+ * suggestion. *What did she say?* is a question. *What did she say that
+ * surprised you?* has already decided that something did.
  */
 
 import { stablePick } from './journalVoice';
@@ -38,6 +68,25 @@ import { stablePick } from './journalVoice';
 /** The kinds the archive stores. Anything else falls to the plain wording. */
 export type MomentKind =
   | 'relationship' | 'experience' | 'achievement' | 'reflection' | 'gratitude' | 'moment';
+
+/**
+ * The separable things a question can ask for.
+ *
+ * Six of the cognitive interview's seven categories, plus `open` for the
+ * questions that ask for something which cannot already be on the page —
+ * what you would want somebody to know, what you want to keep. Those can
+ * never be crossed off, which is what makes them the safe end of every
+ * chain: there is always a question left to ask.
+ */
+export type Facet = 'said' | 'did' | 'where' | 'when' | 'who' | 'sensory' | 'why' | 'open';
+
+/** A question, and the ground it opens. */
+interface Ask {
+  q: string;
+  facet: Facet;
+  /** Three or four words for the disclosure link, where one names this box. */
+  label?: string;
+}
 
 export interface MomentContext {
   /** The moment's own title — the line the person wrote at the top. */
@@ -61,6 +110,17 @@ export interface MomentContext {
    * afternoon is the app pretending time has passed.
    */
   daysAgo?: number | null;
+  /**
+   * What is already on the page.
+   *
+   * The account, the talk and the keepsake, in whatever state they are in.
+   * This is the input that stops the form asking for what it has been given.
+   */
+  written?: {
+    reflection?: string | null;
+    conversation?: string | null;
+    keepsake?: string | null;
+  } | null;
 }
 
 export interface MomentPrompts {
@@ -68,66 +128,158 @@ export interface MomentPrompts {
   insight: string;
   /** Placeholder over the account of what happened. */
   reflection: string;
-  /** Placeholder over the middle beat — what was said, or what it took. */
+  /** Placeholder over the middle beat — the facet probe. */
   conversation: string;
   /** Placeholder over the part that stayed. */
   keepsake: string;
+  /** The words on the link that opens the last two boxes in the composer. */
+  disclosure: string;
+}
+
+/* ------------------------------------------------------------------ facets */
+
+/**
+ * How each facet reads when somebody has already written it down.
+ *
+ * Tuned deliberately loose. The two errors are not symmetric: a false
+ * positive costs a different good question, and a false negative costs the
+ * app asking for something it was handed one line up — which is the failure
+ * that made this file. So these lean toward saying "covered".
+ *
+ * Whole words throughout, and no attempt at grammar. A regex cannot tell
+ * whether a conversation was described well; it can tell that the person
+ * reached for the vocabulary of one, and that is the entire question being
+ * asked here.
+ */
+const MARKERS: Record<Exclude<Facet, 'open'>, RegExp> = {
+  said: /\b(talk|talks|talked|talking|spoke|spoken|speaking|said|says|saying|tell|tells|told|telling|ask|asks|asked|asking|mention|mentions|mentioned|discuss|discussed|discussing|conversation|chat|chats|chatted|argue|argued|argument|admitted|explained|confessed|joked|apologised|apologized|promised|caught up)\b/i,
+  did: /\b(cooked|cooking|drove|driving|walked|walking|ran|running|built|building|made|making|carried|cleaned|packed|played|playing|danced|sang|singing|worked|working|fixed|fixing|wrote|writing|read|watched|watching|ate|eating|drank|sat|sitting|stood|standing|helped|helping|rode|riding|swam|climbed|cycled|baked|planted)\b/i,
+  where: /\b(kitchen|bedroom|room|house|home|flat|office|desk|car|street|road|beach|park|garden|terrace|balcony|rooftop|restaurant|cafe|café|bar|table|hospital|clinic|station|airport|platform|temple|church|mosque|school|gym|shop|market|outside|upstairs|downstairs|hotel|village|at (his|her|their|my|our) place|on the (way|train|bus|road))\b/i,
+  when: /\b(finally|at last|first time|last time|after (months|weeks|years|days|hours|so long)|it had been|overdue|kept meaning|been meaning|put(ting)? (it|this|that) off|morning|afternoon|evening|midnight|dawn|dusk|o'?clock|birthday|anniversary|new year)\b/i,
+  who: /\b(everyone|everybody|the others|the rest of|we all|the whole (family|lot|house)|(his|her|their|my|our) (sister|brother|mother|father|mum|mom|dad|son|daughter|husband|wife|friend|cousin|uncle|aunt|neighbour|neighbor|boss|team))\b/i,
+  sensory: /\b(saw|seen|seeing|looked|looking|looks|sounded|sound|sounds|heard|hearing|smell|smelled|smelt|tasted|touch|quiet|silent|loud|noisy|dark|bright|warm|cold|rain|raining|sun|sunny|face|faces|smile|smiled|smiling|laugh|laughed|laughing|cried|crying|tears|colou?r|light|shadow)\b/i,
+  /**
+   * Causal and insight language — Pennebaker's markers, near enough.
+   *
+   * Bare "why" is deliberately absent. A title like *"Why I keep moving the
+   * checkup"* poses the question and does not answer it, and reading it as
+   * meaning already made cost that moment the one probe that fitted it. The
+   * word only counts behind a verb of understanding, where it reports an
+   * answer rather than asks for one.
+   */
+  why: /\b(because|realis(e|ed|es|ing)|realiz(e|ed|es|ing)|change[ds]?|changing|made me|makes me|making me|since then|meant|understood|learnt|learned|taught me|reminded me|the reason|figured out|(know|knew|understand|understood|see|saw|realised|realized)\s+why)\b/i,
+};
+
+/**
+ * Which facets the person has already written about.
+ *
+ * Everything on the moment counts, the title included — "Told Amma about the
+ * job" has said what was said, and it does not stop counting because it is
+ * short.
+ *
+ * The length floor is the one piece of hysteresis in here. In the composer
+ * this runs against a box somebody is mid-sentence in, and without a floor
+ * the question below would flip the instant the word "talked" completed and
+ * flip back on a backspace. Twelve characters is roughly where a fragment
+ * becomes a clause.
+ */
+export function facetsCovered(texts: Array<string | null | undefined>): Set<Facet> {
+  const covered = new Set<Facet>();
+  const body = texts
+    .map((t) => (t ?? '').trim())
+    .filter((t) => t.length >= 12)
+    .join(' — ');
+  if (!body) return covered;
+  for (const [facet, re] of Object.entries(MARKERS)) {
+    if (re.test(body)) covered.add(facet as Facet);
+  }
+  return covered;
 }
 
 /**
- * The seeded question, per kind of moment.
+ * The first question in the chain whose ground is still empty.
  *
- * Three each, chosen by title rather than at random — `stablePick` again, for
- * the reason it exists: being asked a different question on the second
- * opening makes the question feel generated, which is exactly what stops
- * somebody answering it.
+ * Stable within the surviving candidates rather than across the whole pool:
+ * the seed decides which of the *available* questions gets asked, so the
+ * same moment is asked the same thing every time it is opened — the property
+ * that stops a question feeling generated — while a moment that has since
+ * been written about moves on to a question it has not answered.
  *
- * `%s` is the person, and only appears in pools that are only reached when
- * there is one.
+ * Every chain ends in an `open` question, so this cannot return nothing.
  */
-const INSIGHT_WITH_PERSON: Record<string, string[]> = {
+function choose(pool: Ask[], seed: string, covered: Set<Facet>): Ask {
+  const free = pool.filter((a) => !covered.has(a.facet));
+  return stablePick(free.length ? free : pool.filter((a) => a.facet === 'open'), seed)
+    ?? pool[pool.length - 1];
+}
+
+/* --------------------------------------------------------------- the pools */
+
+/**
+ * The question at the top, per kind of moment.
+ *
+ * Three each. The meaning-shaped ones are tagged `why` and step aside when
+ * the person has already done that work themselves — asking "what did that
+ * change?" of somebody who has just written two sentences about what it
+ * changed is the same insult as asking what they talked about.
+ *
+ * At least one in every pool is `open`, and those are the ones that ask for
+ * something which cannot be on the page: what you would want them to know,
+ * what the version of you who started would say. Nothing already written can
+ * cross those off, which is what makes them the floor.
+ *
+ * `%s` is the person, and appears only in pools reached when there is one.
+ */
+const INSIGHT_WITH_PERSON: Record<string, Ask[]> = {
   default: [
-    'What did that change between you and %s?',
-    'Why did that turn out to be the day for %s?',
-    'What would you want %s to know?',
+    { q: 'What did that change between you and %s?', facet: 'why' },
+    { q: 'Why did that turn out to be the day for %s?', facet: 'when' },
+    { q: 'What would you want %s to know?', facet: 'open' },
   ],
   achievement: [
-    'What did %s see that day that you did not?',
-    'What did getting there cost, and was it worth it?',
-    'What would you want %s to know about it?',
+    /* Not "what did %s see that day" — the middle box's sensory probe is
+       "What do you still see when you picture it?", and two questions built
+       on the same verb read as one question asked twice however different
+       their facets are on paper. */
+    { q: 'What would %s say it took?', facet: 'who' },
+    { q: 'What did getting there cost you?', facet: 'did' },
+    { q: 'What would you want %s to know about it?', facet: 'open' },
   ],
   gratitude: [
-    'What would %s be surprised to hear you say?',
-    'What did %s do that you have not thanked them for?',
-    'What did that change between you and %s?',
+    { q: 'What would %s be surprised to hear you say?', facet: 'open' },
+    { q: 'What did %s do that you have not thanked them for?', facet: 'did' },
+    { q: 'What did that change between you and %s?', facet: 'why' },
   ],
 };
 
-const INSIGHT_ALONE: Record<string, string[]> = {
+const INSIGHT_ALONE: Record<string, Ask[]> = {
   default: [
-    'What did that change?',
-    'Why was this one worth doing?',
-    'What made that the day for it?',
+    { q: 'What did that change?', facet: 'why' },
+    { q: 'What made that the day for it?', facet: 'when' },
+    { q: 'What would you tell yourself a year ago about it?', facet: 'open' },
   ],
   achievement: [
-    'What did that take that nobody saw?',
-    'What did you learn on the way to it?',
-    'What would the version of you who started say?',
+    { q: 'What did that take that nobody saw?', facet: 'did' },
+    { q: 'What did you learn on the way to it?', facet: 'why' },
+    { q: 'What would the version of you who started say?', facet: 'open' },
   ],
   experience: [
-    'What did that change about how you see it?',
-    'Why has this one stayed with you?',
-    'What would you go back for?',
+    { q: 'What did that change about how you see it?', facet: 'why' },
+    { q: 'Why has this one stayed with you?', facet: 'open' },
+    { q: 'What would you go back for?', facet: 'open' },
   ],
   reflection: [
-    'What made the thought arrive when it did?',
-    'What follows from it, if it is true?',
-    'What would have to change for you to act on it?',
+    /* Causal rather than temporal, despite the "when": this asks what
+       brought the thought on, which is the same ground as the middle box's
+       "What set the thought off?" — and the two must not both be spent. */
+    { q: 'What made the thought arrive when it did?', facet: 'why' },
+    { q: 'What follows from it, if it is true?', facet: 'open' },
+    { q: 'What would have to change for you to act on it?', facet: 'open' },
   ],
   gratitude: [
-    'What would be missing without it?',
-    'Why does this one register and others do not?',
-    'What did that change?',
+    { q: 'What would be missing without it?', facet: 'open' },
+    { q: 'Why does this one register and others do not?', facet: 'open' },
+    { q: 'What did that change?', facet: 'why' },
   ],
 };
 
@@ -137,7 +289,7 @@ const INSIGHT_ALONE: Record<string, string[]> = {
  * Not a question, because this box sits directly under the title and the
  * title has already asked what happened. It says which longer version is
  * wanted — the failure it replaces is two boxes asking the same thing, which
- * is how somebody types their whole evening into the one-line title.
+ * is how somebody types their whole evening into the one-line name.
  */
 const ACCOUNT: Record<string, string> = {
   default: 'The longer version — how it actually went',
@@ -148,19 +300,47 @@ const ACCOUNT: Record<string, string> = {
 };
 
 /**
- * The middle beat, and the one that was most often wrong.
+ * The middle box: the facet probe, and the slot the whole file turns on.
  *
- * With somebody there it is what was said. Alone it cannot be, so it becomes
- * the nearest honest thing: what it took, what was unexpected, what set the
- * thought off. Never "who were you with" — the form asked that already and
- * got no for an answer.
+ * Ordered by yield rather than by taste. With somebody there, what was said
+ * is the richest thing a person can still recover and the first thing they
+ * lose, so it leads. When it is already written down the chain falls through
+ * to the event-specific layer — where you were, what you can still see —
+ * which is the part of a memory that decays fastest and the part no empty
+ * box has ever been given.
+ *
+ * The last entry in every chain is `open`, and is a question no amount of
+ * writing can answer in advance.
  */
-const ALONE_MIDDLE: Record<string, string> = {
-  default: 'What was the part you did not expect?',
-  achievement: 'What did it take to get there?',
-  experience: 'What was going on around you?',
-  reflection: 'What set the thought off?',
-  gratitude: 'Who or what made it possible?',
+const MIDDLE_WITH_PERSON: Ask[] = [
+  { q: 'What did you and %s actually talk about?', facet: 'said', label: 'what you talked about' },
+  { q: 'What did you notice about %s?', facet: 'who', label: 'what you noticed' },
+  { q: 'Where were you both?', facet: 'where', label: 'where you were' },
+  { q: 'What do you still see when you picture it?', facet: 'sensory', label: 'what you still see' },
+  { q: 'What was the part you did not expect?', facet: 'open', label: 'the part you did not expect' },
+];
+
+const MIDDLE_WITH_CROWD: Ask[] = [
+  { q: 'What did you all actually talk about?', facet: 'said', label: 'what you talked about' },
+  { q: 'Who did you end up spending most of it with?', facet: 'who', label: 'who you spent it with' },
+  { q: 'Where was everybody?', facet: 'where', label: 'where everybody was' },
+  { q: 'What do you still see when you picture it?', facet: 'sensory', label: 'what you still see' },
+  { q: 'What was the part you did not expect?', facet: 'open', label: 'the part you did not expect' },
+];
+
+/** Alone: the kind-specific probe first, then the same fall-through. */
+const MIDDLE_ALONE_TAIL: Ask[] = [
+  { q: 'Where were you?', facet: 'where', label: 'where you were' },
+  { q: 'What do you still see when you picture it?', facet: 'sensory', label: 'what you still see' },
+  { q: 'What was the part you did not expect?', facet: 'open', label: 'the part you did not expect' },
+];
+
+const MIDDLE_ALONE_HEAD: Record<string, Ask[]> = {
+  default: [],
+  achievement: [{ q: 'What did it take to get there?', facet: 'did', label: 'what it took' }],
+  experience: [{ q: 'What was going on around you?', facet: 'sensory', label: 'what was going on' }],
+  reflection: [{ q: 'What set the thought off?', facet: 'why', label: 'what set it off' }],
+  gratitude: [{ q: 'Who or what made it possible?', facet: 'who', label: 'who made it possible' }],
 };
 
 /** A year is the point where "want to remember" has already been decided. */
@@ -175,12 +355,12 @@ function kindOf(memoryType?: string | null): string {
   return k === 'relationship' || k === 'moment' ? 'default' : k;
 }
 
-function pooled(pools: Record<string, string[]>, kind: string): string[] {
+function pooled<T>(pools: Record<string, T>, kind: string): T {
   return pools[kind] ?? pools.default;
 }
 
 /**
- * Four questions for one moment.
+ * Four questions and a link, for one moment.
  *
  * Pure, deterministic, and complete on its own — this is what the form shows
  * before any model has been asked anything, and what it keeps showing if the
@@ -189,26 +369,48 @@ function pooled(pools: Record<string, string[]>, kind: string): string[] {
  */
 export function momentPrompts(ctx: MomentContext): MomentPrompts {
   const kind = kindOf(ctx.memoryType);
-  const person = ctx.personName?.trim() || '';
   const crowd = (ctx.peopleCount ?? 0) > 1;
-  const withSomebody = !!person || crowd;
+  /* One name is a link; several is a gathering, and the row can only point
+     at one — so a crowd drops the name rather than picking a favourite. */
+  const person = crowd ? '' : (ctx.personName?.trim() || '');
   const seed = ctx.title ?? '';
 
-  const insight = person
-    ? stablePick(pooled(INSIGHT_WITH_PERSON, kind), seed).replace(/%s/g, person)
-    : stablePick(pooled(INSIGHT_ALONE, kind), seed);
+  const covered = facetsCovered([
+    ctx.title,
+    ctx.written?.reflection,
+    ctx.written?.conversation,
+    ctx.written?.keepsake,
+  ]);
 
-  const reflection = person
-    ? `${ACCOUNT[kind] ?? ACCOUNT.default} with ${person}`
-    : (ACCOUNT[kind] ?? ACCOUNT.default);
+  const named = (s: string) => (person ? s.replace(/%s/g, person) : s);
 
-  /* Two people who were both there talk to each other; four are a room, and
-     "what did you and everyone talk about" is not a question anybody answers.
-     A crowd gets the plural and no names. */
-  let conversation: string;
-  if (person && !crowd) conversation = `What did you and ${person} actually talk about?`;
-  else if (withSomebody) conversation = 'What did you all actually talk about?';
-  else conversation = ALONE_MIDDLE[kind] ?? ALONE_MIDDLE.default;
+  const insightAsk = choose(pooled(person ? INSIGHT_WITH_PERSON : INSIGHT_ALONE, kind), seed, covered);
+
+  const account = pooled(ACCOUNT, kind);
+  const reflection = person ? `${account} with ${person}` : account;
+
+  let middlePool: Ask[];
+  if (person) middlePool = MIDDLE_WITH_PERSON;
+  else if (crowd) middlePool = MIDDLE_WITH_CROWD;
+  else middlePool = [...pooled(MIDDLE_ALONE_HEAD, kind), ...MIDDLE_ALONE_TAIL];
+  /**
+   * The question at the top has just spent a facet, and the box below must
+   * not spend it again.
+   *
+   * This is the reported bug in its other form. A solo achievement was asked
+   * "What did that take that nobody saw?" and then, one box down, "What did
+   * it take to get there?" — nothing was written yet, so no scan could catch
+   * it. Two of the form's four slots on one facet is the same waste whether
+   * the duplicate came from the page or from the form itself.
+   *
+   * `open` is exempt: it is the floor rather than a facet, and excluding it
+   * would leave chains with nothing to fall back to.
+   */
+  const spent = insightAsk.facet === 'open' ? covered : new Set([...covered, insightAsk.facet]);
+  /* Ordered, not seeded: this chain is a priority list, and the first
+     untaken facet is the answer. Seeding it would trade the reason the order
+     exists for variety nobody asked for. */
+  const middle = middlePool.find((a) => !spent.has(a.facet)) ?? middlePool[middlePool.length - 1];
 
   const days = ctx.daysAgo ?? 0;
   const keepsake = days >= LONG_AGO_DAYS
@@ -217,36 +419,16 @@ export function momentPrompts(ctx: MomentContext): MomentPrompts {
       ? 'What has stayed with you since?'
       : 'What do you want to remember about it?';
 
-  return { insight, reflection, conversation, keepsake };
-}
-
-/**
- * The middle beat again, in three or four words.
- *
- * The composer hides the last two boxes behind a link that names them —
- * "+ what you talked about, what you want to remember" — and that link had
- * the same problem the box did: it promised a conversation to somebody who
- * spent the evening alone. Same inputs, same reason to vary, so it lives
- * here rather than being reasoned about again on the screen.
- *
- * Engine-only. The model is never asked to word this: it is a control label,
- * and a rewritten control is a different control.
- */
-const MIDDLE_LABEL: Record<string, string> = {
-  default: 'the part you did not expect',
-  achievement: 'what it took',
-  experience: 'what was going on around you',
-  reflection: 'what set it off',
-  gratitude: 'who made it possible',
-};
-
-/** The words on the link that opens the last two boxes. */
-export function momentDisclosure(ctx: MomentContext): string {
-  const withSomebody = !!ctx.personName?.trim() || (ctx.peopleCount ?? 0) > 0;
-  const middle = withSomebody
-    ? 'what you talked about'
-    : (MIDDLE_LABEL[kindOf(ctx.memoryType)] ?? MIDDLE_LABEL.default);
-  return `${middle}, what you want to remember`;
+  return {
+    insight: named(insightAsk.q),
+    reflection,
+    conversation: named(middle.q),
+    keepsake,
+    /* The link and the box it opens come from the same choice, so they
+       cannot disagree — it used to promise a conversation to somebody who
+       had spent the evening on their own. */
+    disclosure: `${middle.label ?? 'the rest of it'}, what you want to remember`,
+  };
 }
 
 /**
@@ -262,9 +444,11 @@ const CLOSED_OPENER = /^(did|was|were|is|are|do|does|have|has|had|can|could|woul
 /**
  * "How did that feel?" — the question this whole surface is built to avoid.
  *
- * It invites one adjective and stops, which is the opposite of the causal and
- * insight language the writing benefit actually tracked. The engine asks for a
- * because; a rewrite is not allowed to trade that for a mood.
+ * Not because feeling does not matter, but because naming one is a
+ * one-adjective task that ends the writing. Pennebaker's trials found the
+ * benefit tracked causal and insight language rather than emotion words: the
+ * useful question pulls for a *because*. The engine asks for one; a rewrite
+ * is not allowed to trade it for a mood.
  */
 const FEELING_QUESTION = /\b(how (did|does|do) (that|it|this|you|they)\b.*\bfeel|feel about|how you felt|make you feel)\b/i;
 
