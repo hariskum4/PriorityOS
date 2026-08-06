@@ -391,16 +391,48 @@ export class OnboardingService {
     // `onboardingCompleted` was never set and the account was stranded on the
     // last screen of sign-up with no way forward — the worst possible place to
     // fail. Both of these are enrichment; finishing onboarding is not.
-    try {
-      await this.scoring.recalcUserDomains(userId);
-    } catch (err) {
-      this.logger.error(`recalcUserDomains failed for ${userId}`, err as Error);
-    }
-    try {
-      await this.insights.regenerateForUser(userId);
-    } catch (err) {
-      this.logger.error(`regenerateForUser failed for ${userId}`, err as Error);
-    }
+    /**
+     * Started, not waited for.
+     *
+     * These three were already understood to be enrichment — the comment
+     * above says finishing onboarding is not — and they were already wrapped
+     * so a failure could not strand anybody. They were still awaited, which
+     * on real infrastructure is the whole problem: measured from production,
+     * one database round trip from Oregon to the pooler in ap-south-1 costs
+     * about 1.2 seconds, and these three make roughly eighteen of them in
+     * order. That is twenty-one seconds of a twenty-six second request, for
+     * work whose result nobody is waiting to see.
+     *
+     * `recalcUserDomains` is the clearest case. On a brand-new account it
+     * reads missions, habits and journal entries that do not exist yet and
+     * computes attention scores of zero — twelve round trips to arrive at the
+     * number the rows already hold. The Reveal below does not read them: its
+     * drift warning comes from the answers they just gave, not from a score.
+     *
+     * Render runs a persistent process, so a promise left running after the
+     * response survives to finish. Errors are logged and go nowhere near the
+     * reader, exactly as before.
+     */
+    const enrich = (name: string, run: () => Promise<unknown>) => {
+      void Promise.resolve()
+        .then(run)
+        .catch((err) => this.logger.error(`${name} failed for ${userId}`, err as Error));
+    };
+    enrich('recalcUserDomains', () => this.scoring.recalcUserDomains(userId));
+    enrich('regenerateForUser', () => this.insights.regenerateForUser(userId));
+
+    /**
+     * Seeding the countables stays on the request, and is the exception that
+     * proves the rule above.
+     *
+     * It is the cheapest of the three — two round trips against a dozen — and
+     * the only one with a contract somebody can observe: completing onboarding
+     * twice must not seed a second copy of the same ritual. `upsert` on the
+     * key makes true duplication impossible either way, but deferring it means
+     * a caller can no longer know the work is done when the call returns, and
+     * there is a test that rightly asserts it can. Two seconds is a fair price
+     * for a guarantee that still holds.
+     */
     try {
       await this.seedCountablesFromTheirWords(userId);
     } catch (err) {
@@ -448,23 +480,33 @@ export class OnboardingService {
     }
 
     // 4. Life Reveal narrative
-    const domains = await this.prisma.lifeDomain.findMany({ where: { userId } });
-    const relationships = await this.prisma.relationship.findMany({
-      where: { userId },
-      select: {
-        id: true, name: true, relationType: true, wantsMoreTime: true,
-        priorityScore: true, age: true, locationType: true,
-      },
-      /**
-       * The person the Reveal names is `relationships[0]`, and this had no
-       * order at all — so which one it was came back to whatever Postgres
-       * happened to return. Two runs of the same onboarding named different
-       * people. `priorityScore` was already being selected and never read;
-       * ordering by it makes the headline the person they said mattered most,
-       * with creation order as the tie-break so it is at least stable.
-       */
-      orderBy: [{ priorityScore: 'desc' }, { createdAt: 'asc' }],
-    });
+    /* Three independent reads for one screen. Awaited one after another they
+       cost three round trips, and a round trip from production is about a
+       second and a quarter — see the note on the enrichment above. */
+    const [domains, relationships, postponingGoal] = await Promise.all([
+      this.prisma.lifeDomain.findMany({ where: { userId } }),
+      this.prisma.relationship.findMany({
+        where: { userId },
+        select: {
+          id: true, name: true, relationType: true, wantsMoreTime: true,
+          priorityScore: true, age: true, locationType: true,
+        },
+        /**
+         * The person the Reveal names is `relationships[0]`, and this had no
+         * order at all — so which one it was came back to whatever Postgres
+         * happened to return. Two runs of the same onboarding named different
+         * people. `priorityScore` was already being selected and never read;
+         * ordering by it makes the headline the person they said mattered
+         * most, with creation order as the tie-break so it is at least stable.
+         */
+        orderBy: [{ priorityScore: 'desc' }, { createdAt: 'asc' }],
+      }),
+      this.prisma.goal.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, domainType: true },
+      }),
+    ]);
     const top3 = ranked.slice(0, 3);
 
     // Personalized deterministic fallback: their #1 domain, their self-rated
@@ -490,11 +532,6 @@ export class OnboardingService {
     /* The goal written from their postponing answer already carries a domain
        they chose. Reading it back is more honest than guessing one from the
        sentence, and it is what the mission should be filed under. */
-    const postponingGoal = await this.prisma.goal.findFirst({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, domainType: true },
-    });
     const postponingGoalDomain = postponingGoal?.domainType ?? null;
     const topDomain = top3[0] ?? 'family';
     const topReality = currentReality[topDomain];
