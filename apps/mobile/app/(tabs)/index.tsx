@@ -29,7 +29,14 @@ import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
 import { useNow } from '@/hooks/useNow';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
-import { rhythmFor, anchorFor, evidenceForGenerated } from '@priority/scoring-engine';
+import { rhythmFor, rhythmByKey, anchorFor, evidenceForGenerated } from '@priority/scoring-engine';
+
+/**
+ * A rhythm whose catalog entry cannot be found gets no if-then, which is what
+ * `anchorFor` already does with an empty input. Named rather than inlined so
+ * the silence is a decision on the page instead of a fallback nobody reads.
+ */
+const NO_ANCHOR = {} as const;
 import { WhyThisWorks } from '@/components/WhyThisWorks';
 
 /** Days each desired cadence represents — for the "people waiting" glance. */
@@ -971,7 +978,20 @@ export default function Today() {
    * answer then — see `anchor.ts`.
    */
   const rhythmAnchor = rhythmHere?.kind === 'offer'
-    ? anchorFor(rhythmHere.rhythm, {
+    /**
+     * The catalog entry the offer was written from, not the offer itself.
+     *
+     * A crafted rhythm is a catalog rhythm with the wording rewritten — same
+     * `key`, same choice, only the language differs, as the comment above
+     * says. What it does not carry is `when` or `anchorTemplate`, so passing
+     * it straight to `anchorFor` handed over an object with no timing fields
+     * at all and the function could only ever return null: the AI path
+     * silently got no if-then plan, which is the entire point of the anchor.
+     *
+     * Invisible until now because every query result on this screen was typed
+     * `any` — the compiler had the mismatch in its hands and no way to say so.
+     */
+    ? anchorFor(rhythmByKey(rhythmHere.rhythm.key) ?? NO_ANCHOR, {
       wakeHour: prefs?.quietHoursEnd,
       workStartHour: me?.workStartHour,
       workEndHour: me?.workEndHour,
