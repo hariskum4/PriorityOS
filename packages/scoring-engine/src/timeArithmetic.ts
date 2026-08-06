@@ -28,14 +28,14 @@ import { yearsToHorizon } from './lifeWindows';
 export interface LifeInWeeks {
   weeksLived: number;
   weeksAhead: number;
-  totalWeeks: number;      // ~5,200 on the generous 100-year horizon
+  totalWeeks: number;      // lived + ahead, on the reader's own country horizon
   yearsLived: number;
   yearsAhead: number;
   framingText: string;
 }
 
-export function lifeInWeeks(age: number): LifeInWeeks {
-  const yearsAhead = yearsToHorizon(age);
+export function lifeInWeeks(age: number, country?: string | null): LifeInWeeks {
+  const yearsAhead = yearsToHorizon(age, country);
   const weeksLived = Math.max(Math.round(age * 52.18), 1);
   const weeksAhead = Math.max(Math.round(yearsAhead * 52.18), 52);
   return {
@@ -45,7 +45,7 @@ export function lifeInWeeks(age: number): LifeInWeeks {
     yearsLived: Math.floor(age),
     yearsAhead,
     framingText:
-      `The famous count is four thousand weeks — Priority plans on a longer, kinder horizon. ` +
+      `The famous count is four thousand weeks — this one is counted for where you live. ` +
       // The exact figure, not softRound: the grid caption two lines above this
       // says "~3,914 ahead", and two estimates of the same thing disagreeing
       // on one screen reads as a bug, not as humility.
@@ -85,8 +85,12 @@ export interface ScreenTrade {
 
 const WAKING_HOURS_PER_DAY = 16.5;
 
-export function screenTrade(age: number, hoursPerDay?: number | null): ScreenTrade {
-  const years = yearsToHorizon(age);
+export function screenTrade(
+  age: number,
+  hoursPerDay?: number | null,
+  country?: string | null,
+): ScreenTrade {
+  const years = yearsToHorizon(age, country);
   const reclaimedDaysPerYear = Math.round((1 * 365) / WAKING_HOURS_PER_DAY); // ≈22 waking days
   const reclaimedYears = Math.round(((years * reclaimedDaysPerYear) / 365) * 10) / 10;
   const reclaimed = {

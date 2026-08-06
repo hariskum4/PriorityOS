@@ -373,7 +373,7 @@ export class LifeOsService {
 
     // ---- the week's budget, and what closes on its own schedule ----------
     const freeHours = age != null
-      ? lifeWindows({ age, workHoursPerWeek: user.workHoursPerWeek ?? 45, workType: user.workType }).freeTime.freeHoursPerWeek
+      ? lifeWindows({ age, workHoursPerWeek: user.workHoursPerWeek ?? 45, workType: user.workType, country: user.country }).freeTime.freeHoursPerWeek
       : 0;
     /* What the person's own ranking would need if every domain got its share.
        Compared against the hours that exist, never against an ideal. */

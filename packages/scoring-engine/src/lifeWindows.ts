@@ -13,14 +13,22 @@
  * framing, assumptions attached.
  */
 
-import { softRound } from './timeReality';
+import { softRound, remainingYears, lifeExpectancyForRegion } from './timeReality';
 import { lifeShape } from './lifeShape';
+import { countryInSentence } from './countries';
 import { NORMS } from './norms';
 
-// Generous by design: a 100-year horizon (people are living longer, and a
-// tool that tells an 80-year-old their life is spent is both wrong and
-// cruel). The horizon MOVES — nobody ever sees fewer than 15 years ahead,
-// so at 90 the lens simply extends past 100. A planning lens, never a countdown.
+/**
+ * The age the life grid is *drawn* to. No longer the age anybody is counted
+ * against — see `yearsToHorizon`.
+ *
+ * It survives as a drawing canvas, deliberately. The grid means "a life" and
+ * has to mean the same thing on every phone: a fixed hundred squares can be
+ * compared between a reader in Chennai and one in Osaka, and the marker on it
+ * says where their averages differ. A grid whose *length* changed with country
+ * would put the most consequential fact on the axis of the picture, which is
+ * the one place a reader cannot see it.
+ */
 /* Read from `norms.ts`, which holds the source for each of these. A constant
    whose provenance lives only in the comment beside it is a constant nobody
    can check. */
@@ -69,12 +77,62 @@ export function freeTimeBudget(workHoursPerWeek = 45, workType?: string | null):
 // Horizon counts
 // ---------------------------------------------------------------------------
 
-export function yearsToHorizon(age: number): number {
-  return Math.max(PLANNING_HORIZON_AGE - age, MIN_HORIZON_YEARS);
+/**
+ * Years ahead of this reader — where every count on the Time tab starts.
+ *
+ * This was `100 - age` for the whole life of the app, and the generosity was
+ * the point: a tool that tells an eighty-year-old their life is spent is both
+ * wrong and cruel. But a flat hundred is not generous to everybody equally. It
+ * is roughly right for a reader in Japan and it overstates a reader in Nigeria
+ * by nearly forty years, and the app was already holding the figure that says
+ * so — `LIFE_EXPECTANCY` has driven the *relationship* numbers for months.
+ * Which produced the contradiction this closes: a sixty-eight-year-old was
+ * told he had thirty-two years ahead on his own card and, listed as somebody's
+ * father, fifteen. Same app, same man, two answers, and only one of them was
+ * ever going to be checked against a life.
+ *
+ * `remainingYears` supplies the honest number, conditional on the age already
+ * reached rather than at birth — the distinction that keeps this from becoming
+ * the countdown the flat horizon was avoiding. The floor stays: nobody is ever
+ * shown fewer than fifteen years, whatever the table says, at any age.
+ *
+ * Country is optional and unknown stays generous-ish rather than dark, at the
+ * global average — the same fallback the visit arithmetic has always used.
+ */
+export function yearsToHorizon(age: number, country?: string | null): number {
+  /* Whole years, because this one is printed. The conditional term returns a
+     fraction whenever it wins, and it reached the copy as "~15.75 years ahead"
+     — false precision in the exact register this app spent its whole design
+     avoiding. `remainingYears` stays unrounded for the visit arithmetic, which
+     multiplies before it rounds and needs the resolution. */
+  return Math.round(Math.max(remainingYears(age, country ?? undefined), MIN_HORIZON_YEARS));
 }
 
-export function weekendsRemaining(age: number): number {
-  return softRound(yearsToHorizon(age) * 52);
+export function weekendsRemaining(age: number, country?: string | null): number {
+  return softRound(yearsToHorizon(age, country) * 52);
+}
+
+/**
+ * Where the horizon came from, in one line a reader can argue with.
+ *
+ * A number that moves with the reader's country has to say so, or it is just
+ * a smaller number than it was last week with no account of itself — and the
+ * account is the reassuring part. The two clauses do different jobs: the
+ * country makes it checkable, and "adjusted for the years you have already
+ * lived" heads off the subtraction every reader does in their head, which is
+ * wrong and always frightening. Somebody of sixty-two in India does not have
+ * eight years.
+ */
+export function horizonAssumption(age: number, country?: string | null): string {
+  const name = countryInSentence(country);
+  const expectancy = lifeExpectancyForRegion(country ?? undefined);
+  const floored = yearsToHorizon(age, country) <= MIN_HORIZON_YEARS;
+  const basis = name
+    ? `Life-expectancy figures for ${name} (~${expectancy} years), adjusted upward for the years you have already lived`
+    : `A global average life expectancy (~${expectancy} years), because no country is set yet — set one and every number here follows it`;
+  return floored
+    ? `${basis}. Never fewer than ${MIN_HORIZON_YEARS} years ahead, whichever way the averages fall`
+    : `${basis} — a national average, and a lens for deciding rather than a prediction about you`;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,10 +151,11 @@ export function careerWindow(
   age: number,
   plannedWorkYearsMore: number,
   workHoursPerWeek = 45,
+  country?: string | null,
 ): CareerWindow {
   const years = Math.max(plannedWorkYearsMore, 1);
   const weeks = softRound(years * WORKING_WEEKS_PER_YEAR);
-  const postYears = Math.max(yearsToHorizon(age) - years, MIN_HORIZON_YEARS);
+  const postYears = Math.max(yearsToHorizon(age, country) - years, MIN_HORIZON_YEARS);
   // Post-career weeks are nearly all free: no work, same overhead.
   const postFree = softRound(
     postYears * 52 * Math.max(168 - SLEEP_HOURS_PER_NIGHT * 7 - LIFE_OVERHEAD_HOURS_PER_WEEK, 8),
@@ -261,6 +320,8 @@ export interface LifeWindowsInput {
   workHoursPerWeek?: number;
   plannedWorkYearsMore?: number;
   workType?: string | null;
+  /** ISO country code. Unknown falls back to the global average, never to 100. */
+  country?: string | null;
 }
 
 export interface LifeWindowsResult {
@@ -277,13 +338,13 @@ export function lifeWindows(input: LifeWindowsInput): LifeWindowsResult {
   const moreYears = input.plannedWorkYearsMore ?? Math.min(Math.max(60 - input.age, 5), 40);
   const careWork = lifeShape(input.workType).careWorkIsWork;
   return {
-    yearsToHorizon: yearsToHorizon(input.age),
-    weekendsRemaining: weekendsRemaining(input.age),
+    yearsToHorizon: yearsToHorizon(input.age, input.country),
+    weekendsRemaining: weekendsRemaining(input.age, input.country),
     freeTime: freeTimeBudget(work, input.workType),
-    career: careerWindow(input.age, moreYears, work),
+    career: careerWindow(input.age, moreYears, work, input.country),
     body: bodyWindows(input.age),
     assumptions: [
-      `A ${PLANNING_HORIZON_AGE}-year planning horizon that extends as you approach it — a lens for deciding, not a countdown`,
+      horizonAssumption(input.age, input.country),
       careWork
         ? 'Free time assumes ~7.5h sleep; your household hours count as the work of the week, plus ~8h personal admin'
         : 'Free time assumes ~7.5h sleep and ~24h/week of commute, chores and admin',

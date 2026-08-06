@@ -102,6 +102,14 @@ export interface TimeRealityResult {
  * is only worth having if Japan then means 84 and not 75. Still a floor, not
  * a forecast — the conditional-survival rule below lifts everyone who has
  * already lived past the average, whatever their row here says.
+ *
+ * Not in `norms.ts` with the other figures, and the reason is the distinction
+ * that file is built around: every entry there is the same for every reader
+ * and is labelled as such. This one is not. It is the single number in the
+ * engine that moves with who is holding the phone, which is why it is worth
+ * having at all — and why the surfaces that read it name the country out loud
+ * and offer to change it, rather than printing a figure the reader cannot
+ * account for.
  */
 const LIFE_EXPECTANCY: Record<string, number> = {
   IN: 70, INDIA: 70,
@@ -130,8 +138,8 @@ const DEFAULT_LIFE_EXPECTANCY = NORMS.defaultLifeExpectancy.value;
 const MIN_YEARS_REMAINING = 5;
 const MIN_QUALITY_YEARS = 2;
 const QUALITY_CUTOFF_YEARS = 3;
-const CONDITIONAL_HORIZON_AGE = 95;
-const CONDITIONAL_SURVIVAL_FACTOR = 0.45;
+const CONDITIONAL_HORIZON_AGE = NORMS.conditionalHorizonAge.value;
+const CONDITIONAL_SURVIVAL_FACTOR = NORMS.conditionalSurvivalFactor.value;
 
 const HEALTH_MODIFIER: Record<HealthStatus, number> = {
   good: 1.0,
@@ -217,6 +225,31 @@ export function lifeExpectancyRegions(): string[] {
   return Object.keys(LIFE_EXPECTANCY).filter((k) => /^[A-Z]{2}$/.test(k)).sort();
 }
 
+/**
+ * Years still ahead of somebody who has already reached `age`, in their country.
+ *
+ * The whole of the conditional-survival rule in one place, because it is now
+ * the app's only answer to "how long is a life here" — the user's own horizon
+ * reads it through `yearsToHorizon`, and the visit arithmetic below reads it
+ * for the other person. Two callers computing the same thing from the same
+ * table is how a 68-year-old came to be told 32 years ahead on his own card
+ * and, as somebody's father, 15.
+ *
+ * The conditional term is what keeps this honest. `LIFE_EXPECTANCY` is
+ * expectancy *at birth*, which includes every infant death and everybody who
+ * did not reach forty; subtracting an age from it understates the remaining
+ * years of anybody already alive, and understates them more the older they
+ * are. Someone of 62 in India is not eight years from the end.
+ */
+export function remainingYears(age: number, region?: string): number {
+  const years = finite(Number(age), 0);
+  return Math.max(
+    lifeExpectancyForRegion(region) - years,
+    (CONDITIONAL_HORIZON_AGE - years) * CONDITIONAL_SURVIVAL_FACTOR,
+    MIN_YEARS_REMAINING,
+  );
+}
+
 export function workConstraintModifier(hoursPerWeek?: number): number {
   if (hoursPerWeek == null || hoursPerWeek < 40) return 1.0;
   if (hoursPerWeek <= 50) return 0.8;
@@ -267,11 +300,7 @@ export function estimateTimeReality(input: TimeRealityInput): TimeRealityResult 
     return Math.max((remaining - QUALITY_CUTOFF_YEARS) * mod, MIN_QUALITY_YEARS);
   };
 
-  const yearsRemaining = Math.max(
-    expectancy - personAge,
-    (CONDITIONAL_HORIZON_AGE - personAge) * CONDITIONAL_SURVIVAL_FACTOR,
-    MIN_YEARS_REMAINING,
-  );
+  const yearsRemaining = remainingYears(personAge, input.region);
   /* The shared window is the shorter of the two. The user's own health is
      not asked about anywhere, so their window uses the neutral modifier —
      absence of information must not darken the estimate, on either side. */

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { NORMS, allNorms, softestNorms, normNote } from './norms';
 import { freeTimeBudget, PLANNING_HORIZON_AGE, yearsToHorizon } from './lifeWindows';
+import { healthspan } from './lifeStrategy';
 import { estimateCostOfWaiting } from './timeWindows';
 
 /**
@@ -11,7 +12,28 @@ import { estimateCostOfWaiting } from './timeWindows';
 describe('the numbers the app asserts about people in general', () => {
   it('is what the horizon arithmetic actually runs on', () => {
     expect(PLANNING_HORIZON_AGE).toBe(NORMS.planningHorizonAge.value);
-    expect(yearsToHorizon(40)).toBe(NORMS.planningHorizonAge.value - 40);
+    /**
+     * And is *not* what the horizon is counted from any more.
+     *
+     * `planningHorizonAge` survives as the canvas the life grid is drawn on —
+     * a fixed hundred squares, so the picture compares between a reader in
+     * Chennai and one in Osaka. The years anybody is actually counted against
+     * come from their country's life table via `remainingYears`. Pinning the
+     * subtraction here is what this assertion used to do, and it would now
+     * quietly hold the engine to the model it just left.
+     */
+    expect(yearsToHorizon(40, 'IN')).not.toBe(NORMS.planningHorizonAge.value - 40);
+    expect(yearsToHorizon(40, 'JP')).toBeGreaterThan(yearsToHorizon(40, 'IN'));
+    expect(yearsToHorizon(40)).toBe(NORMS.defaultLifeExpectancy.value - 40);
+  });
+
+  it('is what the healthy-years arithmetic actually runs on', () => {
+    /* The share replaced a ten-year subtraction. If the table still documented
+       the subtraction, it would be citing a number the engine had stopped
+       using — the exact failure this file exists to prevent. */
+    expect(NORMS.typicalUnwellYears).toBeUndefined();
+    expect(healthspan(40, [], 'IN').healthyYearsLeft)
+      .toBe(Math.round(yearsToHorizon(40, 'IN') * NORMS.healthyShareOfLife.value));
   });
 
   it('is what the free-week arithmetic actually runs on', () => {

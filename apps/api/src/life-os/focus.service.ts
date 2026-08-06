@@ -125,7 +125,8 @@ export class FocusService {
     const [ctx, user, domainRows] = await Promise.all([
       this.lifeOs.buildContext(userId, now),
       this.prisma.user.findUniqueOrThrow({
-        where: { id: userId }, select: { dob: true, workHoursPerWeek: true, workType: true },
+        where: { id: userId },
+        select: { dob: true, workHoursPerWeek: true, workType: true, country: true },
       }),
       this.prisma.lifeDomain.findMany({ where: { userId } }),
     ]);
@@ -142,7 +143,7 @@ export class FocusService {
       ? Math.floor((now.getTime() - user.dob.getTime()) / (365.25 * DAY_MS))
       : null;
     const freeHours = age != null
-      ? lifeWindows({ age, workHoursPerWeek: user.workHoursPerWeek ?? 45, workType: user.workType }).freeTime.freeHoursPerWeek
+      ? lifeWindows({ age, workHoursPerWeek: user.workHoursPerWeek ?? 45, workType: user.workType, country: user.country }).freeTime.freeHoursPerWeek
       : 0;
     const currentHours: Partial<Record<Domain, number>> = {};
     if (freeHours > 0) {

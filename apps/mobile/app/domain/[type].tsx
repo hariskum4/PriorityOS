@@ -260,6 +260,7 @@ export default function DomainDetail() {
     const lived = countsLived?.[mine.key];
     return countable({
       age,
+      country: me?.country,
       label: mine.label,
       declaredPerYear: mine.perYear,
       observation: lived ? { count: lived.count, firstAt: lived.firstAt } : undefined,

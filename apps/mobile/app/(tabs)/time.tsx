@@ -56,6 +56,8 @@ import {
   type DayBlock,
   type DayType,
   PLANNING_HORIZON_AGE,
+  lifeExpectancyForRegion,
+  countryInSentence,
   type StackSuggestion,
   type LeverSignal,
 } from '@priority/scoring-engine';
@@ -1746,6 +1748,10 @@ export default function TimeReality() {
     workHoursPerWeek: me.workHoursPerWeek ?? 45,
     plannedWorkYearsMore: moreYears,
     workType: me.workType,
+    /* Every count on this tab is now counted for where this person lives,
+       rather than on a flat hundred years that was only ever right for a
+       reader in Tokyo. Unknown falls back to the global average, never dark. */
+    country: me?.country,
   });
   const money = estimateCostOfWaiting({
     monthlyAmount: parseInt(monthly, 10) || 0,
@@ -1755,7 +1761,19 @@ export default function TimeReality() {
     country: me?.country,
   });
   const creative = estimateCreativeCompounding(minutes);
-  const weeks = lifeInWeeks(age);
+  const weeks = lifeInWeeks(age, me?.country);
+  /**
+   * Where the country average falls, for the mark on the grid.
+   *
+   * Not the horizon — the horizon is conditional on the age already reached
+   * and is the larger, honest number. This is the flat at-birth average, and
+   * it is the right thing to *mark* precisely because it is the figure a
+   * reader has heard quoted about their country. Showing them where it sits
+   * inside a hundred squares, with their own count running past it, is the
+   * argument the card is making.
+   */
+  const averageAge = lifeExpectancyForRegion(me?.country ?? undefined);
+  const averageCountry = countryInSentence(me?.country);
   /**
    * Whether "how many more years do you want to work?" is a question this
    * person can answer.
@@ -1772,7 +1790,7 @@ export default function TimeReality() {
   /* Their answer, or the one they just tapped while it is in flight. Never a
      house default — `screenTrade` says nothing at all without one. */
   const screenHours = screenDraft ?? me.screenHoursPerDay ?? null;
-  const screens = screenTrade(age, screenHours);
+  const screens = screenTrade(age, screenHours, me?.country);
 
   /**
    * The section's own line while it is shut.
@@ -1834,6 +1852,7 @@ export default function TimeReality() {
         : undefined;
       return `~${countable({
         age,
+        country: me?.country,
         label: g.item.label,
         declaredPerYear: g.item.perYear,
         observation,
@@ -2399,7 +2418,7 @@ export default function TimeReality() {
     fromCycle ? `Drawn from today's read of the whole system, not only the moves above` : null,
   ].filter((n): n is string => n != null);
 
-  const hs = healthspan(age, leverSignals);
+  const hs = healthspan(age, leverSignals, me?.country);
   /* The sharp-hours number is only worth showing if it is theirs, so it is
      built from the two things actually known about them: the working week
      they gave at onboarding, and where they stand on protecting sleep. */
@@ -2438,22 +2457,45 @@ export default function TimeReality() {
         </Card>
       ) : (
         <>
-          {/* THE LIFE TILE — the headline number, first thing seen. The
-              horizon is generous (100 years, not a countdown to 80) and
-              moves as you age: past 90 it simply extends past 100. */}
+          {/* THE LIFE TILE — the headline number, first thing seen.
+              *
+              * The canvas stays a hundred squares while the *arithmetic* moved
+              * to the reader's country, and the split is deliberate. Drawn to
+              * the country horizon instead, the grid would say the most
+              * consequential thing on the card along its own edge — a reader in
+              * Chennai would get a visibly shorter picture than one in Osaka
+              * and no way to see why, because the missing squares are not
+              * anywhere to be looked at. A fixed frame with the average marked
+              * inside it puts the same fact somewhere it can be read, and left
+              * of the mark is not a wall: the whole card below is about the
+              * rhythms that move it. */}
           <Card style={{ gap: space(3) }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="grid-outline" size={14} color={colors.textDim} />
               <Label>Your life in years</Label>
             </View>
             <View style={s.lifeGrid}>
-              {Array.from({ length: weeks.yearsLived + weeks.yearsAhead }).map((_, i) => {
+              {/* The canvas, or one square past this reader if they have gone
+                  further than it. A hundred is a frame, not a limit, and a
+                  centenarian whose "now" square had nowhere to be drawn would
+                  be the one person on the tab the picture left out. */}
+              {Array.from({
+                length: Math.max(PLANNING_HORIZON_AGE, weeks.yearsLived + 1),
+              }).map((_, i) => {
                 // Cell i is the year the person turned i, so it maps to a real
                 // calendar year and can be opened.
                 const calendarYear = birthYear != null ? birthYear + i : null;
                 const lived = i <= weeks.yearsLived;
                 const hasEvents = calendarYear != null && activeYears.includes(calendarYear);
                 const isOpen = calendarYear != null && calendarYear === openYear;
+                /* The country average, marked rather than cropped to. One cell
+                   carries it so the grid can show where the averages sit
+                   without the picture itself becoming the claim. */
+                const atAverage = i === averageAge;
+                /* Past the horizon this reader is actually counted on. Drawn,
+                   because a hundred squares that stop meaning anything at
+                   sixty-eight would be a worse lie than not drawing them. */
+                const beyond = i > weeks.yearsLived + weeks.yearsAhead;
                 /* `sized` decides who owns the 4.2% width. A tappable year puts
                    it on the Pressable and lets the square fill it — nesting two
                    percentage widths collapses the inner one to nothing. */
@@ -2463,6 +2505,8 @@ export default function TimeReality() {
                       sized ? s.lifeCell : s.lifeCellFill,
                       i < weeks.yearsLived && s.lifeCellLived,
                       i === weeks.yearsLived && s.lifeCellNow,
+                      beyond && s.lifeCellBeyond,
+                      atAverage && s.lifeCellAverage,
                       // A year holding recorded life gets a visible edge, so the
                       // grid shows where there is something to open.
                       hasEvents && s.lifeCellHasEvents,
@@ -2492,8 +2536,11 @@ export default function TimeReality() {
                 once as a footnote and once as the thing that matters. The
                 mechanics stay here; the meaning stays there. */}
             <Text style={type.faint}>
-              Each square is a year on a {PLANNING_HORIZON_AGE}-year horizon — generous on purpose,
-              and it extends further the closer you get. Filled ones are lived; the bright one is now.
+              Each square is a year, a hundred of them, so the picture means the same thing
+              wherever you live. Filled ones are lived; the bright one is now
+              {`; the marked one is the ${averageCountry ?? 'global'} average of ~${averageAge}`}.
+              {' '}The average is where most people are, not where you have to stop — everything
+              below this card is about moving it.
               {birthYear != null ? ' Tap a lived year to open its days.' : ''}
             </Text>
             <Text style={type.serif}>{weeks.framingText}</Text>
@@ -2536,7 +2583,7 @@ export default function TimeReality() {
                 <Big
                   value={`~${windows.weekendsRemaining.toLocaleString()}`}
                   unit="weekends ahead"
-                  caption={`on a ${PLANNING_HORIZON_AGE}-year horizon`}
+                  caption={averageCountry ? `on the averages for ${averageCountry}` : 'on a global average'}
                 />
               </View>
               <Text style={[type.faint, { textAlign: 'center' }]}>{windows.freeTime.detail}</Text>
@@ -3912,10 +3959,24 @@ export default function TimeReality() {
             <Text style={[type.serif, hs.mode === 'holding' && { color: colors.text }]}>
               {hs.summaryText}
             </Text>
-            <Text style={type.faint}>
-              These are population estimates from the research on compressing illness into fewer
-              years — not a prediction about you. What is yours is which ones you keep.
-            </Text>
+            {/* Where the numbers came from, named. This was a fixed sentence
+                that could not say which country it meant, because nothing on
+                this card knew — the horizon was a flat hundred for everybody.
+                Now it is the reader's own, so the footnote both cites it and
+                gives them the one word they might need to correct. */}
+            <Text style={type.faint}>{hs.basisText}</Text>
+            {me?.country ? (
+              <Pressable
+                onPress={() => router.push('/(tabs)/you')}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Change the country these estimates use"
+              >
+                <Text style={[type.faint, { color: colors.amber }]}>
+                  Not where you live? Change it in You →
+                </Text>
+              </Pressable>
+            ) : null}
           </Card>
 
           {/* The windows, folded in from the section they used to be.
@@ -4178,6 +4239,7 @@ export default function TimeReality() {
 
               const cc = countable({
                 age,
+                country: me?.country,
                 label: c.label,
                 declaredPerYear: c.perYear,
                 observation: lived ? { count: lived.count, firstAt: lived.firstAt } : undefined,
@@ -4662,6 +4724,21 @@ const s = StyleSheet.create({
   lifeCellNow: {
     backgroundColor: colors.amber, borderColor: colors.amber,
   },
+  /**
+   * The squares past the horizon this reader is counted on.
+   *
+   * Faded, never removed. They are the part of the frame the averages do not
+   * reach, and the card directly below is an argument that they are reachable
+   * — so the picture has to leave them on the page. A grid that simply stopped
+   * at the country average would be making the opposite claim silently.
+   */
+  lifeCellBeyond: { borderColor: alpha(colors.line, 0.4) },
+  /**
+   * Where the country average falls. A quiet edge, not a barrier: it is one
+   * cell's border, in the same brass as everything else on this tab, and it
+   * carries no fill so it never reads as a stopping point.
+   */
+  lifeCellAverage: { borderColor: colors.textDim, borderWidth: 1.5 },
   // A year with recorded life reads as openable; the current year still wins.
   lifeCellHasEvents: { borderColor: colors.amber },
   lifeCellOpen: { borderColor: colors.text, borderWidth: 1.5 },

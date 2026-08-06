@@ -247,6 +247,15 @@ export interface CountableInput {
   observation?: CountableObservation;
   people?: CountablePerson[];
   now?: number;
+  /**
+   * Where the reader lives — the horizon these counts run on.
+   *
+   * The people in `people` have always been counted on their own country's
+   * figures through `qualityYears`. The reader was the one being counted on a
+   * flat hundred, which is how a row could report more Diwalis ahead of a
+   * seventy-year-old than his own arithmetic allowed anyone.
+   */
+  country?: string | null;
 }
 
 /**
@@ -287,8 +296,10 @@ export function countable(input: CountableInput): Countable {
    *
    * Three hundred and forty evenings with Lakshmi, of which a hundred and ten
    * are with Lakshmi. Two numbers, one person, and two different yardsticks:
-   * the headline on `yearsToHorizon` (the flat 100-year planning horizon this
-   * tab plans on) and the share on `qualityYears` (age, health and distance).
+   * the headline on `yearsToHorizon` (the reader's own horizon) and the share
+   * on `qualityYears` (age, health and distance). Both read the same country
+   * figures now, which narrows the gap without closing it — a healthy reader
+   * still outlasts an ailing parent, and that is the honest part.
    * The honest number is the smaller one, and it belongs in the headline
    * rather than in a footnote correcting it.
    */
@@ -298,8 +309,8 @@ export function countable(input: CountableInput): Countable {
     : null;
 
   const years = shared
-    ? Math.min(yearsToHorizon(input.age), shared.qualityYears)
-    : yearsToHorizon(input.age);
+    ? Math.min(yearsToHorizon(input.age, input.country), shared.qualityYears)
+    : yearsToHorizon(input.age, input.country);
 
   const remaining = Math.max(softRound(pacePerYear * years), 1);
   const upliftRemaining = Math.max(softRound((pacePerYear + 1) * years), remaining);
@@ -335,7 +346,10 @@ export function countable(input: CountableInput): Countable {
       upliftRemaining,
       shares,
       sharedWith: shared
-        ? { name: shared.name, boundByThem: shared.qualityYears < yearsToHorizon(input.age) }
+        ? {
+          name: shared.name,
+          boundByThem: shared.qualityYears < yearsToHorizon(input.age, input.country),
+        }
         : null,
     }),
   };

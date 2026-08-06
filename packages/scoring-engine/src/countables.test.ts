@@ -215,21 +215,39 @@ describe('the people a ritual is with', () => {
 });
 
 /**
- * Inherited from `customCountRemaining`, which this replaced. Same
- * arithmetic, so the same numbers have to come out — a rewrite that quietly
+ * Inherited from `customCountRemaining`, which this replaced. The rule was
+ * that the same numbers have to come out, because a rewrite that quietly
  * moves a figure someone has been reading for months is its own bug.
+ *
+ * These figures have now moved, and it is the one change that was allowed to
+ * move them: the horizon underneath stopped being a flat hundred years for
+ * everybody and started being the reader's own country. A count of Diwalis
+ * ahead of a thirty-year-old in Chennai was never really seventy — that was
+ * the arithmetic of somebody expected to see a hundred and one birthdays. The
+ * pinning stays, against the honest numbers.
  */
 describe('the arithmetic the old count kept', () => {
   it('ocean swims at 1 a year, aged 33', () => {
     const c = countable({ age: 33, label: 'ocean swims', declaredPerYear: 1, now: NOW });
-    expect(c.remaining).toBe(65);        // 1/yr × 67 horizon years → nearest 5
-    expect(c.upliftRemaining).toBe(130); // 2/yr → 134 → nearest 10
+    expect(c.remaining).toBe(40);       // 1/yr × 42 horizon years → nearest 5
+    expect(c.upliftRemaining).toBe(85); // 2/yr → 84 → nearest 5
   });
 
   it('Diwalis at home at 1 a year, aged 30', () => {
     const c = countable({ age: 30, label: 'Diwalis at home', declaredPerYear: 1, now: NOW });
-    expect(c.remaining).toBe(70);
-    expect(c.upliftRemaining).toBe(140);
+    expect(c.remaining).toBe(45);
+    expect(c.upliftRemaining).toBe(90);
+  });
+
+  /**
+   * The reader's country reaches the count, the same way the other person's
+   * always has through `qualityYears`. A ritual is a number of occasions, and
+   * how many are left depends on where both people are standing.
+   */
+  it('counts the same ritual on the reader’s own horizon', () => {
+    const base = { label: 'Diwalis at home', declaredPerYear: 1, now: NOW };
+    expect(countable({ ...base, age: 30, country: 'JP' }).remaining)
+      .toBeGreaterThan(countable({ ...base, age: 30, country: 'IN' }).remaining);
   });
 
   it('never shows zero, even at a tiny pace late in life', () => {

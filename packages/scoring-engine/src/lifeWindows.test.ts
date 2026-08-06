@@ -43,12 +43,18 @@ describe('free time budget', () => {
 });
 
 describe('weekends remaining', () => {
-  it('a 35-year-old has ~3380 weekends to the 100-year horizon', () => {
-    expect(weekendsRemaining(35)).toBe(3380); // 65*52
+  it('a 35-year-old with no country set has ~2080 weekends', () => {
+    expect(weekendsRemaining(35)).toBe(2080); // 40 years on the global average
+  });
+
+  it('and a country of their own moves it', () => {
+    expect(weekendsRemaining(35, 'JP')).toBeGreaterThan(weekendsRemaining(35, 'IN'));
+    expect(weekendsRemaining(35, 'IN')).toBeGreaterThan(weekendsRemaining(35, 'NG'));
   });
 
   it('the horizon moves — an 85-year-old still sees 15 years ahead', () => {
     expect(weekendsRemaining(85)).toBeGreaterThanOrEqual(15 * 52);
+    expect(weekendsRemaining(85, 'IN')).toBeGreaterThanOrEqual(15 * 52);
   });
 });
 
@@ -56,9 +62,19 @@ describe('career window', () => {
   it('turns "10 more years" into working weeks and the after', () => {
     const c = careerWindow(35, 10, 50);
     expect(c.workingWeeksLeft).toBe(480); // 10*48
-    expect(c.postCareerYears).toBe(55);   // 65 horizon years - 10
+    expect(c.postCareerYears).toBe(30);   // 40 horizon years - 10
     expect(c.postCareerFreeHours).toBeGreaterThan(100_000);
     expect(c.framingText).toMatch(/both halves/);
+  });
+
+  /**
+   * The retirement half is where a wrong horizon does real damage — it is a
+   * number people plan money against, and a flat hundred handed a reader in
+   * India twenty-five post-career years that nothing supported.
+   */
+  it('the post-career half follows the country too', () => {
+    expect(careerWindow(35, 10, 50, 'JP').postCareerYears)
+      .toBeGreaterThan(careerWindow(35, 10, 50, 'IN').postCareerYears);
   });
 
   it('floors planned years at 1', () => {
@@ -132,12 +148,40 @@ describe('body windows', () => {
 });
 
 describe('aggregate life windows', () => {
-  it('assembles the user scenario: 32yo IT, 10 more working years', () => {
-    const r = lifeWindows({ age: 32, workHoursPerWeek: 50, plannedWorkYearsMore: 10 });
-    expect(r.yearsToHorizon).toBe(68);
-    expect(r.weekendsRemaining).toBe(3540); // 3536 → nearest 10
+  it('assembles the user scenario: 32yo IT in India, 10 more working years', () => {
+    const r = lifeWindows({
+      age: 32, workHoursPerWeek: 50, plannedWorkYearsMore: 10, country: 'IN',
+    });
+    expect(r.yearsToHorizon).toBe(38); // 70 − 32, above the conditional floor
+    expect(r.weekendsRemaining).toBe(1980); // 1976 → nearest 10
     expect(r.career.workingWeeksLeft).toBe(480);
     expect(r.assumptions.length).toBeGreaterThanOrEqual(4);
+  });
+
+  /**
+   * A number that moved with the reader has to be accountable to the reader.
+   * The assumption line naming the country is the only thing standing between
+   * "roughly 38 years" and a figure nobody can check or correct — and country
+   * is guessed from a device timezone, so it is wrong for exactly the people
+   * least able to guess why.
+   */
+  it('names the country the horizon came from, and says when it does not know', () => {
+    const known = lifeWindows({ age: 32, country: 'IN' }).assumptions.join(' ');
+    expect(known).toMatch(/India/);
+    expect(known).toMatch(/already lived/); // not a naive expectancy − age
+
+    const unknown = lifeWindows({ age: 32 }).assumptions.join(' ');
+    expect(unknown).toMatch(/global average/);
+    expect(unknown).toMatch(/no country is set/);
+  });
+
+  it('never darkens the estimate just because the country is unknown', () => {
+    /* The stated invariant everywhere else in the engine: absence of
+       information must not cost the reader years. The fallback is the global
+       average, which sits above a good third of the table. */
+    const unknown = lifeWindows({ age: 40 }).yearsToHorizon;
+    expect(unknown).toBeGreaterThan(lifeWindows({ age: 40, country: 'IN' }).yearsToHorizon);
+    expect(unknown).toBeGreaterThan(lifeWindows({ age: 40, country: 'NG' }).yearsToHorizon);
   });
 
   it('uses no doom vocabulary anywhere', () => {

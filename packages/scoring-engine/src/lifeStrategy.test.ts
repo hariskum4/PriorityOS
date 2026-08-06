@@ -297,11 +297,56 @@ describe('weekly allocation', () => {
 });
 
 describe('healthspan', () => {
-  it('shows healthy years (horizon minus the frail tail) and the widen-able window', () => {
-    const h = healthspan(35); // horizon 65 → healthy ~55
-    expect(h.healthyYearsLeft).toBe(55);
+  it('shows healthy years as a share of the country horizon, and the window', () => {
+    const h = healthspan(35, [], 'IN'); // horizon 35 → healthy ~30
+    expect(h.yearsToHorizon).toBe(35);
+    expect(h.healthyYearsLeft).toBe(30);
     expect(h.potentialYearsGained).toBe(10);
     expect(h.levers.length).toBe(4);
+  });
+
+  /**
+   * The bug the share exists to prevent, pinned at the age it would have hit.
+   *
+   * Subtracting a flat ten years from a country horizon does not degrade — it
+   * falls off a cliff. A 62-year-old in India sits on the fifteen-year floor,
+   * and fifteen minus ten is five: the card would have told him he had five
+   * good years left. He has closer to thirteen. No age, in any country, may
+   * produce a number that low from arithmetic rather than from evidence.
+   */
+  it('does not collapse where a fixed subtraction would have', () => {
+    const h = healthspan(62, [], 'IN');
+    expect(h.healthyYearsLeft).toBeGreaterThanOrEqual(12);
+    expect(h.framingText).not.toMatch(FORBIDDEN);
+
+    for (const country of ['IN', 'NG', 'JP', 'US', undefined]) {
+      for (let age = 18; age <= 90; age += 1) {
+        const at = healthspan(age, [], country);
+        expect(at.healthyYearsLeft, `age ${age} in ${country ?? 'nowhere'}`)
+          .toBeGreaterThanOrEqual(10);
+      }
+    }
+  });
+
+  it('the good years track the country, like the horizon they come from', () => {
+    expect(healthspan(35, [], 'JP').healthyYearsLeft)
+      .toBeGreaterThan(healthspan(35, [], 'IN').healthyYearsLeft);
+  });
+
+  /**
+   * The number moved; the account of why has to move with it. This footnote
+   * is the difference between a card that halved and a card that explains.
+   */
+  it('says where the figure came from, and that the average is not the reader', () => {
+    const h = healthspan(35, [], 'IN');
+    expect(h.basisText).toMatch(/India/);
+    expect(h.basisText).toMatch(/~70 years/);
+    /* The reassurance, and it is a fact rather than a softening. */
+    expect(h.basisText).toMatch(/includes everyone doing none of the four/);
+    expect(h.basisText).toMatch(/not a prediction about you/);
+    expect(h.basisText).not.toMatch(FORBIDDEN);
+
+    expect(healthspan(35).basisText).toMatch(/no country is set yet/);
   });
 
   it('floors healthy years and never uses doom vocabulary', () => {
@@ -782,7 +827,7 @@ describe('healthspan levers against a real life', () => {
 
   it('behaves as it always did when it knows nothing', () => {
     const h = healthspan(35);
-    expect(h.healthyYearsLeft).toBe(55);
+    expect(h.healthyYearsLeft).toBe(34); // 40 global-average years × 0.86
     expect(h.yearsOpen).toBe(10);
     expect(h.yearsHeld).toBe(0);
     expect(h.levers.every((l: any) => l.state === 'open')).toBe(true);
@@ -790,9 +835,10 @@ describe('healthspan levers against a real life', () => {
 
   it('no longer calls a planning horizon a guarantee of being able-bodied', () => {
     // "65 fully able years" for a 25-year-old is a health claim. The horizon
-    // is a lens for deciding; the copy now says which it is.
+    // is a lens for deciding; the copy now says which it is — and says it of
+    // the years *most people* live well, never of this reader's own.
     const h = healthspan(25);
-    expect(h.framingText).toMatch(/planning horizon/);
+    expect(h.framingText).toMatch(/most people live in\s+good health/);
     expect(h.framingText).not.toMatch(/fully able/);
     expect(h.framingText).not.toMatch(FORBIDDEN);
   });

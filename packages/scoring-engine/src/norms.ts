@@ -60,14 +60,43 @@ export const NORMS: Record<string, Norm> = {
     key: 'planningHorizonAge',
     value: 100,
     unit: 'years of age',
-    label: 'The age the Time tab plans to',
+    label: 'The age the life grid is drawn to',
     source:
-      'A product choice, not a life-expectancy estimate. Deliberately past any '
-      + 'national figure so the lens never reads as a countdown, and it extends '
-      + 'further as a reader approaches it.',
+      'A product choice, not a life-expectancy estimate. This is now only the '
+      + 'canvas the "your life in years" grid is drawn on — a fixed frame, so '
+      + 'the picture means the same thing at every age and in every country. '
+      + 'The arithmetic on that grid reads the country figures instead.',
     grade: 'convention',
     personal: false,
-    caveat: 'Nobody is ever shown fewer than 15 years ahead.',
+    caveat: 'Not a horizon anybody is counted against. No number on the tab is '
+      + 'derived from it.',
+  },
+  conditionalHorizonAge: {
+    key: 'conditionalHorizonAge',
+    value: 95,
+    unit: 'years of age',
+    label: 'The age the conditional-survival approximation reaches toward',
+    source:
+      'A working approximation of the fact that remaining life expectancy e(x) '
+      + 'falls more slowly than one year per year lived: at-birth expectancy '
+      + 'includes infant and early-adult mortality that anybody reading this has '
+      + 'already survived. Checked against WHO life tables for the countries in '
+      + 'the table rather than derived from them.',
+    grade: 'rule-of-thumb',
+    personal: false,
+    caveat: 'A two-parameter stand-in for a full life table. Accurate to within '
+      + 'a few years across the range of ages and countries this app sees, and '
+      + 'deliberately conservative at the young end.',
+  },
+  conditionalSurvivalFactor: {
+    key: 'conditionalSurvivalFactor',
+    value: 0.45,
+    unit: 'of the distance to that age',
+    label: 'How much of the remaining distance a survivor is credited with',
+    source: 'The second parameter of the approximation above, fitted to the same '
+      + 'WHO life-table figures.',
+    grade: 'rule-of-thumb',
+    personal: false,
   },
   sleepHoursPerNight: {
     key: 'sleepHoursPerNight',
@@ -121,18 +150,25 @@ export const NORMS: Record<string, Norm> = {
     caveat: 'Measured in expert practice, not office work. The direction is '
       + 'well supported; the exact number is not a personal measurement.',
   },
-  typicalUnwellYears: {
-    key: 'typicalUnwellYears',
-    value: 10,
-    unit: 'years',
-    label: 'The frail tail at the end of a typical life',
+  healthyShareOfLife: {
+    key: 'healthyShareOfLife',
+    value: 0.86,
+    unit: 'of the years ahead',
+    label: 'The share of a remaining life expected to be lived in good health',
     source:
-      'Gap between life expectancy and healthy life expectancy (HALE) in the '
-      + 'WHO Global Health Estimates — around a decade in most countries.',
+      'Healthy life expectancy (HALE) as a fraction of life expectancy in the '
+      + 'WHO Global Health Estimates. Remarkably stable across countries — the '
+      + 'ratio sits between about 0.84 and 0.88 nearly everywhere, while the '
+      + 'absolute gap it implies varies from roughly nine years to thirteen.',
     grade: 'strong',
     personal: false,
-    caveat: 'A population gap. Individuals routinely beat it, and the app says '
-      + 'so wherever it appears.',
+    caveat:
+      'A share rather than the ten-year subtraction this replaced, which is '
+      + 'not a presentational choice. Subtracting a fixed decade from a short '
+      + 'horizon collapses onto the floor and tells a reader in their sixties '
+      + 'they have two good years — an artefact of the arithmetic, not a '
+      + 'finding. A share degrades smoothly at every age. Individuals routinely '
+      + 'beat it, and the app says so wherever it appears.',
   },
   defaultLifeExpectancy: {
     key: 'defaultLifeExpectancy',

@@ -10,13 +10,30 @@
  */
 
 import { yearsToHorizon } from './lifeWindows';
+import { lifeExpectancyForRegion } from './timeReality';
+import { countryInSentence } from './countries';
 import { NORMS } from './norms';
 
 // ---------------------------------------------------------------------------
 // Healthspan — the years that actually matter
 // ---------------------------------------------------------------------------
 
-const TYPICAL_UNWELL_YEARS = NORMS.typicalUnwellYears.value;
+/**
+ * The good years as a share of the years, rather than a decade docked off them.
+ *
+ * This was `horizon - 10`, which was fine only because the horizon was a flat
+ * hundred and the subtraction never came close to the floor. Against a real
+ * country horizon it falls apart exactly where it matters most: a reader of
+ * sixty-two in India has about fifteen years by the table, and fifteen minus
+ * ten is five — so the card would have told him he had five good years left.
+ * That is an artefact of subtracting a constant from a small number, and it
+ * would have been the single cruelest sentence in the app.
+ *
+ * The share is also what HALE actually is. The ratio barely moves between
+ * countries even though the gap in years moves a lot, so one constant is
+ * honest here in a way one subtraction never was.
+ */
+const HEALTHY_SHARE = NORMS.healthyShareOfLife.value;
 
 export type LeverKey = 'strength' | 'cardio' | 'sleep' | 'social';
 /**
@@ -212,13 +229,24 @@ export interface Healthspan {
   levers: HealthspanLever[];
   mode: HealthspanMode;
   framingText: string;
+  /**
+   * Where the numbers came from, named so a reader can check or correct it.
+   * Replaces a hardcoded footnote that could not say which country it meant.
+   */
+  basisText: string;
   /** The closing line — it says a different true thing in each mode. */
   summaryText: string;
 }
 
-export function healthspan(age: number, signals: LeverSignal[] = []): Healthspan {
-  const horizon = yearsToHorizon(age);
-  const healthy = Math.max(horizon - TYPICAL_UNWELL_YEARS, 2);
+export function healthspan(
+  age: number,
+  signals: LeverSignal[] = [],
+  country?: string | null,
+): Healthspan {
+  const horizon = yearsToHorizon(age, country);
+  const healthy = Math.max(Math.round(horizon * HEALTHY_SHARE), 2);
+  const where = countryInSentence(country);
+  const expectancy = lifeExpectancyForRegion(country ?? undefined);
   const byKey = new Map(signals.map((s) => [s.key, s]));
 
   const levers: HealthspanLever[] = HEALTHSPAN_LEVERS
@@ -255,11 +283,39 @@ export function healthspan(age: number, signals: LeverSignal[] = []): Healthspan
     levers,
     mode,
     framingText:
-      `Roughly ${healthy} years ahead on a 100-year planning horizon, minus the frail tail most ` +
-      `people meet at the end. Ageing is not fixed: the rhythms below are the ones that push that ` +
-      `edge out. You are not counting down a wall; you are widening a window.`,
+      `Roughly ${healthy} of the ~${horizon} years ahead of you are the ones most people live in ` +
+      `good health${where ? `, counted on the averages for ${where}` : ''} — already adjusted for ` +
+      `the years you have behind you. Ageing is not fixed: the rhythms below are the ones that ` +
+      `push that edge out. You are not counting down a wall; you are widening a window.`,
+    basisText: basisTextFor(where, expectancy),
     summaryText: summaryFor({ mode, held, slipping, potential, slippingLevers }),
   };
+}
+
+/**
+ * The footnote, and the only place on this card allowed to be reassuring.
+ *
+ * The reassurance is a fact rather than a softening, which is the whole
+ * difference. Replacing a flat hundred with a national average roughly halves
+ * this card's headline for a reader in India, and a number that halves without
+ * accounting for itself is alarming in a way the underlying truth is not. Two
+ * things are worth saying and both are true: the average already contains
+ * everybody doing none of the four rhythms listed above — which is most people
+ * — and an average is not a forecast for the person reading it.
+ *
+ * Naming the country is not decoration either. It is guessed from a device
+ * timezone at signup, so the reader it is most likely wrong about is exactly
+ * the one who most needs to see it: somebody living abroad on a phone that
+ * never changed. A figure you cannot see the basis of is a figure you cannot
+ * correct.
+ */
+function basisTextFor(where: string | null, expectancy: number): string {
+  const source = where
+    ? `Counted on life-expectancy figures for ${where} (~${expectancy} years)`
+    : `Counted on a global average (~${expectancy} years), because no country is set yet`;
+  return `${source}, plus the research on compressing illness into fewer years. That average `
+    + `includes everyone doing none of the four rhythms above, which is most people — it is a `
+    + `population figure, not a prediction about you. What is yours is which ones you keep.`;
 }
 
 /**
