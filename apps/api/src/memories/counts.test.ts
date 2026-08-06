@@ -48,11 +48,13 @@ function svc(opts: {
   };
   return {
     /* Analytics is fire-and-forget on the create path; these tests are about
-       the counts arithmetic and only need it not to throw. */
+       the counts arithmetic and only need it not to throw. The AI service is
+       only reached by `prompts`, which nothing here calls. */
     service: new MemoriesService(
       prisma as any,
       { award: async () => 0 } as any,
       { track: async () => ({ ok: true }) } as any,
+      { generateOrDefer: async (_u: string, _k: string, _t: unknown, _c: unknown, fb: unknown) => fb } as any,
     ),
     updates,
     memories,

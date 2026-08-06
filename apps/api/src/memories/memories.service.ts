@@ -1,8 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ritualTokens } from '@priority/scoring-engine';
+import {
+  ritualTokens, momentPrompts, isUsableQuestion, isUsableAccountLine, safeRephrase,
+} from '@priority/scoring-engine';
+import { MOMENT_PROMPTS } from '@priority/ai-prompts';
 import { PrismaService } from '../prisma/prisma.service';
 import { GamificationService } from '../gamification/gamification.service';
 import { AnalyticsService } from '../analytics/analytics.service';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class MemoriesService {
@@ -10,6 +14,7 @@ export class MemoriesService {
     private prisma: PrismaService,
     private game: GamificationService,
     private analytics: AnalyticsService,
+    private ai: AiService,
   ) {}
 
   list(userId: string, filters: { person?: string; countKey?: string } = {}) {
@@ -360,6 +365,117 @@ export class MemoriesService {
       patch.timeKnown = false;
     }
     return this.prisma.memory.update({ where: { id }, data: patch });
+  }
+
+  /**
+   * The four questions for one particular moment.
+   *
+   * "Back to this moment" used to ask everybody the same four, which is why
+   * it read as a form rather than as somewhere to write. The engine composes
+   * a set that fits this moment — who was there, what kind of thing it was,
+   * how long ago it happened — and the model is allowed to sharpen the
+   * wording and nothing else.
+   *
+   * What it is not allowed to do is fill anything in. The archive's rule has
+   * not moved: the app writes the question, the person writes the answer. A
+   * prompt that proposes what somebody might say about their own mother is
+   * not a personalised form, it is the app keeping a diary about a life it
+   * was not present for.
+   */
+  async prompts(userId: string, id: string) {
+    const memory = await this.assertOwned(userId, id);
+
+    /**
+     * One name only where there is exactly one.
+     *
+     * `personName` is the snapshot kept for when the relationship row is
+     * deleted, `relationship.name` is the live one, and `peoplePresent` is
+     * the guest list. Naming one person out of four would be the app
+     * deciding whose evening it was, so a gathering gets the plural.
+     */
+    const present = Array.isArray(memory.peoplePresent)
+      ? (memory.peoplePresent as unknown[]).filter((n): n is string => typeof n === 'string' && !!n.trim())
+      : [];
+    const named = memory.personName?.trim()
+      || (present.length === 1 ? present[0].trim() : '')
+      || '';
+    const peopleCount = Math.max(present.length, named ? 1 : 0);
+
+    /* Whole days, floored, and never negative — a moment dated in the future
+       is a typo, not a reason to ask what has stayed with them since. */
+    const daysAgo = Math.max(
+      0,
+      Math.floor((Date.now() - new Date(memory.occurredAt).getTime()) / 86_400_000),
+    );
+
+    const engine = momentPrompts({
+      title: memory.title,
+      memoryType: memory.memoryType,
+      personName: peopleCount > 1 ? null : named || null,
+      peopleCount,
+      daysAgo,
+    });
+
+    /**
+     * The model sees the four questions and nothing else.
+     *
+     * No title, no date, no person, no account of what happened — there is
+     * nothing here for it to misread because it has not been handed anything
+     * to read. This is the same shape as the Reveal and the Now card, and it
+     * is the shape because every version that passed facts instead produced
+     * fluent sentences that were wrong about what a field meant.
+     */
+    /**
+     * Deferred, because this one is opened by a tap and read immediately.
+     *
+     * The client composes the same engine questions locally, so the form is
+     * never waiting on anything — it draws instantly with the wording below
+     * and this call only decides whether a later opening gets a better one.
+     * Blocking would be worse than pointless here: nine seconds in, the
+     * reader is already typing, and swapping the question under their hands
+     * is the one thing a prompt must not do.
+     */
+    const edited = await this.ai.generateOrDefer(
+      userId,
+      'moment_prompts',
+      MOMENT_PROMPTS,
+      {
+        insight: engine.insight,
+        account: engine.reflection,
+        conversation: engine.conversation,
+        keepsake: engine.keepsake,
+      },
+      { insight: '', account: '', conversation: '', keepsake: '' },
+      /* Keyed on the moment and the parts of it the questions are built from,
+         so reopening the same evening asks the same thing — and editing the
+         title or the date earns a fresh set. */
+      { cacheKey: `moment:${memory.id}:${memory.title}:${named}:${daysAgo}` },
+    );
+
+    /**
+     * Each field falls back on its own.
+     *
+     * A model that spoils one question has not spoiled the other three, and
+     * the engine's wording is not a degraded path — it is the version this
+     * surface was designed around. `mustKeep` carries the name because a
+     * warmer question about nobody in particular is the exact failure the
+     * Reveal hit: nothing invented, nothing misread, the sentence simply
+     * stopped being about anybody.
+     */
+    const question = (original: string, rewritten: string) => {
+      const { sentence } = safeRephrase(original, rewritten, { mustKeep: [named || undefined] });
+      return isUsableQuestion(sentence) ? sentence : original;
+    };
+    const { sentence: account } = safeRephrase(engine.reflection, edited.account, {
+      mustKeep: [named || undefined],
+    });
+
+    return {
+      insight: question(engine.insight, edited.insight),
+      reflection: isUsableAccountLine(account) ? account : engine.reflection,
+      conversation: question(engine.conversation, edited.conversation),
+      keepsake: question(engine.keepsake, edited.keepsake),
+    };
   }
 
   /** No XP is clawed back — it was true when it happened. */

@@ -182,12 +182,22 @@ const INSIGHT_ALONE = [
 ];
 
 /**
- * Stable per moment rather than random: opening the same entry twice and
- * being asked two different questions makes the question feel generated,
- * which is precisely what stops somebody answering it.
+ * One of a pool, the same one every time for the same moment.
+ *
+ * Stable rather than random, and that is the whole of it: opening the same
+ * entry twice and being asked two different questions makes the question feel
+ * generated, which is precisely what stops somebody answering it.
+ *
+ * Shared with `momentPrompts`, which asks the same kind of question about the
+ * same moments and must land on the same one — two surfaces seeding
+ * differently would reintroduce the shuffle this prevents.
  */
+export function stablePick<T>(pool: T[], seed: string): T {
+  const n = [...(seed ?? '')].reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return pool[n % pool.length];
+}
+
 export function insightPrompt(input: FirstPersonInput): string {
   const pool = input.personName?.trim() ? INSIGHT_WITH_PERSON : INSIGHT_ALONE;
-  const seed = [...(input.title ?? '')].reduce((n, c) => n + c.charCodeAt(0), 0);
-  return pool[seed % pool.length];
+  return stablePick(pool, input.title ?? '');
 }

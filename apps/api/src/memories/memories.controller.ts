@@ -42,6 +42,18 @@ export class MemoriesController {
     return this.memories.archiveThemes(u.userId);
   }
 
+  /**
+   * The questions for one moment — asked for when its form is opened.
+   *
+   * Read-only, and it writes nothing into the moment. The client already
+   * holds the engine's version of these and renders it without waiting, so
+   * this exists to hand back the better-worded set once there is one.
+   */
+  @Get(':id/prompts')
+  prompts(@CurrentUser() u: JwtUser, @Param('id') id: string) {
+    return this.memories.prompts(u.userId, id);
+  }
+
   @Post('count-attach')
   attachToCount(
     @CurrentUser() u: JwtUser,

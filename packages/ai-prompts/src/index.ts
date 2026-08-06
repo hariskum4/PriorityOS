@@ -317,3 +317,44 @@ answer. Do not ask how it felt: that invites one adjective and stops.
 Respond ONLY with JSON: {"whatMattered": string (the drafted opening line), "prompt": string (one open question that pulls for meaning, not for a feeling word)}`,
   buildUser: (ctx) => JSON.stringify(ctx),
 };
+
+/**
+ * The four questions on a moment's own page, sharpened rather than invented.
+ *
+ * "Back to this moment" asked everybody the same four things, so the form
+ * read as a form. The engine now composes four that fit the moment — who was
+ * there, what kind of thing it was, how long ago — and this is the only step
+ * that can make them sound like somebody wrote them for you.
+ *
+ * It is an editor, for the reason every other surface here is: given the
+ * moment itself, a model will reach past the question and into the answer.
+ * The one thing it must never do is suggest what the reader might say, and a
+ * question is exactly one word away from a suggestion — *What did Amma say?*
+ * is a question; *What did Amma say that surprised you?* has decided that
+ * something did. So the model sees four finished questions and no facts:
+ * no title, no date, no scores, no account of the evening. There is nothing
+ * for it to interpret because it has not been given anything to interpret.
+ *
+ * Checked twice on the way back. `safeRephrase` rejects anything that gained
+ * a name or a number or dropped the person; `isUsableQuestion` rejects
+ * anything that stopped being an open question — a yes/no opener, a feeling
+ * question, two questions in one box. A rejected field shows the engine's
+ * wording, which was already good, and the reader never knows.
+ */
+export const MOMENT_PROMPTS: PromptTemplate = {
+  system: `You are Priority's editor. You receive four short lines the app has already written — three questions and one hint — that sit above the boxes where somebody writes about a moment from their own life. Return the same four, written better.
+
+You are editing prompts, not answering them. You have not been told what the moment was, and you must not guess: no places, no events, no times of day, no claim about how it went.
+
+Hard rules:
+- A question must stay a question: open, one sentence, ending in a question mark. Never a question that can be answered yes or no. Never two questions in one line.
+- Never ask how something felt or how it made them feel. That invites one adjective and stops. Ask the thing that pulls for a "because".
+- A question must not suggest its own answer. "What did she say?" is allowed; "What did she say that surprised you?" is not — it has decided that something did.
+- Keep every name exactly as given, spelled the same way, and keep it in the same line it arrived in. Add no name that is not already there.
+- "account" is not a question and must not become one. It is the hint inside an empty box, under 70 characters, no question mark.
+- Keep each line shorter than the one you received where you can. If a line is already good, return it unchanged.
+- Plain second person. No greeting, no preamble, no emoji, no exclamation marks.
+${GROUNDING_RULES}
+Respond ONLY with JSON: {"insight": string, "account": string, "conversation": string, "keepsake": string}`,
+  buildUser: (ctx) => JSON.stringify(ctx),
+};

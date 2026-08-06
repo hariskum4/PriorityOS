@@ -12,7 +12,9 @@ import { writeMemoryToCalendar, addMomentToCalendar, canWriteToDeviceCalendar } 
 import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
-import { supportLines, insightPrompt } from '@priority/scoring-engine';
+import {
+  supportLines, momentPrompts, momentDisclosure, type MomentPrompts,
+} from '@priority/scoring-engine';
 import { colors, type, space, alpha, breakLongWords } from '@/theme';
 
 /**
@@ -676,6 +678,35 @@ function Memories() {
   const togglePerson = (id: string) =>
     setPersonIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
+  /**
+   * The questions this particular moment deserves, as it is being described.
+   *
+   * Composed here rather than fetched: there is no moment yet to ask the
+   * server about, and every input the questions turn on — the kind of thing
+   * it was, who was there — is a chip on this form. Tap "achievement" with
+   * nobody named and the second box stops asking what was said, because
+   * there was nobody to say it to.
+   *
+   * The title is passed and deliberately does not move anything on this
+   * screen: only the opening question is seeded by it, and the composer does
+   * not show one. A placeholder that rewrote itself on every keystroke would
+   * be the worst version of this idea.
+   */
+  const describing = {
+    title: title.trim(),
+    memoryType,
+    personName: personIds.length === 1 ? nameOf(personIds[0]) : null,
+    peopleCount: personIds.length,
+    daysAgo: occurredOn && dateValid
+      ? Math.max(0, Math.floor((Date.now() - new Date(`${occurredOn}T12:00:00.000Z`).getTime()) / 86_400_000))
+      : 0,
+  };
+  const askAbout = momentPrompts(describing);
+  /* The link that hides the last two boxes names them, so it has to move
+     with them — it was promising a conversation to somebody who spent the
+     evening on their own. */
+  const moreLabel = momentDisclosure(describing);
+
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 
@@ -790,8 +821,8 @@ function Memories() {
              that, and two identical prompts on one form is how somebody
              types their account into the one-line name. I did exactly that
              while testing it. */
-          placeholder="The longer version — how it actually went"
-          accessibilityLabel="The longer version — how it actually went"
+          placeholder={askAbout.reflection}
+          accessibilityLabel={askAbout.reflection}
           value={reflection}
           onChangeText={setReflection}
         />
@@ -799,15 +830,15 @@ function Memories() {
           <>
             <Input
               multiline
-              placeholder="What did you talk about?"
-              accessibilityLabel="What did you talk about?"
+              placeholder={askAbout.conversation}
+              accessibilityLabel={askAbout.conversation}
               value={conversation}
               onChangeText={setConversation}
             />
             <Input
               multiline
-              placeholder="What do you want to remember about it?"
-              accessibilityLabel="What do you want to remember about it?"
+              placeholder={askAbout.keepsake}
+              accessibilityLabel={askAbout.keepsake}
               value={keepsake}
               onChangeText={setKeepsake}
             />
@@ -816,11 +847,11 @@ function Memories() {
           <Pressable
             onPress={() => setMoreBeats(true)}
             accessibilityRole="button"
-            accessibilityLabel="Add what you talked about and what you want to remember"
+            accessibilityLabel={`Add ${moreLabel}`}
             hitSlop={8}
           >
             <Text style={[type.faint, { color: colors.amber }]}>
-              + what you talked about, what you want to remember
+              {`+ ${moreLabel}`}
             </Text>
           </Pressable>
         )}
@@ -966,6 +997,42 @@ function EditMemory({ memory, onClose, onSaved }: {
   );
   const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(occurredOn);
 
+  /**
+   * The questions, for this moment rather than for every moment.
+   *
+   * Two sources, and the order matters. The engine's set is composed here
+   * from the saved moment and is on screen the instant the form opens — no
+   * spinner, no empty labels, and no dependency on a model being reachable.
+   * The server returns the same four with the wording sharpened, and only
+   * replaces them once it has them.
+   *
+   * Built from the *saved* moment, not from the fields being edited: the
+   * questions must not rewrite themselves while somebody is typing an answer
+   * to them, which is also why the query is keyed on the id and left stale
+   * for an hour. Change the title and save, and the next opening asks
+   * accordingly.
+   */
+  const present: string[] = Array.isArray(memory.peoplePresent) ? memory.peoplePresent : [];
+  const named: string | null = memory.personName
+    ?? (present.length === 1 ? present[0] : null);
+  const asked = momentPrompts({
+    title: memory.title,
+    memoryType: memory.memoryType,
+    /* One name is a link; several is a gathering, and naming one of them
+       would be the app deciding whose evening it was. */
+    personName: present.length > 1 ? null : named,
+    peopleCount: Math.max(present.length, named ? 1 : 0),
+    daysAgo: memory.occurredAt
+      ? Math.max(0, Math.floor((Date.now() - new Date(memory.occurredAt).getTime()) / 86_400_000))
+      : 0,
+  });
+  const { data: sharpened } = useQuery({
+    queryKey: ['memory-prompts', memory.id],
+    queryFn: () => api<MomentPrompts>(`/memories/${memory.id}/prompts`),
+    staleTime: 60 * 60_000,
+  });
+  const ask = sharpened ?? asked;
+
   const save = useMutation({
     mutationFn: () =>
       api(`/memories/${memory.id}`, {
@@ -996,18 +1063,19 @@ function EditMemory({ memory, onClose, onSaved }: {
        * The question, asked where the moment is rather than on today's page.
        *
        * Somebody reopening an evening from three weeks ago is not short of a
-       * text box — they are short of a reason to start. This is the same
-       * deterministic question the composer uses, put next to the thing it is
-       * about, which is the only place it makes sense to answer it.
+       * text box — they are short of a reason to start. Putting the question
+       * next to the thing it is about is the only place it makes sense to
+       * answer it.
+       *
+       * And it is now this moment's question rather than one of three. "What
+       * did that change?" is a fair thing to ask about anything, which is
+       * also its problem: a question that fits everything reads as a field
+       * label. This one knows whether there was anybody there and what kind
+       * of thing it was, and asks accordingly.
        */}
       <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
         <Ionicons name="help-circle-outline" size={14} color={colors.amber} style={{ marginTop: 2 }} />
-        <Text style={[type.dim, { flex: 1, color: colors.amber }]}>
-          {insightPrompt({
-            title: memory.title,
-            personName: (memory.peoplePresent ?? [])[0] ?? memory.personName ?? null,
-          })}
-        </Text>
+        <Text style={[type.dim, { flex: 1, color: colors.amber }]}>{ask.insight}</Text>
       </View>
       <Input value={title} onChangeText={setTitle} placeholder="What happened? One line is enough." />
       <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center' }}>
@@ -1021,9 +1089,9 @@ function EditMemory({ memory, onClose, onSaved }: {
           {dateValid ? 'Lands on that year' : 'Needs to look like 2009-06-14'}
         </Text>
       </View>
-      <Input multiline value={reflection} onChangeText={setReflection} placeholder="The longer version — how it actually went" accessibilityLabel="The longer version — how it actually went" />
-      <Input multiline value={conversation} onChangeText={setConversation} placeholder="What did you talk about?" accessibilityLabel="What did you talk about?" />
-      <Input multiline value={keepsake} onChangeText={setKeepsake} placeholder="What do you want to remember about it?" accessibilityLabel="What do you want to remember about it?" />
+      <Input multiline value={reflection} onChangeText={setReflection} placeholder={ask.reflection} accessibilityLabel={ask.reflection} />
+      <Input multiline value={conversation} onChangeText={setConversation} placeholder={ask.conversation} accessibilityLabel={ask.conversation} />
+      <Input multiline value={keepsake} onChangeText={setKeepsake} placeholder={ask.keepsake} accessibilityLabel={ask.keepsake} />
       <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />
       <View style={{ flexDirection: 'row', gap: space(2) }}>
         <View style={{ flex: 1 }}>
