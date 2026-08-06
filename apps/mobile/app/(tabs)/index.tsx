@@ -1455,13 +1455,27 @@ export default function Today() {
               * A mission written by accident costs one tap of "Not today".
               * A card that does nothing costs the offer.
               */}
+            {/**
+              * No `accessibilityRole` on the card, and that is not an
+              * oversight in either direction.
+              *
+              * It had one, and on the web that renders the card as a `<button>`
+              * — with two more buttons inside it. React said so out loud:
+              * "validateDOMNesting: <button> cannot appear as a descendant of
+              * <button>". Invalid markup, and browsers are free to resolve the
+              * nesting however they like.
+              *
+              * Dropping the role is also the better answer for a screen
+              * reader, which is why it is not a workaround. Two nested
+              * controls announce as two controls wrapping the same action, and
+              * the reader has to work out that pressing either does the same
+              * thing. The named button inside is the announced control; the
+              * card around it is a convenience for the pointer, which is
+              * exactly what it should be.
+              */}
             <Pressable
               onPress={() => { if (!stackTaken) planStack.mutate(topStack); }}
               disabled={stackTaken || planStack.isPending}
-              accessibilityRole={stackTaken ? undefined : 'button'}
-              accessibilityLabel={stackTaken
-                ? undefined
-                : `${topStack.action}. Put it on my missions.`}
               style={({ pressed }) => [s.stackCard, pressed && !stackTaken && { opacity: 0.8 }]}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
