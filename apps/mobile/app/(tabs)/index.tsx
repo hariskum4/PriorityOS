@@ -1402,7 +1402,38 @@ export default function Today() {
          */}
         {topStack ? (
           <Rise delay={80}>
-            <View style={s.stackCard}>
+            {/**
+              * The whole card takes the offer, and the button says so.
+              *
+              * Two versions of this were wrong in opposite directions. It
+              * began as one big `Pressable` that ran `router.push('/time')`:
+              * somebody read the sentence, agreed with it, tapped, and was
+              * moved to another screen to find the same card again. The fix
+              * added explicit controls and made the body a plain `View` — and
+              * that was wrong too, because the body still looks like a card
+              * you can press, and now nothing at all happened when you did.
+              * The instinct being served is the same one both times: you tap
+              * the thing you just agreed with.
+              *
+              * So the body is pressable again and does what the button does.
+              * The button stays because a card that acts on touch without
+              * saying what it will do is the first version's problem again;
+              * this way the label names the action and the whole card honours
+              * it. "Find it an hour" sits inside and wins its own touch, so
+              * the way to Time is still there.
+              *
+              * A mission written by accident costs one tap of "Not today".
+              * A card that does nothing costs the offer.
+              */}
+            <Pressable
+              onPress={() => { if (!stackTaken) planStack.mutate(topStack); }}
+              disabled={stackTaken || planStack.isPending}
+              accessibilityRole={stackTaken ? undefined : 'button'}
+              accessibilityLabel={stackTaken
+                ? undefined
+                : `${topStack.action}. Put it on my missions.`}
+              style={({ pressed }) => [s.stackCard, pressed && !stackTaken && { opacity: 0.8 }]}
+            >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                 <Ionicons name="git-merge-outline" size={13} color={obs.brass} />
                 {/* Sentence-shaped, so not a tick — as a mono cap this wrapped
@@ -1426,22 +1457,9 @@ export default function Today() {
               {topStack.reason ? (
                 <Text style={[obsType.dim, { marginTop: 6 }]}>{topStack.reason}</Text>
               ) : null}
-              {/**
-                * Where the card stops being a poster.
-                *
-                * The whole thing was one `Pressable` that ran
-                * `router.push('/time')` — so somebody who read the sentence,
-                * agreed with it, and tapped was moved to a different screen and
-                * left to find the same card again. The offer is only real if it
-                * can be accepted where it is met, so the tap now writes the
-                * mission, exactly as the Time tab's own button does.
-                *
-                * Once it is taken the card says so and stops offering; the next
-                * fetch of the stacks will have re-planned around it and put a
-                * different one here. Going to Time stays available underneath,
-                * because that is where an hour gets chosen for it — but it is
-                * now the second thing on the card, not the only one.
-                */}
+              {/* Once it is taken the card says so and stops offering; the
+                  next fetch of the stacks will have re-planned around it and
+                  put a different one here. */}
               {stackTaken ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>
                   <Ionicons name="checkmark" size={14} color={obs.brass} />
@@ -1479,7 +1497,7 @@ export default function Today() {
                   That did not save — it is still an offer. Try again, or open Time.
                 </Text>
               ) : null}
-            </View>
+            </Pressable>
           </Rise>
         ) : null}
 
