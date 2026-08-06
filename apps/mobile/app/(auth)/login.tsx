@@ -7,9 +7,31 @@ import { useAuth } from '@/store/auth';
 import { Button, Input } from '@/components/ui';
 import { colors, type, space, skyGradient } from '@/theme';
 
+/**
+ * The seed account, and only where it exists.
+ *
+ * These two lines were unconditional, so the first screen of the deployed app
+ * arrived with an email and a password already typed into it. The seed has
+ * never been run against the production database — `demo@priority.app` is not
+ * a row there — so the form was pre-filled with credentials that cannot work.
+ * Somebody opening the app for the first time sees a completed sign-in, taps
+ * the only large button on the screen, and is told "Invalid credentials"
+ * before they have done anything at all. The way in, "Create an account", is
+ * the quietest thing on the page.
+ *
+ * It is also a shipped credential. The pair is compiled into the web bundle
+ * and readable by anyone, so the day that seed ever does run in production,
+ * the demo account belongs to whoever looked.
+ *
+ * Kept for local development, where the seed is real and typing it forty
+ * times a day is genuinely tedious. `__DEV__` is false in every build that
+ * reaches anybody else.
+ */
+const SEED = { email: 'demo@priority.app', password: 'priority123' };
+
 export default function Login() {
-  const [email, setEmail] = useState('demo@priority.app');
-  const [password, setPassword] = useState('priority123');
+  const [email, setEmail] = useState(__DEV__ ? SEED.email : '');
+  const [password, setPassword] = useState(__DEV__ ? SEED.password : '');
   const [error, setError] = useState('');
   const setTokens = useAuth((s) => s.setTokens);
 
@@ -44,7 +66,12 @@ export default function Login() {
         <Input placeholder="Email" autoCapitalize="none" value={email} onChangeText={setEmail} />
         <Input placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
         {!!error && <Text style={{ color: colors.rose, textAlign: 'center' }}>{error}</Text>}
-        <Button title="Log in" onPress={submit} />
+        {/* The prefill was hiding this: with both fields filled in from the
+            start, the button was never pressed empty. Now that the form opens
+            blank, an eager tap would post two empty strings and come back with
+            whatever the DTO says about them — a validation message as the
+            first sentence the app ever addresses to somebody. */}
+        <Button title="Log in" onPress={submit} disabled={!email.trim() || !password} />
         <Link href="/(auth)/forgot" style={[type.dim, { textAlign: 'center', padding: 8 }]}>
           Forgot password?
         </Link>
