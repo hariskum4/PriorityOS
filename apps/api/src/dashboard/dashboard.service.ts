@@ -119,7 +119,7 @@ export class DashboardService {
        * Never fatal. A digest that fails to build leaves the model with the
        * mission alone, which is what it had before this line existed.
        */
-      whyToday = await this.ai.generate(
+      whyToday = await this.ai.generateOrDefer(
         userId,
         'daily_focus',
         DAILY_FOCUS,

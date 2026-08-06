@@ -32,6 +32,47 @@ export class AiService {
     return process.env.AI_ENABLED !== 'false' && !!process.env.AI_API_KEY;
   }
 
+  /**
+   * The cached answer if there is one, otherwise the fallback — now — and the
+   * generation runs behind the response.
+   *
+   * For surfaces a person is waiting on. `generate` blocks until the model
+   * answers, which is 1.8s from a laptop and was measured at 9.6s from the
+   * production instance; with the dashboard's own queries either side of it
+   * that put the Today screen at 18.5s against a client that gives up at 15.
+   * A card that arrives late is worse than a card written by the engine, and
+   * the engine's version is written to be worth reading on its own.
+   *
+   * The cost is one load of latency: the first visit of the day shows the
+   * deterministic copy and the model's version is there on the next. That is
+   * the right trade for a screen somebody opens every morning.
+   */
+  async generateOrDefer<T>(
+    userId: string,
+    kind: string,
+    template: PromptTemplate,
+    context: Record<string, unknown> | (() => Promise<Record<string, unknown>>),
+    fallback: T,
+    opts: { cacheKey: string; timeoutMs?: number },
+  ): Promise<T> {
+    const dayStart = await this.clock.startOfToday(userId);
+    const cached = await this.prisma.aiRecommendation.findFirst({
+      where: { userId, kind, createdAt: { gte: dayStart } },
+      orderBy: { createdAt: 'desc' },
+    });
+    const content = cached?.content as Record<string, unknown> | undefined;
+    if (content && content._cacheKey === opts.cacheKey) {
+      const { _cacheKey, ...rest } = content;
+      return rest as T;
+    }
+    /* Nothing cached. Hand back the engine's answer and let the model catch
+       up for next time. Render keeps the process alive after the response, so
+       the work finishes; a failure is logged and changes nothing on screen. */
+    void this.generate(userId, kind, template, context, fallback, opts)
+      .catch((err) => this.logger.error(`deferred ${kind} failed for ${userId}`, err as Error));
+    return fallback;
+  }
+
   async generate<T>(
     userId: string,
     kind: string,
