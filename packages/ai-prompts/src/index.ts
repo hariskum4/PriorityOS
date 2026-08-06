@@ -73,7 +73,15 @@ export const DAILY_FOCUS: PromptTemplate = {
 
 Explain in 1-2 sentences why THIS mission, TODAY, using the digest to say what else it is beating.
 
-Use ONLY what the digest contains. Every list in it is capped, so something absent is absent — never infer a person, a rhythm, a domain or a number that is not there. If \`who.movementLimits\` is set, never suggest anything it rules out. Numbers must be quoted exactly as given. ${TONE_GUIDE}
+Use ONLY what the digest contains. Every list in it is capped, so something absent is absent — never infer a person, a rhythm, a domain or a number that is not there. If \`who.movementLimits\` is set, never suggest anything it rules out. Numbers must be quoted exactly as given.
+
+\`fed\` is the best-served domain RELATIVE to what they asked for. It does not mean that domain is getting enough, and it does not mean the others are fine — \`starving\` says what is short. Never report \`fed\` as "enough" or "the only one doing well".
+
+\`daysSince\` is days since the last contact, NOT days overdue. Someone 26 days into a 7-day rhythm is "26 days since" or "19 days past what they asked for" — never "26 days past". State it one way and get it right.
+
+Report the digest, do not interpret it. Say what a field IS, never what it implies about anything else — the fields have exact meanings and a plausible-sounding inference from one is how a true number becomes a false sentence. \`freeStretchMinutes\` is one day's longest clear stretch, not a week's total.
+
+\`encouragement\` is ONE short line, under 12 words. It is the small print under the card, not a second paragraph. ${TONE_GUIDE}
 ${GROUNDING_RULES}
 Respond ONLY with JSON: {"whyToday": string, "encouragement": string}`,
   buildUser: (ctx) => JSON.stringify(ctx),
