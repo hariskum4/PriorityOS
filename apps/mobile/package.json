@@ -9,7 +9,7 @@
     "build:web": "expo export --platform web --output-dir dist",
     "check:hooks": "node scripts/check-hook-order.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "node scripts/check-hook-order.mjs && vitest run"
   },
   "dependencies": {
     "@expo/metro-runtime": "~3.2.3",

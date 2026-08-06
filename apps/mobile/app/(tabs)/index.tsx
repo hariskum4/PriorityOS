@@ -747,6 +747,17 @@ export default function Today() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['life-os-today'] }),
   });
 
+  /**
+   * The stack card's accept — the same write the Time tab makes.
+   *
+   * Up here with the other mutations, and not beside `topStack` two hundred
+   * lines down where it reads better, because there is an early return for
+   * `!data` in between. Three `useState` calls behind a conditional return is
+   * React error #310 on the render after the data lands, which took the whole
+   * Today tab down to "This part didn't load." Hooks go above the guard.
+   */
+  const { plan: planStack, planned: stackPlanned, planFailed: stackFailed } = usePlanStack();
+
   const allDomains = useMemo(
     () => (data?.domains ?? []).slice().sort((a: any, b: any) => b.importance - a.importance),
     [data],
@@ -1040,15 +1051,11 @@ export default function Today() {
   const topStack = (stackData?.stacks ?? []).find(
     (st: any) => (st?.covers?.length ?? 0) >= 2,
   ) ?? null;
-  /**
-   * The same write the Time tab makes, from the screen the card is on.
-   *
-   * `planned` is what has been agreed to but not yet reflected by the server;
-   * the stacks query is invalidated on success, so within a fetch this card is
-   * showing a different stack anyway. Between the tap and that, `stackTaken`
-   * is what stops the offer being made twice.
-   */
-  const { plan: planStack, planned: stackPlanned, planFailed: stackFailed } = usePlanStack();
+  /* What has been agreed to but not yet reflected by the server. The stacks
+     query is invalidated on success, so within a fetch this card is showing a
+     different stack anyway; between the tap and that, this is what stops the
+     offer being made twice. The hook itself lives up with the other mutations
+     — see the note there. */
   const stackTaken = Boolean(topStack && stackPlanned.includes(topStack.action));
 
   return (
