@@ -119,15 +119,17 @@ export class DashboardService {
        * Never fatal. A digest that fails to build leaves the model with the
        * mission alone, which is what it had before this line existed.
        */
-      const digest = await this.digest.forUser(userId).catch(() => null);
       whyToday = await this.ai.generate(
         userId,
         'daily_focus',
         DAILY_FOCUS,
-        {
+        /* Built only if a generation actually happens — the day-cache answers
+           most loads, and seven queries for a value nobody reads was 2.8s of
+           every dashboard. */
+        async () => ({
           mission: { title: topMission.title, domain: topMission.domainType, person: personName },
-          digest,
-        },
+          digest: await this.digest.forUser(userId).catch(() => null),
+        }),
         { whyToday: fallbackWhy, encouragement: encouragements[dayIndex] },
         // One generation per mission per day — not one per page load.
         { cacheKey: `${topMission.id}:${await this.clock.dayKey(userId)}` },

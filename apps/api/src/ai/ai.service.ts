@@ -36,7 +36,17 @@ export class AiService {
     userId: string,
     kind: string,
     template: PromptTemplate,
-    context: Record<string, unknown>,
+    /**
+     * The prompt's inputs — or a function that assembles them.
+     *
+     * A thunk exists because assembling can be expensive. The daily card's
+     * context is the life digest, seven queries deep, and it was being built
+     * on every dashboard load and then discarded the instant the day-cache
+     * below answered: measured at 2.8 of the dashboard's 8.5 seconds, spent
+     * on a value nothing read. Pass a function and it is only called when a
+     * generation is actually going to happen.
+     */
+    context: Record<string, unknown> | (() => Promise<Record<string, unknown>>),
     fallback: T,
     opts?: { cacheKey?: string; timeoutMs?: number },
   ): Promise<T> {
@@ -79,6 +89,9 @@ export class AiService {
       select: { name: true },
     });
     const pseudonyms = buildPseudonyms(names.map((n) => n.name));
+    /* Past the cache and past every guard — only now is the context worth
+       assembling. See the note on the parameter. */
+    const resolved = typeof context === 'function' ? await context() : context;
     try {
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
@@ -97,7 +110,7 @@ export class AiService {
           temperature: 0.4,
           messages: [
             { role: 'system', content: template.system },
-            { role: 'user', content: redact(template.buildUser(context), pseudonyms) },
+            { role: 'user', content: redact(template.buildUser(resolved), pseudonyms) },
           ],
         }),
         /**
