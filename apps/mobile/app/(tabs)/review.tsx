@@ -7,6 +7,7 @@ import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
 import { colors, type, space, domainColor, alpha, liningNums } from '@/theme';
+import { keptLine } from '@priority/scoring-engine';
 
 /**
  * The Sunday Session — 6 steps, ~15 minutes, the retention backbone.
@@ -21,6 +22,23 @@ function Stat({ value, label }: { value: number; label: string }) {
       <Text style={[type.faint, { textAlign: 'center' }]}>{label}</Text>
     </View>
   );
+}
+
+/**
+ * Done, and how much of it was kept — or nothing, when there is nothing to
+ * say. `keptLine` owns the wording and the silence; this owns the ink.
+ *
+ * Deliberately plain: no icon, no accent border, no card of its own. A
+ * highlight is a verdict, and the whole point is that the app does not
+ * deliver one.
+ */
+function KeptLine({ review }: { review: any }) {
+  const line = keptLine({
+    done: review?.completedMissions ?? 0,
+    kept: review?.missionsWithMoment ?? 0,
+  });
+  if (!line) return null;
+  return <Text style={[type.dim, { marginTop: space(1) }]}>{line}</Text>;
 }
 
 export default function Review() {
@@ -162,6 +180,9 @@ export default function Review() {
                 <Stat value={review.journalEntries ?? 0} label="journal entries" />
               </View>
             )}
+            {/* Same sentence on the way out as on the way in. A number that
+                only appears when it flatters is not a record. */}
+            <KeptLine review={review} />
             {review?.aiNarrative && (
               <Card style={{ backgroundColor: colors.surfaceSunken }}>
                 <Text style={type.serif}>{review.aiNarrative}</Text>
@@ -252,6 +273,23 @@ export default function Review() {
               <Stat value={review.completedHabits ?? 0} label="habit check-ins" />
             </View>
           )}
+          {/**
+            * The one line that makes "honestly" mean something.
+            *
+            * Two numbers above it, and a tap produces one of them. Marking a
+            * mission done costs nothing, so a page that only counts ticks is
+            * counting taps and calling it a week — and the fix cannot be the
+            * app deciding who is telling the truth, because it would be wrong
+            * sometimes and being doubted by your own journal is worse than
+            * the problem.
+            *
+            * So it states the gap and stops. No advice, no praise, nothing at
+            * all when the week was empty. The reader draws the conclusion,
+            * which is the only conclusion that ever changes anything — the
+            * same reason step 3 makes them write the insight instead of
+            * handing them one.
+            */}
+          <KeptLine review={review} />
           {pendingMissions && pendingMissions.length > 0 && (
             <Card>
               <Label>Still open — done in real life?</Label>

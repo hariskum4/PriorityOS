@@ -573,6 +573,14 @@ model WeeklyReview {
   weekStart          DateTime
   weekEnd            DateTime
   completedMissions  Int      @default(0)
+  /// How many of `completedMissions` left a kept moment behind.
+  ///
+  /// The one number the week's page could not previously produce, and the
+  /// only honest answer to "did I do these things or did I tap them". Marking
+  /// something done is one tap; writing a line about it is not. Counting both
+  /// and showing them side by side lets the gap speak for itself, which is the
+  /// only judgment here — the app never says a word about it.
+  missionsWithMoment Int      @default(0)
   completedHabits    Int      @default(0)
   journalEntries     Int      @default(0)
   domainDeltas       Json     @default("{}") // { domainType: { attention, neglectRisk, delta } }

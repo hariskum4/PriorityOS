@@ -80,6 +80,27 @@ export class WeeklyReviewService {
     ]);
     const journal = journalEntries.length;
 
+    /**
+     * How many of the week's completions left a moment behind.
+     *
+     * Marking something done is one tap, and if that tap is the achievement
+     * then the record of a life becomes a record of taps. There is no way to
+     * check whether somebody actually called their mother — and every attempt
+     * at checking is wrong sometimes, which is worse than the problem. What
+     * the app can honestly say is how many of the things it was told about
+     * left anything behind.
+     *
+     * Counted as distinct missions rather than memories: two moments kept
+     * from one call is a person writing more, not a person doing more.
+     */
+    const keptFor = missions.length
+      ? await this.prisma.memory.findMany({
+        where: { userId, missionId: { in: missions.map((m) => m.id) } },
+        select: { missionId: true },
+      })
+      : [];
+    const missionsWithMoment = new Set(keptFor.map((k) => k.missionId)).size;
+
     // The journal stops being write-only here: the week's entries become
     // themes and (gently) a named avoidance pattern — their own words,
     // mirrored back. Skip entirely when there's nothing written.
@@ -184,6 +205,7 @@ export class WeeklyReviewService {
         weekStart,
         weekEnd,
         completedMissions: missions.length,
+        missionsWithMoment,
         completedHabits: habitLogs,
         journalEntries: journal,
         domainDeltas,
@@ -197,6 +219,7 @@ export class WeeklyReviewService {
       },
       update: {
         completedMissions: missions.length,
+        missionsWithMoment,
         completedHabits: habitLogs,
         journalEntries: journal,
         domainDeltas,

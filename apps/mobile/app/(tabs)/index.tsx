@@ -1060,9 +1060,22 @@ export default function Today() {
                   human moment. The earn still lands — the You tab keeps the
                   ledger; this banner keeps the sentiment. */}
               <Text style={{ color: obs.ink }}>Done — that counted. </Text>
-              {justCompleted.next
-                ? 'The engine lined up what comes next.'
-                : 'Your plate already holds what matters.'}
+              {/**
+                * And what the app offers next, which used to be the next
+                * mission: "the engine lined up what comes next" is a tap
+                * rewarded with more taps, printed at the one moment somebody
+                * has something real to say. A tick is a tick. The line about
+                * it is the part that will still be here in a year, and this
+                * is the only moment it is easy to write.
+                *
+                * Still said once the moment is kept — the next thing genuinely
+                * has changed by then, and there is nothing left to offer.
+                */}
+              {keptMoments.includes(justCompleted.id)
+                ? (justCompleted.next
+                  ? 'The engine lined up what comes next.'
+                  : 'Your plate already holds what matters.')
+                : 'What you write about it is what lasts.'}
             </Text>
             {/* Once the moment is kept, this says so instead of offering it
                 again. It used to keep reading "Save it" forever, so the
@@ -1071,6 +1084,9 @@ export default function Today() {
             {keptMoments.includes(justCompleted.id) ? (
               <Tick>Kept</Tick>
             ) : (
+              /* A button rather than an 11px label. The archive is where a
+                 completion is supposed to end up, and it was being offered
+                 more quietly than the dismiss cross beside it. */
               <Pressable
                 onPress={() => {
                   setMemoryDraft({
@@ -1085,8 +1101,9 @@ export default function Today() {
                 hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={`Keep a moment for ${justCompleted.title}`}
+                style={({ pressed }) => [s.keepBtn, pressed && { opacity: 0.85 }]}
               >
-                <Tick color={obs.brass}>Save it</Tick>
+                <Tick color={obs.brass}>Keep the moment</Tick>
               </Pressable>
             )}
             <Pressable onPress={() => setJustCompleted(null)} hitSlop={8}>
@@ -1970,6 +1987,11 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 9,
     borderWidth: 1, borderColor: alpha(obs.brass, 0.3), borderRadius: 12,
     paddingVertical: 9, paddingHorizontal: 12,
+  },
+  keepBtn: {
+    borderWidth: 1, borderColor: alpha(obs.brass, 0.45), borderRadius: 8,
+    paddingVertical: 6, paddingHorizontal: 10,
+    backgroundColor: alpha(obs.brass, 0.09),
   },
 
   now: {
