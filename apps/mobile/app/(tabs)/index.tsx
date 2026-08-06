@@ -27,7 +27,11 @@ import { invalidateLifeRecord } from '@/services/invalidate';
 import { Input, DomainDot } from '@/components/ui';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
+/* The one thing this screen borrows from outside its own palette: brass is
+   the only accent here, and a write that failed is not an accent. */
+import { colors as base } from '@/theme';
 import { useNow } from '@/hooks/useNow';
+import { usePlanStack } from '@/hooks/usePlanStack';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
 import { rhythmFor, rhythmByKey, anchorFor, evidenceForGenerated } from '@priority/scoring-engine';
 
@@ -1036,6 +1040,16 @@ export default function Today() {
   const topStack = (stackData?.stacks ?? []).find(
     (st: any) => (st?.covers?.length ?? 0) >= 2,
   ) ?? null;
+  /**
+   * The same write the Time tab makes, from the screen the card is on.
+   *
+   * `planned` is what has been agreed to but not yet reflected by the server;
+   * the stacks query is invalidated on success, so within a fetch this card is
+   * showing a different stack anyway. Between the tap and that, `stackTaken`
+   * is what stops the offer being made twice.
+   */
+  const { plan: planStack, planned: stackPlanned, planFailed: stackFailed } = usePlanStack();
+  const stackTaken = Boolean(topStack && stackPlanned.includes(topStack.action));
 
   return (
     <View style={{ flex: 1, backgroundColor: obs.ground }}>
@@ -1381,12 +1395,7 @@ export default function Today() {
          */}
         {topStack ? (
           <Rise delay={80}>
-            <Pressable
-              onPress={() => router.push('/time')}
-              accessibilityRole="button"
-              accessibilityLabel={`${topStack.action} — covers ${topStack.covers.join(' and ')}. Open Time to plan it.`}
-              style={({ pressed }) => [s.stackCard, pressed && { opacity: 0.75 }]}
-            >
+            <View style={s.stackCard}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                 <Ionicons name="git-merge-outline" size={13} color={obs.brass} />
                 {/* Sentence-shaped, so not a tick — as a mono cap this wrapped
@@ -1410,7 +1419,60 @@ export default function Today() {
               {topStack.reason ? (
                 <Text style={[obsType.dim, { marginTop: 6 }]}>{topStack.reason}</Text>
               ) : null}
-            </Pressable>
+              {/**
+                * Where the card stops being a poster.
+                *
+                * The whole thing was one `Pressable` that ran
+                * `router.push('/time')` — so somebody who read the sentence,
+                * agreed with it, and tapped was moved to a different screen and
+                * left to find the same card again. The offer is only real if it
+                * can be accepted where it is met, so the tap now writes the
+                * mission, exactly as the Time tab's own button does.
+                *
+                * Once it is taken the card says so and stops offering; the next
+                * fetch of the stacks will have re-planned around it and put a
+                * different one here. Going to Time stays available underneath,
+                * because that is where an hour gets chosen for it — but it is
+                * now the second thing on the card, not the only one.
+                */}
+              {stackTaken ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>
+                  <Ionicons name="checkmark" size={14} color={obs.brass} />
+                  <Text style={[obsType.dim, { color: obs.brass }]}>
+                    On your missions. Give it an hour on Time whenever you like.
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12 }}>
+                  <Pressable
+                    onPress={() => planStack.mutate(topStack)}
+                    disabled={planStack.isPending}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Put "${topStack.action}" on my missions`}
+                    hitSlop={8}
+                    style={({ pressed }) => [s.stackTake, pressed && { opacity: 0.7 }]}
+                  >
+                    <Ionicons name="add" size={14} color={obs.ink} />
+                    <Text style={[obsType.note, { color: obs.ink }]}>put it on my list</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push('/time')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open Time to give this an hour"
+                    hitSlop={8}
+                  >
+                    <Text style={obsType.dim}>find it an hour</Text>
+                  </Pressable>
+                </View>
+              )}
+              {/* The one case where saying nothing would be a lie: a record
+                  that did not land must never look like one that did. */}
+              {stackFailed === topStack.action ? (
+                <Text style={[obsType.dim, { marginTop: 8, color: base.rose }]}>
+                  That did not save — it is still an offer. Try again, or open Time.
+                </Text>
+              ) : null}
+            </View>
           </Rise>
         ) : null}
 
@@ -2073,6 +2135,14 @@ const s = StyleSheet.create({
     marginTop: 14, padding: 15, borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth, borderColor: alpha(obs.brass, 0.3),
     backgroundColor: alpha(obs.brass, 0.05),
+  },
+  /* The accept. Outlined rather than filled: this card already sits inside a
+     brass tint, and a solid brass button on top of it would out-shout the Now
+     Card above — which is the one thing on this screen allowed to shout. */
+  stackTake: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingVertical: 7, paddingHorizontal: 12, borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: alpha(obs.brass, 0.55),
   },
   /* The growth line. A row, not a card: it is a sentence with dots, and
      making it a panel would turn an observation into an announcement. */

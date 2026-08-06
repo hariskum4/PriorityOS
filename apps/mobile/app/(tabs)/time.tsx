@@ -70,6 +70,7 @@ import { calendarSupported, readFreeGaps, type CalendarState } from '@/services/
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { useNow } from '@/hooks/useNow';
+import { usePlanStack } from '@/hooks/usePlanStack';
 import { Button, Card, Chip, DomainDot, ErrorNote, HourField, Input, Label } from '@/components/ui';
 import { YearGrid } from '@/components/YearGrid';
 import { HobbyPicker } from '@/components/HobbyPicker';
@@ -714,61 +715,13 @@ export default function TimeReality() {
    * The confirmation is the list itself: the moment one is logged it drops out
    * of the suggestions and a fourth takes its place.
    *
-   * That confirmation cannot wait for the server. Planning something changes
-   * which slots the engine picks, which changes the wording cache key, which
-   * means the very next fetch is a cache miss and goes to the model — and that
-   * call is allowed a full minute. So the row you just agreed to sat there,
-   * unchanged and unacknowledged, for as long as the model took. Every report
-   * of this said the same thing: "Plan it does nothing." It did. It logged the
-   * mission, invalidated the list, and said so a lifetime later.
-   *
-   * So the row leaves on the tap. `planned` holds what has been agreed to but
-   * not yet reflected by the server, and is only ever additive — if the write
-   * fails the action comes back and says why, which is the one case where
-   * silence would be a lie.
+   * Moved to a hook when the Today screen needed the same action — see
+   * `usePlanStack` for why the optimistic bookkeeping around the write is the
+   * part worth sharing.
    */
-  const [justPlanned, setJustPlanned] = useState<string | null>(null);
-  const [planned, setPlanned] = useState<string[]>([]);
-  const [planFailed, setPlanFailed] = useState<string | null>(null);
-  const planStack = useMutation({
-    mutationFn: (st: any) =>
-      api('/missions', {
-        method: 'POST',
-        body: {
-          title: st.action,
-          description: st.framing,
-          // A mission belongs to one domain, so it belongs to the one the
-          // suggestion argued from — the hungriest thing it feeds.
-          domainType: st.reasonDomain ?? st.covers[0] ?? st.domains[0],
-          missionType: st.personId ? 'relationship' : 'one_time',
-          relationshipId: st.personId ?? null,
-          // Stacking is the whole thesis of this card, so an action that
-          // genuinely serves three parts of a life is worth more than one that
-          // serves two. Nothing here is worth more for being harder.
-          xpReward: 20 * st.domains.length,
-          sourceType: 'system',
-        },
-      }),
-    // The row goes the instant it is pressed, not when the model gets back.
-    onMutate: (st: any) => {
-      setPlanFailed(null);
-      setJustPlanned(st.action);
-      setPlanned((p) => (p.includes(st.action) ? p : [...p, st.action]));
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['missions'] });
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
-      // The set has to re-plan around what was just agreed to.
-      qc.invalidateQueries({ queryKey: ['life-stacks'] });
-    },
-    onError: (_err, st: any) => {
-      // Put it back. An agreement that did not land must not look like one
-      // that did — this is a record, and a phantom entry is worse than none.
-      setPlanned((p) => p.filter((a) => a !== st.action));
-      setJustPlanned(null);
-      setPlanFailed(st.action);
-    },
-  });
+  const {
+    plan: planStack, planned, justPlanned, planFailed,
+  } = usePlanStack();
 
   /**
    * Starting one of the levers.
