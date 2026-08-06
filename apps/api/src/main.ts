@@ -1,30 +1,17 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
-import helmet from 'helmet';
-import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
-import { corsOrigins, isProduction, BODY_LIMIT } from './common/env';
+import { configureApp } from './configure';
+import { isProduction } from './common/env';
 
+/**
+ * The long-lived process — local development, and any host that runs one.
+ *
+ * The serverless entry point at `/api/index.ts` boots the same application
+ * with the same `configureApp`; all that differs is that this one owns a port
+ * and stays up, which is why the `@Cron` decorators only ever fire here.
+ */
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, transform: true }),
-  );
-
-  // Standard header hardening. This API serves JSON to a native app and a web
-  // build, so the CSP default — which assumes it is serving an HTML document —
-  // is off rather than fought with.
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: false }));
-
-  // Entries are prose, not uploads. A cap stops one request becoming a
-  // memory-exhaustion lever.
-  app.use(json({ limit: BODY_LIMIT }));
-  app.use(urlencoded({ extended: true, limit: BODY_LIMIT }));
-
-  // Production must name its origins: corsOrigins() throws rather than fall
-  // back to reflecting every origin with credentials.
-  app.enableCors({ origin: corsOrigins(), credentials: true });
+  const app = configureApp(await NestFactory.create(AppModule));
 
   // 3001, not 3000. The old default collided with whatever else a developer
   // has on the conventional port, and losing the race means this API silently

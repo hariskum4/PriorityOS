@@ -1,5 +1,12 @@
 generator client {
   provider = "prisma-client-js"
+  // The query engine is a native binary, and Prisma only ships the one for
+  // the machine that ran `generate` unless told otherwise. Vercel builds on
+  // Amazon Linux 2023 and runs functions there too, so without the second
+  // target the function boots and then dies on its first query with
+  // "Query engine binary for current platform could not be found" — a build
+  // that passes and a deployment that cannot answer.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

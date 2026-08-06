@@ -1,5 +1,5 @@
 import {
-  Controller, Headers, Logger, Post, UnauthorizedException,
+  Controller, Get, Headers, Logger, Post, UnauthorizedException,
 } from '@nestjs/common';
 import { JobsService } from '../notifications/jobs.service';
 import { AuthJobsService } from '../auth/auth.jobs';
@@ -86,6 +86,20 @@ export class CronController {
     return { ranAt: new Date().toISOString(), ms: Date.now() - started, jobs: report };
   }
 
+  /**
+   * GET as well as POST, because Vercel Cron only speaks GET.
+   *
+   * These used to sit behind a pair of Vercel functions that took the
+   * scheduler's GET and turned it into a POST against Render. With the API on
+   * Vercel there is nothing left in between and the scheduler calls this
+   * directly — so the verb it actually sends is the one that has to work.
+   *
+   * A GET that starts work is normally a mistake: something will prefetch it.
+   * Here nothing can, because `assertInvited` gates both, and the jobs are
+   * idempotent besides — the daily batch's notification key is the date, and
+   * the weekly snapshot upserts on (user, domain, week).
+   */
+  @Get('daily')
   @Post('daily')
   daily(@Headers('authorization') auth?: string) {
     this.assertInvited(auth);
@@ -97,6 +111,7 @@ export class CronController {
     ]);
   }
 
+  @Get('weekly')
   @Post('weekly')
   weekly(@Headers('authorization') auth?: string) {
     this.assertInvited(auth);
