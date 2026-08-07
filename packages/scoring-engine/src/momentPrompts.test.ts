@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  momentPrompts, facetsCovered, isUsableQuestion, isUsableAccountLine,
-  type MomentContext, type Facet,
+  momentPrompts, momentThinness, facetsCovered, asksTheSameAs,
+  isUsableQuestion, isUsableAccountLine, type MomentContext, type Facet,
 } from './momentPrompts';
 
 const base: MomentContext = { title: 'Called Amma', memoryType: 'relationship' };
@@ -31,7 +31,7 @@ describe('the form does not ask for what it has already been given', () => {
   /* And it does not merely go quiet — it moves down to the layer nobody
      volunteers into an empty box. */
   it('spends the freed slot on detail that is not on the page yet', () => {
-    expect(momentPrompts(DIVYA).conversation).toBe('What do you still see when you picture it?');
+    expect(momentPrompts(DIVYA).conversation).toBe('What do you see when you picture it?');
   });
 
   it('skips the meaning question when the meaning is already written', () => {
@@ -215,7 +215,7 @@ describe('the link agrees with the box it opens', () => {
 
   it('follows the question down when the talking is already written', () => {
     expect(momentPrompts(DIVYA).disclosure)
-      .toBe('what you still see, what you want to remember');
+      .toBe('what you see, what you want to remember');
   });
 });
 
@@ -329,6 +329,228 @@ describe(`every one of the ${ALL.length} combinations holds the line`, () => {
 
   it.each(ALL)('is stable on a second opening — %s', (_label, ctx) => {
     expect(momentPrompts(ctx)).toEqual(momentPrompts(ctx));
+  });
+});
+
+describe('a hard thing, once there has been time to think about it', () => {
+  const HARD_WEEK = 'It was the worst week. I cried in the car park every evening.';
+
+  it('asks what they know now, a year on', () => {
+    const p = momentPrompts({
+      title: 'The week Appa was in hospital',
+      memoryType: 'experience',
+      daysAgo: 800,
+      written: { reflection: HARD_WEEK },
+    });
+    expect(['What do you know now that you did not then?',
+      'What would you say to yourself back then?']).toContain(p.insight);
+  });
+
+  /* Reconsolidation cuts both ways: asking somebody to conclude about
+     Tuesday is asking them to conclude before they have had time to. */
+  it('does not ask it of something that happened this week', () => {
+    const p = momentPrompts({
+      title: 'The week Appa was in hospital',
+      memoryType: 'experience',
+      daysAgo: 3,
+      written: { reflection: HARD_WEEK },
+    });
+    expect(p.insight).not.toMatch(/know now|back then/);
+  });
+
+  it('leaves an ordinary old moment alone', () => {
+    const p = momentPrompts({
+      title: 'Pongal at home',
+      memoryType: 'experience',
+      daysAgo: 800,
+      written: { reflection: 'We ate far too much and nobody left the table for hours.' },
+    });
+    expect(p.insight).not.toMatch(/know now|back then/);
+  });
+
+  /**
+   * The line McAdams's finding does not license crossing. Redemptive
+   * narrators report higher well-being; that is a description of people who
+   * got there, not a reason to ask anybody for a silver lining.
+   */
+  it('never suggests it turned out well', () => {
+    const p = momentPrompts({
+      title: 'The week Appa was in hospital',
+      memoryType: 'experience',
+      daysAgo: 800,
+      written: { reflection: HARD_WEEK },
+    });
+    expect(Object.values(p).join(' '))
+      .not.toMatch(/\b(silver lining|stronger|grateful for it|worth it|grew|better for)\b/i);
+  });
+
+  it('reads difficulty from their words, never from the app', () => {
+    const neutral = { title: 'A long drive', memoryType: 'experience' as const, daysAgo: 800 };
+    expect(momentPrompts({ ...neutral, written: { reflection: 'The traffic was awful the whole way.' } }).insight)
+      .toMatch(/know now|back then/);
+    expect(momentPrompts({ ...neutral, written: { reflection: 'The road was clear the whole way.' } }).insight)
+      .not.toMatch(/know now|back then/);
+  });
+});
+
+describe('an account that stays general gets one line about it', () => {
+  const withAccount = (reflection: string | null) => momentPrompts({
+    title: 'A good evening', memoryType: 'relationship', personName: 'Divya', peopleCount: 1,
+    written: reflection ? { reflection } : undefined,
+  }).specificity;
+
+  it('speaks up for an account that names nothing', () => {
+    expect(withAccount('It was one of those ones I did not want to end.')).toBeTruthy();
+  });
+
+  /* Nagging an empty box is not an intervention. */
+  it('stays quiet on a moment nobody has written yet', () => {
+    expect(withAccount(null)).toBeNull();
+  });
+
+  it('stays quiet once one specific is down', () => {
+    expect(withAccount('We talked about her sister for most of it.')).toBeNull();
+    expect(withAccount('We sat in the kitchen until it went dark.')).toBeNull();
+  });
+
+  it('does not let a three-word title count as having written a specific', () => {
+    /* "A good evening" reads as `when` and so shapes the questions, which is
+       right — but it is not somebody having written anything particular. */
+    expect(withAccount('It was one of those ones I did not want to end.')).toBeTruthy();
+  });
+
+  it('is a hint and never a question', () => {
+    expect(withAccount('It was one of those ones I did not want to end.')).not.toContain('?');
+  });
+});
+
+describe('how much of a moment is still missing', () => {
+  const of = (written: MomentContext['written'], extra: Partial<MomentContext> = {}) =>
+    momentThinness({ title: 'A moment', memoryType: 'experience', written, ...extra });
+
+  it('is highest for a title and nothing else', () => {
+    expect(of(undefined)).toBe(1);
+  });
+
+  it('falls as facets get written', () => {
+    const bare = of({ reflection: 'It was good.' });
+    const some = of({ reflection: 'We sat in the kitchen until it went dark.' });
+    const more = of({
+      reflection: 'We sat in the kitchen until it went dark, and she cooked, because she wanted to.',
+    });
+    expect(bare).toBeGreaterThan(some);
+    expect(some).toBeGreaterThan(more);
+  });
+
+  /* An evening spent alone is not thin for having no dialogue in it. */
+  it('does not count dialogue against a moment nobody else was at', () => {
+    const written = { reflection: 'We sat in the kitchen until it went dark.' };
+    expect(of(written, { peopleCount: 0 })).toBeLessThan(of(written, { peopleCount: 2 }));
+  });
+
+  it('stays inside nought and one', () => {
+    for (const w of [undefined, { reflection: 'x' }, {
+      reflection: 'We talked and cooked in the kitchen that evening with her sister, and I saw why it changed',
+    }]) {
+      expect(of(w)).toBeGreaterThanOrEqual(0);
+      expect(of(w)).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+/* ------------------------------------------- no two slots ask the same thing */
+
+/**
+ * One phrase per facet, each over the twelve-character floor.
+ *
+ * Written as ordinary sentences rather than assembled from the marker lists:
+ * a sweep fed the regexes their own vocabulary would prove only that the
+ * regexes match themselves. The first test below is the load-bearing one —
+ * if a trigger fires two facets, every combination beneath it is a lie.
+ */
+const TRIGGER: Record<string, string> = {
+  said: 'she said something to me',
+  did: 'we cooked for a long while',
+  where: 'it was in the kitchen area',
+  when: 'it was finally happening now',
+  who: 'everyone was around for it',
+  sensory: 'it was very loud in there',
+  why: 'it happened because of that',
+};
+
+describe('every question the form can reach, against every one it can sit beside', () => {
+  it.each(Object.entries(TRIGGER))('the %s trigger fires only %s', (facet, text) => {
+    expect([...facetsCovered([text])]).toEqual([facet]);
+  });
+
+  /**
+   * The whole reachable space, not a sample of it.
+   *
+   * The sampled sweep above runs eight fixed states of "what is already
+   * written" and missed a real duplicate — *"Why has this one stayed with
+   * you?"* over *"What has stayed with you since?"*, which needs an
+   * experience, alone, forty-five days old, with the meaning already
+   * written. Every subset of the seven facets is 128 states, and crossed
+   * with kind, company and age it is the whole thing.
+   *
+   * This is the guard that makes adding a question safe: a new one that
+   * echoes anything it can appear next to fails here, in the pool, rather
+   * than in front of somebody.
+   */
+  const facets = Object.keys(TRIGGER);
+  const seen = new Set<string>();
+  const triples: Array<[string, string[], string | null]> = [];
+  /* Both tones, because a hard moment a year old takes a different question
+     at the top and that question has to clear the same bar. */
+  for (const tone of ['', ' It was the worst week of it.']) {
+  for (let mask = 0; mask < (1 << facets.length); mask++) {
+    const chosen = facets.filter((_, i) => mask & (1 << i));
+    const reflection = (chosen.map((f) => TRIGGER[f]).join('. ') + tone).trim() || null;
+    for (const memoryType of KINDS) {
+      for (const [who, company] of COMPANY) {
+        for (const daysAgo of [0, 45, 900]) {
+          const p = momentPrompts({
+            title: 'A moment worth keeping',
+            memoryType, daysAgo, written: reflection ? { reflection } : undefined, ...company,
+          });
+          const key = [p.insight, p.conversation, p.keepsake].join('|');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          triples.push([
+            `${memoryType ?? 'untyped'}/${who}/${daysAgo}d/[${chosen.join(',') || 'blank'}]${tone ? '/hard' : ''}`,
+            [p.insight, p.conversation, p.keepsake],
+            company.personName ?? null,
+          ]);
+        }
+      }
+    }
+  }
+  }
+
+  it('reaches a wide spread of distinct question sets', () => {
+    expect(triples.length).toBeGreaterThan(250);
+  });
+
+  it.each(triples)('%s asks three different things', (_label, [insight, middle, keepsake], person) => {
+    expect(asksTheSameAs(insight, middle, person)).toBe(false);
+    expect(asksTheSameAs(insight, keepsake, person)).toBe(false);
+    expect(asksTheSameAs(middle, keepsake, person)).toBe(false);
+  });
+
+  /* The name is not the ask — two questions about Amma may both say Amma. */
+  it('does not count a shared name as a shared question', () => {
+    expect(asksTheSameAs(
+      'What did that change between you and Amma?',
+      'What did you and Amma actually talk about?',
+      'Amma',
+    )).toBe(false);
+  });
+
+  it('does count a shared subject', () => {
+    expect(asksTheSameAs('Why has this one stayed with you?', 'What has stayed with you since?'))
+      .toBe(true);
+    expect(asksTheSameAs('What did that take that nobody saw?', 'What did it take to get there?'))
+      .toBe(true);
   });
 });
 

@@ -59,6 +59,34 @@ function SundaySessionEntry() {
   );
 }
 
+/**
+ * A stored moment, as the prompt engine wants to see one.
+ *
+ * One definition, used by the archive row and by the form it opens, so the
+ * link cannot promise one question and the form then ask another. The server
+ * builds the same shape from the same row; this exists so the screen has an
+ * answer before the request comes back, and if it never does.
+ */
+function momentContextOf(m: any) {
+  const present: string[] = Array.isArray(m.peoplePresent) ? m.peoplePresent : [];
+  const named: string | null = m.personName ?? (present.length === 1 ? present[0] : null);
+  return {
+    title: m.title,
+    memoryType: m.memoryType,
+    /* One name is a link; several is a gathering, and naming one of them
+       would be the app deciding whose evening it was. */
+    personName: present.length > 1 ? null : named,
+    peopleCount: Math.max(present.length, named ? 1 : 0),
+    daysAgo: m.occurredAt
+      ? Math.max(0, Math.floor((Date.now() - new Date(m.occurredAt).getTime()) / 86_400_000))
+      : 0,
+    written: { reflection: m.reflection, conversation: m.conversation, keepsake: m.keepsake },
+  };
+}
+
+/** The three or four words naming what this moment is still missing. */
+const gapOf = (m: any) => momentPrompts(momentContextOf(m)).probeLabel;
+
 const MEMORY_TYPES: Record<string, string> = {
   relationship: 'together', experience: 'experience', achievement: 'achievement',
   reflection: 'realization', gratitude: 'gratitude',
@@ -930,15 +958,24 @@ function Memories() {
              * belongs to the day it happened on, and expanding it is editing
              * it — not writing a new thing somewhere else.
              */}
+            {/**
+             * And it names what is missing rather than saying "more".
+             *
+             * "Write more about this" sat under every moment identically, so
+             * a row with three paragraphs and a row with a bare title made
+             * the same offer and neither said what the offer was for. The
+             * label is the same probe the form will open with, so tapping it
+             * lands on exactly the question the link just promised.
+             */}
             <View style={{ flexDirection: 'row', gap: space(3), flexWrap: 'wrap' }}>
               <Pressable
                 onPress={() => setEditing(m.id)}
                 accessibilityRole="button"
-                accessibilityLabel={`Write more about ${m.title}`}
+                accessibilityLabel={`Add ${gapOf(m)} to ${m.title}`}
                 style={({ pressed }) => [s.writeAbout, pressed && { opacity: 0.7 }]}
               >
                 <Ionicons name="create-outline" size={14} color={colors.amber} />
-                <Text style={[type.faint, { color: colors.amber }]}>Write more about this</Text>
+                <Text style={[type.faint, { color: colors.amber }]}>Add {gapOf(m)}</Text>
               </Pressable>
               {/**
                * One moment onto a calendar, asked for rather than assumed.
@@ -988,6 +1025,7 @@ function Memories() {
 function EditMemory({ memory, onClose, onSaved }: {
   memory: any; onClose: () => void; onSaved: () => void;
 }) {
+  const qc = useQueryClient();
   const [title, setTitle] = useState(memory.title ?? '');
   const [reflection, setReflection] = useState(memory.reflection ?? '');
   /* The beats are why somebody reopens a moment, so the edit form has to
@@ -1016,27 +1054,14 @@ function EditMemory({ memory, onClose, onSaved }: {
    * not. Save, reopen, and the form has caught up.
    *
    * Which is also why the query is keyed on the id and left stale for an
-   * hour.
+   * hour — and why saving has to throw that cache away. An hour of staleness
+   * is exactly right while somebody reads and wrong the instant they write:
+   * without the invalidation below, adding "we sat on the balcony and she
+   * told me about the interview" left the form still asking where they were
+   * and still showing the line about writing something specific, because the
+   * cached answer predated the sentence that settled both.
    */
-  const present: string[] = Array.isArray(memory.peoplePresent) ? memory.peoplePresent : [];
-  const named: string | null = memory.personName
-    ?? (present.length === 1 ? present[0] : null);
-  const asked = momentPrompts({
-    title: memory.title,
-    memoryType: memory.memoryType,
-    /* One name is a link; several is a gathering, and naming one of them
-       would be the app deciding whose evening it was. */
-    personName: present.length > 1 ? null : named,
-    peopleCount: Math.max(present.length, named ? 1 : 0),
-    daysAgo: memory.occurredAt
-      ? Math.max(0, Math.floor((Date.now() - new Date(memory.occurredAt).getTime()) / 86_400_000))
-      : 0,
-    written: {
-      reflection: memory.reflection,
-      conversation: memory.conversation,
-      keepsake: memory.keepsake,
-    },
-  });
+  const asked = momentPrompts(momentContextOf(memory));
   const { data: sharpened } = useQuery({
     queryKey: ['memory-prompts', memory.id],
     queryFn: () => api<MomentPrompts>(`/memories/${memory.id}/prompts`),
@@ -1056,7 +1081,13 @@ function EditMemory({ memory, onClose, onSaved }: {
           occurredAt: `${occurredOn}T12:00:00.000Z`,
         },
       }),
-    onSuccess: () => { onSaved(); onClose(); },
+    /* The questions were computed from the text that has just changed, so
+       the cached set is now answering about a moment that no longer exists. */
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['memory-prompts', memory.id] });
+      onSaved();
+      onClose();
+    },
   });
 
   return (
@@ -1101,6 +1132,22 @@ function EditMemory({ memory, onClose, onSaved }: {
         </Text>
       </View>
       <Input multiline value={reflection} onChangeText={setReflection} placeholder={ask.reflection} accessibilityLabel={ask.reflection} />
+      {/**
+       * A word about specifics, under the account that has none.
+       *
+       * Rare by construction — it appears only where somebody has written
+       * something and none of it is particular, which is the shape
+       * overgeneral memory takes on the page. It is a note about how to
+       * write rather than a question about this evening, so it sits under
+       * the box in the app's own quiet voice, not in the amber that means
+       * "you are being asked something".
+       */}
+      {ask.specificity ? (
+        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-start', marginTop: -space(1) }}>
+          <Ionicons name="sparkles-outline" size={13} color={colors.textFaint} style={{ marginTop: 2 }} />
+          <Text style={[type.faint, { flex: 1 }]}>{ask.specificity}</Text>
+        </View>
+      ) : null}
       <Input multiline value={conversation} onChangeText={setConversation} placeholder={ask.conversation} accessibilityLabel={ask.conversation} />
       <Input multiline value={keepsake} onChangeText={setKeepsake} placeholder={ask.keepsake} accessibilityLabel={ask.keepsake} />
       <ErrorNote error={save.error} onRetry={() => save.mutate()} retrying={save.isPending} />

@@ -138,7 +138,7 @@ describe('the endpoint reads what is already on the moment', () => {
     };
     const out = await svc({}, written).prompts('u1', 'm1');
     expect(out.conversation).not.toMatch(/talk/i);
-    expect(out.conversation).toBe('What do you still see when you picture it?');
+    expect(out.conversation).toBe('What do you see when you picture it?');
   });
 
   it('still asks it when the account is empty', async () => {
@@ -171,13 +171,69 @@ describe('the endpoint reads what is already on the moment', () => {
       peoplePresent: ['Divya'],
       reflection: 'Forty minutes. We talked about her sister, then about nothing.',
     }).prompts('u1', 'm1');
-    expect(out.disclosure).toBe('what you still see, what you want to remember');
+    expect(out.disclosure).toBe('what you see, what you want to remember');
   });
 
   it('never lets the model rewrite the disclosure label', async () => {
     const out = await svc({ insight: 'What shifted between you and Amma?' } as any)
       .prompts('u1', 'm1');
     expect(out.disclosure).toBe(engineFor().disclosure);
+  });
+});
+
+describe('on this day leads with the moment that has most left to say', () => {
+  /** Same calendar day, earlier years, in the order the query returns them. */
+  const anniversary = (yearsAgo: number, extra: Record<string, any>) => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - yearsAgo);
+    return {
+      id: `m${yearsAgo}`, userId: 'u1', memoryType: 'experience',
+      peoplePresent: [], occurredAt: d, ...extra,
+    };
+  };
+
+  function listing(memories: Array<Record<string, any>>) {
+    const prisma = { memory: { findMany: async () => memories } };
+    return new MemoriesService(prisma as any, {} as any, {} as any, {} as any);
+  }
+
+  it('puts the thinnest first, not the most recent', async () => {
+    const rich = anniversary(1, {
+      title: 'Pongal at home',
+      reflection: 'We sat in the kitchen while she cooked, and I saw her face change because of it.',
+    });
+    const bare = anniversary(4, { title: 'Pongal at home again' });
+    const out = await listing([rich, bare]).onThisDay('u1');
+    expect(out.map((m: any) => m.title)).toEqual(['Pongal at home again', 'Pongal at home']);
+  });
+
+  /* The date still decides who is eligible — that is what the card means. */
+  it('never promotes a moment from the wrong day', async () => {
+    const wrongDay = { ...anniversary(2, { title: 'Not today' }), occurredAt: new Date('2020-03-03') };
+    const out = await listing([wrongDay, anniversary(1, { title: 'Today, years ago' })])
+      .onThisDay('u1');
+    expect(out.map((m: any) => m.title)).toEqual(['Today, years ago']);
+  });
+
+  it('breaks a tie on recency', async () => {
+    const out = await listing([anniversary(5, { title: 'older' }), anniversary(2, { title: 'newer' })])
+      .onThisDay('u1');
+    expect(out.map((m: any) => m.title)).toEqual(['newer', 'older']);
+  });
+
+  /* Thinness measures the record, never the life — an evening alone is not
+     thin for having had no conversation in it. */
+  it('does not count dialogue against a moment nobody else was at', async () => {
+    const alone = anniversary(1, {
+      title: 'A long walk', peoplePresent: [],
+      reflection: 'I walked to the beach and sat there until it went dark, thinking about it.',
+    });
+    const together = anniversary(2, {
+      title: 'Lunch', peoplePresent: ['Amma', 'Appa'],
+      reflection: 'I walked to the beach and sat there until it went dark, thinking about it.',
+    });
+    const out = await listing([alone, together]).onThisDay('u1');
+    expect(out.map((m: any) => m.title)).toEqual(['Lunch', 'A long walk']);
   });
 });
 

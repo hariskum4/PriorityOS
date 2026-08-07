@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
-  ritualTokens, momentPrompts, isUsableQuestion, isUsableAccountLine, safeRephrase,
+  ritualTokens, momentPrompts, momentThinness,
+  isUsableQuestion, isUsableAccountLine, safeRephrase,
 } from '@priority/scoring-engine';
 import { MOMENT_PROMPTS } from '@priority/ai-prompts';
 import { PrismaService } from '../prisma/prisma.service';
@@ -38,7 +39,7 @@ export class MemoriesService {
       orderBy: { occurredAt: 'desc' },
     });
     const now = new Date();
-    return all.filter((m) => {
+    const today = all.filter((m) => {
       const d = new Date(m.occurredAt);
       return (
         d.getDate() === now.getDate() &&
@@ -46,6 +47,74 @@ export class MemoriesService {
         d.getFullYear() < now.getFullYear()
       );
     });
+
+    /**
+     * Which of them to lead with, when there are several.
+     *
+     * The date decides who is eligible — that is what "on this day" means and
+     * it is not negotiable. Among the eligible, the card shows two, and it
+     * used to show the most recent two for no better reason than that the
+     * query was already sorted. Leading with the thinnest puts the moment
+     * with the most left to say in front of somebody who is, right now,
+     * being invited to say it.
+     *
+     * `momentThinness` measures the record and never the life: a moment is
+     * thin because little is written down, not because little happened.
+     */
+    return today
+      .map((m) => ({ m, thin: momentThinness(this.asMomentContext(m)) }))
+      .sort((a, b) => (b.thin - a.thin)
+        || (new Date(b.m.occurredAt).getTime() - new Date(a.m.occurredAt).getTime()))
+      .map(({ m }) => m);
+  }
+
+  /**
+   * A stored moment, as the engine wants to see one.
+   *
+   * Shared by `prompts` and `onThisDay` so the two can never disagree about
+   * who was there or what has been written — which they would, given the
+   * three places a person's name can live on a memory row.
+   */
+  private asMomentContext(memory: {
+    title: string; memoryType?: string | null; personName?: string | null;
+    peoplePresent?: unknown; occurredAt: Date | string;
+    reflection?: string | null; conversation?: string | null; keepsake?: string | null;
+  }) {
+    /**
+     * One name only where there is exactly one.
+     *
+     * `personName` is the snapshot kept for when the relationship row is
+     * deleted and `peoplePresent` is the guest list. Naming one person out
+     * of four would be the app deciding whose evening it was, so a gathering
+     * gets the plural.
+     */
+    const present = Array.isArray(memory.peoplePresent)
+      ? (memory.peoplePresent as unknown[])
+        .filter((n): n is string => typeof n === 'string' && !!n.trim())
+      : [];
+    const named = memory.personName?.trim()
+      || (present.length === 1 ? present[0].trim() : '')
+      || '';
+    const peopleCount = Math.max(present.length, named ? 1 : 0);
+
+    return {
+      title: memory.title,
+      memoryType: memory.memoryType,
+      personName: peopleCount > 1 ? null : named || null,
+      peopleCount,
+      /* Whole days, floored, and never negative — a moment dated in the
+         future is a typo, not a reason to ask what has stayed with them
+         since. */
+      daysAgo: Math.max(
+        0,
+        Math.floor((Date.now() - new Date(memory.occurredAt).getTime()) / 86_400_000),
+      ),
+      written: {
+        reflection: memory.reflection,
+        conversation: memory.conversation,
+        keepsake: memory.keepsake,
+      },
+    };
   }
 
   /**
@@ -386,49 +455,17 @@ export class MemoriesService {
     const memory = await this.assertOwned(userId, id);
 
     /**
-     * One name only where there is exactly one.
+     * Everything the questions turn on, including what is already written.
      *
-     * `personName` is the snapshot kept for when the relationship row is
-     * deleted, `relationship.name` is the live one, and `peoplePresent` is
-     * the guest list. Naming one person out of four would be the app
-     * deciding whose evening it was, so a gathering gets the plural.
+     * That last part is the fix for the form asking for what it had been
+     * given one line up: an account reading *"Forty minutes. We talked about
+     * her sister, then about nothing."* was still met with *"What did you
+     * and Divya actually talk about?"*. The engine reads every box and
+     * spends its questions on ground that is still empty.
      */
-    const present = Array.isArray(memory.peoplePresent)
-      ? (memory.peoplePresent as unknown[]).filter((n): n is string => typeof n === 'string' && !!n.trim())
-      : [];
-    const named = memory.personName?.trim()
-      || (present.length === 1 ? present[0].trim() : '')
-      || '';
-    const peopleCount = Math.max(present.length, named ? 1 : 0);
-
-    /* Whole days, floored, and never negative — a moment dated in the future
-       is a typo, not a reason to ask what has stayed with them since. */
-    const daysAgo = Math.max(
-      0,
-      Math.floor((Date.now() - new Date(memory.occurredAt).getTime()) / 86_400_000),
-    );
-
-    const engine = momentPrompts({
-      title: memory.title,
-      memoryType: memory.memoryType,
-      personName: peopleCount > 1 ? null : named || null,
-      peopleCount,
-      daysAgo,
-      /**
-       * And what they have already told us about it.
-       *
-       * Without this the form asked for what it had been given one line up:
-       * an account reading *"Forty minutes. We talked about her sister, then
-       * about nothing."* was still met with *"What did you and Divya
-       * actually talk about?"*. The engine reads every box and spends its
-       * questions on ground that is still empty.
-       */
-      written: {
-        reflection: memory.reflection,
-        conversation: memory.conversation,
-        keepsake: memory.keepsake,
-      },
-    });
+    const context = this.asMomentContext(memory);
+    const named = context.personName ?? '';
+    const engine = momentPrompts(context);
 
     /**
      * The model sees the four questions and nothing else.
@@ -496,9 +533,13 @@ export class MemoriesService {
       reflection: isUsableAccountLine(account) ? account : engine.reflection,
       conversation: question(engine.conversation, edited.conversation),
       keepsake: question(engine.keepsake, edited.keepsake),
-      /* Never model-edited. It is a control label rather than a question,
-         and a reworded control is a different control. */
+      /* None of these three are model-edited. The first two are control
+         labels, and a reworded control is a different control; the third is
+         fixed guidance about writing rather than a question about this
+         moment, so there is nothing for an editor to personalise. */
       disclosure: engine.disclosure,
+      probeLabel: engine.probeLabel,
+      specificity: engine.specificity,
     };
   }
 

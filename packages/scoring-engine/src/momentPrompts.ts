@@ -134,6 +134,30 @@ export interface MomentPrompts {
   keepsake: string;
   /** The words on the link that opens the last two boxes in the composer. */
   disclosure: string;
+  /**
+   * Three or four words naming what the middle box is asking for.
+   *
+   * The archive's "Write more about this" says nothing about what is
+   * missing, so every unfinished moment looks equally unfinished. Naming the
+   * gap turns a generic link into a specific invitation, and it is the same
+   * choice the box itself made, so the two cannot disagree.
+   */
+  probeLabel: string;
+  /**
+   * A line for an account that has stayed general, and null the rest of the
+   * time — which is most of the time.
+   *
+   * Overgeneral memory (Williams) is a maintaining factor in depression, and
+   * memory specificity training — practising the retrieval of one concrete
+   * episode — reduces symptoms in controlled trials. A journal that accepts
+   * "it was one of those ones" and never asks for the particular is
+   * rehearsing the pattern the training exists to break.
+   *
+   * Shown only when somebody has written something and it names nothing:
+   * no place, no words spoken, nothing seen or done. A blank moment gets
+   * silence, because nagging an empty box is not an intervention.
+   */
+  specificity: string | null;
 }
 
 /* ------------------------------------------------------------------ facets */
@@ -234,7 +258,7 @@ const INSIGHT_WITH_PERSON: Record<string, Ask[]> = {
   default: [
     { q: 'What did that change between you and %s?', facet: 'why' },
     { q: 'Why did that turn out to be the day for %s?', facet: 'when' },
-    { q: 'What would you want %s to know?', facet: 'open' },
+    { q: 'What would you say to %s about it now?', facet: 'open' },
   ],
   achievement: [
     /* Not "what did %s see that day" — the middle box's sensory probe is
@@ -243,7 +267,7 @@ const INSIGHT_WITH_PERSON: Record<string, Ask[]> = {
        their facets are on paper. */
     { q: 'What would %s say it took?', facet: 'who' },
     { q: 'What did getting there cost you?', facet: 'did' },
-    { q: 'What would you want %s to know about it?', facet: 'open' },
+    { q: 'What would you say to %s about it now?', facet: 'open' },
   ],
   gratitude: [
     { q: 'What would %s be surprised to hear you say?', facet: 'open' },
@@ -265,7 +289,7 @@ const INSIGHT_ALONE: Record<string, Ask[]> = {
   ],
   experience: [
     { q: 'What did that change about how you see it?', facet: 'why' },
-    { q: 'Why has this one stayed with you?', facet: 'open' },
+    { q: 'What would you tell someone who was not there?', facet: 'open' },
     { q: 'What would you go back for?', facet: 'open' },
   ],
   reflection: [
@@ -316,7 +340,7 @@ const MIDDLE_WITH_PERSON: Ask[] = [
   { q: 'What did you and %s actually talk about?', facet: 'said', label: 'what you talked about' },
   { q: 'What did you notice about %s?', facet: 'who', label: 'what you noticed' },
   { q: 'Where were you both?', facet: 'where', label: 'where you were' },
-  { q: 'What do you still see when you picture it?', facet: 'sensory', label: 'what you still see' },
+  { q: 'What do you see when you picture it?', facet: 'sensory', label: 'what you see' },
   { q: 'What was the part you did not expect?', facet: 'open', label: 'the part you did not expect' },
 ];
 
@@ -324,14 +348,14 @@ const MIDDLE_WITH_CROWD: Ask[] = [
   { q: 'What did you all actually talk about?', facet: 'said', label: 'what you talked about' },
   { q: 'Who did you end up spending most of it with?', facet: 'who', label: 'who you spent it with' },
   { q: 'Where was everybody?', facet: 'where', label: 'where everybody was' },
-  { q: 'What do you still see when you picture it?', facet: 'sensory', label: 'what you still see' },
+  { q: 'What do you see when you picture it?', facet: 'sensory', label: 'what you see' },
   { q: 'What was the part you did not expect?', facet: 'open', label: 'the part you did not expect' },
 ];
 
 /** Alone: the kind-specific probe first, then the same fall-through. */
 const MIDDLE_ALONE_TAIL: Ask[] = [
   { q: 'Where were you?', facet: 'where', label: 'where you were' },
-  { q: 'What do you still see when you picture it?', facet: 'sensory', label: 'what you still see' },
+  { q: 'What do you see when you picture it?', facet: 'sensory', label: 'what you see' },
   { q: 'What was the part you did not expect?', facet: 'open', label: 'the part you did not expect' },
 ];
 
@@ -342,6 +366,36 @@ const MIDDLE_ALONE_HEAD: Record<string, Ask[]> = {
   reflection: [{ q: 'What set the thought off?', facet: 'why', label: 'what set it off' }],
   gratitude: [{ q: 'Who or what made it possible?', facet: 'who', label: 'who made it possible' }],
 };
+
+/**
+ * Difficulty, in the person's own words — never inferred about their life.
+ *
+ * This does not change what the app says about a moment, and it must not:
+ * "that sounds hard" is the app grading somebody's evening. It changes only
+ * which question gets asked, and only for something a year old or more.
+ *
+ * McAdams found that narrators who locate meaning in difficulty report
+ * higher well-being — a *descriptive* finding about people who arrive
+ * there, and not a licence to ask anybody for a silver lining. A demanded
+ * redemption is worse than none, so neither question in `HARD_AND_OLD`
+ * presupposes that anything good came of it. They ask what the person knows
+ * now. "Nothing" remains a complete and acceptable answer.
+ */
+const HARD = /\b(hard|hardest|difficult|awful|terrible|worst|painful|pain|hurt|cried|crying|tears|angry|anger|furious|scared|afraid|frightened|ashamed|shame|failed|failure|broke|broken|argued|argument|fight|fought|ill|illness|hospital|funeral|died|death|grief|grieving|lonely|exhausted|overwhelmed|guilty|regret|gave up|fell apart)\b/i;
+
+/**
+ * Asked only of something old enough to have been thought about since.
+ *
+ * The window matters. Reconsolidation makes a freshly retrieved memory
+ * pliable, and asking somebody what they know now about something that
+ * happened on Tuesday is asking them to conclude before they have had time
+ * to. A year is late enough that the question meets a view they already
+ * hold rather than manufacturing one.
+ */
+const HARD_AND_OLD: Ask[] = [
+  { q: 'What do you know now that you did not then?', facet: 'open' },
+  { q: 'What would you say to yourself back then?', facet: 'open' },
+];
 
 /** A year is the point where "want to remember" has already been decided. */
 const LONG_AGO_DAYS = 365;
@@ -375,16 +429,25 @@ export function momentPrompts(ctx: MomentContext): MomentPrompts {
   const person = crowd ? '' : (ctx.personName?.trim() || '');
   const seed = ctx.title ?? '';
 
-  const covered = facetsCovered([
-    ctx.title,
-    ctx.written?.reflection,
-    ctx.written?.conversation,
-    ctx.written?.keepsake,
-  ]);
+  const prose = [ctx.written?.reflection, ctx.written?.conversation, ctx.written?.keepsake];
+  const covered = facetsCovered([ctx.title, ...prose]);
+  const days = ctx.daysAgo ?? 0;
 
   const named = (s: string) => (person ? s.replace(/%s/g, person) : s);
 
-  const insightAsk = choose(pooled(person ? INSIGHT_WITH_PERSON : INSIGHT_ALONE, kind), seed, covered);
+  /**
+   * A hard thing, a year later, gets a different question at the top.
+   *
+   * The pools ask what an evening changed or why it was the day for it.
+   * Neither is the question worth asking about the week somebody's father
+   * went into hospital, and "what did that change between you and Amma?"
+   * over that is close to glib. This asks the only thing that is genuinely
+   * open a year on, and asks nothing about whether it turned out fine.
+   */
+  const hard = HARD.test(prose.filter(Boolean).join(' — '));
+  const insightAsk = hard && days >= LONG_AGO_DAYS
+    ? stablePick(HARD_AND_OLD, seed)
+    : choose(pooled(person ? INSIGHT_WITH_PERSON : INSIGHT_ALONE, kind), seed, covered);
 
   const account = pooled(ACCOUNT, kind);
   const reflection = person ? `${account} with ${person}` : account;
@@ -412,13 +475,26 @@ export function momentPrompts(ctx: MomentContext): MomentPrompts {
      exists for variety nobody asked for. */
   const middle = middlePool.find((a) => !spent.has(a.facet)) ?? middlePool[middlePool.length - 1];
 
-  const days = ctx.daysAgo ?? 0;
   const keepsake = days >= LONG_AGO_DAYS
     ? 'What still stays with you about it?'
     : days >= A_WHILE_DAYS
       ? 'What has stayed with you since?'
       : 'What do you want to remember about it?';
 
+  /**
+   * Something written, and none of it particular.
+   *
+   * Measured over the prose alone, not over `covered`, which includes the
+   * title. "A good evening" names a time of day and so counts as `when` for
+   * choosing questions — reasonably, since the form should not then ask when
+   * it was. It is not somebody having written a specific, and letting a
+   * three-word title suppress the nudge put it out of reach of exactly the
+   * accounts it exists for.
+   */
+  const written = prose.map((t) => (t ?? '').trim()).filter(Boolean).join(' ');
+  const overgeneral = written.length >= 12 && facetsCovered(prose).size === 0;
+
+  const probeLabel = middle.label ?? 'the rest of it';
   return {
     insight: named(insightAsk.q),
     reflection,
@@ -427,8 +503,36 @@ export function momentPrompts(ctx: MomentContext): MomentPrompts {
     /* The link and the box it opens come from the same choice, so they
        cannot disagree — it used to promise a conversation to somebody who
        had spent the evening on their own. */
-    disclosure: `${middle.label ?? 'the rest of it'}, what you want to remember`,
+    disclosure: `${probeLabel}, what you want to remember`,
+    probeLabel,
+    specificity: overgeneral
+      ? 'One specific — a thing said, a thing seen — is what you will still recognise in ten years.'
+      : null,
   };
+}
+
+/**
+ * How much of a moment is still missing, from 0 to 1.
+ *
+ * 0 is a moment written across every facet that applies to it; 1 is a title
+ * and nothing else. Used to decide which of several moments is most worth
+ * reopening, which is a different question from which is most important —
+ * this measures the record, never the life.
+ *
+ * `said` and `who` only count against a moment somebody else was at. A
+ * evening spent alone is not thin for having no dialogue in it, and scoring
+ * it that way would make every solitary moment look like a gap.
+ */
+export function momentThinness(ctx: MomentContext): number {
+  const withSomebody = !!ctx.personName?.trim() || (ctx.peopleCount ?? 0) > 0;
+  const applicable: Facet[] = withSomebody
+    ? ['said', 'did', 'where', 'when', 'who', 'sensory', 'why']
+    : ['did', 'where', 'when', 'sensory', 'why'];
+  const covered = facetsCovered([
+    ctx.title, ctx.written?.reflection, ctx.written?.conversation, ctx.written?.keepsake,
+  ]);
+  const hit = applicable.filter((f) => covered.has(f)).length;
+  return 1 - hit / applicable.length;
 }
 
 /**
@@ -486,4 +590,59 @@ export function isUsableAccountLine(text: string | null | undefined): boolean {
   if (clean.includes('?')) return false;
   if (clean.length > 70) return false;
   return true;
+}
+
+/**
+ * Scaffolding — the words a question is built out of rather than about.
+ *
+ * `want` and `would` are in here because they are doing modal work, not
+ * carrying the ask: "What would you *want* them to know" and "What do you
+ * *want* to remember" share a word and no subject. Everything outside this
+ * list is treated as load-bearing, which is what makes the check below
+ * strict enough to be worth running.
+ */
+const SCAFFOLD = new Set([
+  'what', 'did', 'do', 'does', 'you', 'your', 'that', 'it', 'the', 'a', 'an', 'to', 'of', 'for',
+  'in', 'on', 'and', 'is', 'was', 'were', 'be', 'been', 'about', 'with', 'would', 'will', 'want',
+  'not', 'they', 'them', 'their', 'there', 'here', 'this', 'these', 'those', 'who', 'when',
+  'where', 'why', 'how', 'i', 'me', 'my', 'we', 'us', 'from', 'at', 'by', 'as', 'if', 'or',
+  'but', 'so', 'up', 'out', 'am', 'are', 'has', 'have', 'had', 'one', 'no', 'most', 'ever',
+]);
+
+/** The load-bearing words of a question, with the person's name removed. */
+function askOf(question: string, personName?: string | null): Set<string> {
+  const name = (personName ?? '').trim().toLowerCase();
+  return new Set(
+    question.toLowerCase()
+      .replace(/[?.,'’]/g, '')
+      .split(/\s+/)
+      .filter((w) => w && !SCAFFOLD.has(w) && w !== name),
+  );
+}
+
+/**
+ * Whether two questions are asking a reader for the same thing.
+ *
+ * Facet tags are the engine's model of that, and they are not enough on
+ * their own: *"What did that take that nobody saw?"* is tagged `did` and
+ * *"What did it take to get there?"* is tagged `did`, which the tags catch —
+ * but *"What did %s see that day?"* was tagged `who` against a `sensory`
+ * probe of *"What do you still see when you picture it?"*, and those two
+ * read as one question asked twice. So does *"Why has this one stayed with
+ * you?"* over *"What has stayed with you since?"*, which is the same
+ * question in the same words.
+ *
+ * A shared load-bearing word is a coarse test and the right one: a reader
+ * does not perceive facets, they perceive being asked about seeing twice.
+ * The person's name is excluded because a name is never the ask — two
+ * questions about Amma are allowed to both say Amma.
+ *
+ * This exists to be asserted over the pools rather than called at runtime.
+ * Dropping a question mid-render could empty a chain; catching an overlap
+ * when it is added costs nothing and cannot fail in front of anybody.
+ */
+export function asksTheSameAs(a: string, b: string, personName?: string | null): boolean {
+  const left = askOf(a, personName);
+  for (const word of askOf(b, personName)) if (left.has(word)) return true;
+  return false;
 }
