@@ -16,7 +16,8 @@
     "db:migrate": "npm run prisma:migrate -w apps/api",
     "db:seed": "npm run prisma:seed -w apps/api",
     "test:scoring": "npm test -w packages/scoring-engine",
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "smoke:ai": "node scripts/smoke-ai-prompts.mjs"
   },
   "engines": {
     "node": ">=20"
