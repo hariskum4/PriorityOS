@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
-  ritualTokens, momentPrompts, momentThinness,
+  ritualTokens, momentPrompts, momentThinness, momentContextOf,
   isUsableQuestion, isUsableAccountLine, safeRephrase,
 } from '@priority/scoring-engine';
 import { MOMENT_PROMPTS } from '@priority/ai-prompts';
@@ -62,59 +62,10 @@ export class MemoriesService {
      * thin because little is written down, not because little happened.
      */
     return today
-      .map((m) => ({ m, thin: momentThinness(this.asMomentContext(m)) }))
+      .map((m) => ({ m, thin: momentThinness(momentContextOf(m)) }))
       .sort((a, b) => (b.thin - a.thin)
         || (new Date(b.m.occurredAt).getTime() - new Date(a.m.occurredAt).getTime()))
       .map(({ m }) => m);
-  }
-
-  /**
-   * A stored moment, as the engine wants to see one.
-   *
-   * Shared by `prompts` and `onThisDay` so the two can never disagree about
-   * who was there or what has been written — which they would, given the
-   * three places a person's name can live on a memory row.
-   */
-  private asMomentContext(memory: {
-    title: string; memoryType?: string | null; personName?: string | null;
-    peoplePresent?: unknown; occurredAt: Date | string;
-    reflection?: string | null; conversation?: string | null; keepsake?: string | null;
-  }) {
-    /**
-     * One name only where there is exactly one.
-     *
-     * `personName` is the snapshot kept for when the relationship row is
-     * deleted and `peoplePresent` is the guest list. Naming one person out
-     * of four would be the app deciding whose evening it was, so a gathering
-     * gets the plural.
-     */
-    const present = Array.isArray(memory.peoplePresent)
-      ? (memory.peoplePresent as unknown[])
-        .filter((n): n is string => typeof n === 'string' && !!n.trim())
-      : [];
-    const named = memory.personName?.trim()
-      || (present.length === 1 ? present[0].trim() : '')
-      || '';
-    const peopleCount = Math.max(present.length, named ? 1 : 0);
-
-    return {
-      title: memory.title,
-      memoryType: memory.memoryType,
-      personName: peopleCount > 1 ? null : named || null,
-      peopleCount,
-      /* Whole days, floored, and never negative — a moment dated in the
-         future is a typo, not a reason to ask what has stayed with them
-         since. */
-      daysAgo: Math.max(
-        0,
-        Math.floor((Date.now() - new Date(memory.occurredAt).getTime()) / 86_400_000),
-      ),
-      written: {
-        reflection: memory.reflection,
-        conversation: memory.conversation,
-        keepsake: memory.keepsake,
-      },
-    };
   }
 
   /**
@@ -463,7 +414,7 @@ export class MemoriesService {
      * and Divya actually talk about?"*. The engine reads every box and
      * spends its questions on ground that is still empty.
      */
-    const context = this.asMomentContext(memory);
+    const context = momentContextOf(memory);
     const named = context.personName ?? '';
     const engine = momentPrompts(context);
 

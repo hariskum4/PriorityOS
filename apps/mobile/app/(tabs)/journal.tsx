@@ -13,7 +13,7 @@ import {
   Button, Card, Chip, DangerConfirm, DomainDot, EmptyState, ErrorNote, Input, Label,
 } from '@/components/ui';
 import {
-  supportLines, momentPrompts, type MomentPrompts,
+  supportLines, momentPrompts, momentContextOf, type MomentPrompts,
 } from '@priority/scoring-engine';
 import { colors, type, space, alpha, breakLongWords } from '@/theme';
 
@@ -57,31 +57,6 @@ function SundaySessionEntry() {
       <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
     </Pressable>
   );
-}
-
-/**
- * A stored moment, as the prompt engine wants to see one.
- *
- * One definition, used by the archive row and by the form it opens, so the
- * link cannot promise one question and the form then ask another. The server
- * builds the same shape from the same row; this exists so the screen has an
- * answer before the request comes back, and if it never does.
- */
-function momentContextOf(m: any) {
-  const present: string[] = Array.isArray(m.peoplePresent) ? m.peoplePresent : [];
-  const named: string | null = m.personName ?? (present.length === 1 ? present[0] : null);
-  return {
-    title: m.title,
-    memoryType: m.memoryType,
-    /* One name is a link; several is a gathering, and naming one of them
-       would be the app deciding whose evening it was. */
-    personName: present.length > 1 ? null : named,
-    peopleCount: Math.max(present.length, named ? 1 : 0),
-    daysAgo: m.occurredAt
-      ? Math.max(0, Math.floor((Date.now() - new Date(m.occurredAt).getTime()) / 86_400_000))
-      : 0,
-    written: { reflection: m.reflection, conversation: m.conversation, keepsake: m.keepsake },
-  };
 }
 
 /** The three or four words naming what this moment is still missing. */

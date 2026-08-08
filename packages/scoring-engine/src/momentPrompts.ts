@@ -534,6 +534,76 @@ export function momentPrompts(ctx: MomentContext): MomentPrompts {
 }
 
 /**
+ * A stored moment, as this module wants to see one.
+ *
+ * Loose about its input on purpose: `peoplePresent` is a Json column on the
+ * server and a plain array on the client, `occurredAt` arrives as a Date from
+ * Prisma and as a string over the wire, and the columns are all nullable.
+ * Everything narrow happens here so no caller has to be careful.
+ */
+export interface StoredMoment {
+  title: string;
+  memoryType?: string | null;
+  personName?: string | null;
+  peoplePresent?: unknown;
+  occurredAt?: Date | string | null;
+  reflection?: string | null;
+  conversation?: string | null;
+  keepsake?: string | null;
+}
+
+/**
+ * One mapping from a stored moment to a context, for every caller.
+ *
+ * There were two — one on the server for `/memories/:id/prompts`, one on the
+ * client so the form could draw before that request came back. Two hand-rolled
+ * copies of a rule that has to agree, and they did not: the server trimmed the
+ * name and fell through an empty one with `||`, the client kept it with `??`.
+ * A `personName` of a single space resolved to a person on one side and to
+ * nobody on the other, so the form asked a question about somebody and then
+ * silently swapped it for a solitary one when the response landed — the exact
+ * flicker the surrounding code goes to some length to prevent.
+ *
+ * `now` is injectable so the day arithmetic can be tested without the clock.
+ */
+export function momentContextOf(m: StoredMoment, now: number = Date.now()): MomentContext {
+  /* Only real names. A Json column can hold anything, and a blank string is
+     not a guest. */
+  const present = Array.isArray(m.peoplePresent)
+    ? (m.peoplePresent as unknown[])
+      .filter((n): n is string => typeof n === 'string' && !!n.trim())
+      .map((n) => n.trim())
+    : [];
+  /* `||` rather than `??`: a name of "" or "   " is an absent name, not a
+     present one, and must fall through to the guest list. */
+  const named = m.personName?.trim() || (present.length === 1 ? present[0] : '') || '';
+  const peopleCount = Math.max(present.length, named ? 1 : 0);
+
+  /* Whole days, floored, never negative — a moment dated in the future is a
+     typo, not a reason to ask what has stayed with them since. An absent date
+     is today rather than NaN, which would silently fail every comparison. */
+  const at = m.occurredAt ? new Date(m.occurredAt).getTime() : now;
+  const daysAgo = Number.isFinite(at)
+    ? Math.max(0, Math.floor((now - at) / 86_400_000))
+    : 0;
+
+  return {
+    title: m.title,
+    memoryType: m.memoryType,
+    /* One name is a link; several is a gathering, and naming one of them
+       would be the app deciding whose evening it was. */
+    personName: peopleCount > 1 ? null : named || null,
+    peopleCount,
+    daysAgo,
+    written: {
+      reflection: m.reflection,
+      conversation: m.conversation,
+      keepsake: m.keepsake,
+    },
+  };
+}
+
+/**
  * How much of a moment is still missing, from 0 to 1.
  *
  * 0 is a moment written across every facet that applies to it; 1 is a title

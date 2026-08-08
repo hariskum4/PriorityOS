@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  momentPrompts, momentThinness, facetsCovered, asksTheSameAs,
+  momentPrompts, momentThinness, momentContextOf, facetsCovered, asksTheSameAs,
   isUsableQuestion, isUsableAccountLine, type MomentContext, type Facet,
 } from './momentPrompts';
 
@@ -339,6 +339,65 @@ describe(`every one of the ${ALL.length} combinations holds the line`, () => {
 
   it.each(ALL)('is stable on a second opening — %s', (_label, ctx) => {
     expect(momentPrompts(ctx)).toEqual(momentPrompts(ctx));
+  });
+});
+
+describe('one mapping from a stored moment, for client and server alike', () => {
+  const NOW = Date.parse('2026-08-08T12:00:00Z');
+  const stored = (over: Record<string, any> = {}) => momentContextOf({
+    title: 'Dinner', memoryType: 'relationship', peoplePresent: [],
+    occurredAt: '2026-08-01T12:00:00Z', ...over,
+  }, NOW);
+
+  /**
+   * The divergence this replaced. The server trimmed the name and fell
+   * through an empty one; the client kept it with `??`. A single space
+   * resolved to a person on one side and nobody on the other, so the form
+   * asked about somebody and then swapped the question when the response
+   * landed.
+   */
+  it.each(['', '   ', null, undefined])('treats a blank personName (%p) as absent', (personName) => {
+    expect(stored({ personName, peoplePresent: ['Amma'] }).personName).toBe('Amma');
+  });
+
+  it('prefers the named person over the guest list', () => {
+    expect(stored({ personName: ' Divya ', peoplePresent: ['Amma'] }).personName).toBe('Divya');
+  });
+
+  it('drops junk out of a Json guest list', () => {
+    const c = stored({ peoplePresent: ['Amma', '', '   ', null, 7, { x: 1 }] });
+    expect(c.personName).toBe('Amma');
+    expect(c.peopleCount).toBe(1);
+  });
+
+  it('gives a gathering the plural and no name', () => {
+    const c = stored({ personName: 'Amma', peoplePresent: ['Amma', 'Appa', 'Arun'] });
+    expect(c.personName).toBeNull();
+    expect(c.peopleCount).toBe(3);
+  });
+
+  it('is not a list at all when peoplePresent is not an array', () => {
+    expect(stored({ peoplePresent: 'Amma' }).peopleCount).toBe(0);
+  });
+
+  it('counts whole days, and never negative', () => {
+    expect(stored({ occurredAt: '2026-08-01T12:00:00Z' }).daysAgo).toBe(7);
+    expect(stored({ occurredAt: '2026-12-25T12:00:00Z' }).daysAgo).toBe(0);
+  });
+
+  /* An absent or unparseable date is today, not NaN — NaN would silently
+     fail every threshold and always print "what do you want to remember". */
+  it.each([null, undefined, 'not a date'])('never yields NaN for date %p', (occurredAt) => {
+    expect(stored({ occurredAt }).daysAgo).toBe(0);
+  });
+
+  it('accepts a Date as readily as a string', () => {
+    expect(stored({ occurredAt: new Date('2026-08-01T12:00:00Z') }).daysAgo).toBe(7);
+  });
+
+  it('carries the written fields through untouched', () => {
+    const c = stored({ reflection: 'r', conversation: 'c', keepsake: 'k' });
+    expect(c.written).toEqual({ reflection: 'r', conversation: 'c', keepsake: 'k' });
   });
 });
 
