@@ -6,17 +6,26 @@
  * there, so a floating promise finishes — and it is what the API ran on when
  * the pattern was written.
  *
- * It does not work on Vercel. A serverless function is frozen the moment its
- * response is flushed, so the floating promise is suspended mid-flight and the
- * instance is usually recycled before it ever resumes. The deferred work never
- * finished, and nothing said so: the endpoint returned the fallback every
- * time, correctly, forever.
+ * On Vercel it works only by luck. A serverless function is frozen the moment
+ * its response is flushed, so the floating promise is suspended mid-flight; it
+ * resumes only if that same instance happens to be invoked again before it is
+ * recycled. Under a burst of requests the work slips through. Under ordinary
+ * spaced-out traffic — one person opening one screen — it does not, and
+ * nothing reports a failure, because nothing failed. The endpoint simply
+ * returns its fallback.
  *
- * Found by running the AI smoke test against production and reading the
- * `model` column. Every kind that calls `generate` directly had real
- * generations; `moment_prompts`, the one that defers, had **zero** across
- * every attempt — 4 rows, all `fallback`. `daily_focus` defers too and had
- * survived only because a second, blocking caller writes the same kind.
+ * Both halves of that were measured against production, by reading the
+ * `model` column, which is the only place the difference shows:
+ *
+ *   `moment_prompts` — reads spaced 25s apart by the smoke test — was
+ *   `fallback` 4 times out of 4, never once reaching the model.
+ *
+ *   `daily_focus` did complete at 08:05:59, mid-way through a burst of six
+ *   verification requests that kept the instance awake. That is the luck, and
+ *   it is why the failure looked intermittent rather than total.
+ *
+ * With `waitUntil`, a single isolated request with no follow-up traffic
+ * completes the generation — verified at 09:15:24 on the same account.
  *
  * `waitUntil` is the platform's answer: it tells Vercel to hold the instance
  * open until the promise settles, within the function's `maxDuration` (60s
