@@ -10,7 +10,7 @@
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
-      "includeFiles": "{apps/api/dist/**,apps/api/prisma/**,node_modules/.prisma/**,node_modules/@prisma/**,packages/*/dist/**}"
+      "includeFiles": "{apps/api/dist/**,apps/api/prisma/**,node_modules/.prisma/**,node_modules/@prisma/**,node_modules/@vercel/**,packages/*/dist/**}"
     }
   },
   "rewrites": [

@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UserClock } from '../common/clock.module';
 import { PromptTemplate } from '@priority/ai-prompts';
 import { buildPseudonyms, redact, restore } from './redaction';
+import { keepAlive } from '../common/keep-alive';
 
 const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
@@ -57,11 +58,22 @@ export class AiService {
   ): Promise<T> {
     const hit = await this.cachedFor<T>(userId, kind, opts.cacheKey);
     if (hit) return hit;
-    /* Nothing cached. Hand back the engine's answer and let the model catch
-       up for next time. Render keeps the process alive after the response, so
-       the work finishes; a failure is logged and changes nothing on screen. */
-    void this.generate(userId, kind, template, context, fallback, opts)
-      .catch((err) => this.logger.error(`deferred ${kind} failed for ${userId}`, err as Error));
+    /**
+     * Nothing cached. Hand back the engine's answer and let the model catch up
+     * for next time.
+     *
+     * `keepAlive` rather than a bare `void`, because the platform underneath
+     * changed and this did not. A floating promise finishes on a long-lived
+     * container, which is what the API ran on when this was written; on Vercel
+     * the function is frozen the instant the response is flushed, so the work
+     * was suspended mid-call and the instance recycled before it resumed. The
+     * endpoint returned the fallback every single time and nothing reported a
+     * failure, because nothing had failed — the work simply never ran.
+     */
+    keepAlive(
+      this.generate(userId, kind, template, context, fallback, opts)
+        .catch((err) => this.logger.error(`deferred ${kind} failed for ${userId}`, err as Error)),
+    );
     return fallback;
   }
 
