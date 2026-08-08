@@ -27,7 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dehydrate, hydrate } from '@tanstack/react-query';
 import type { DehydratedState, QueryClient } from '@tanstack/react-query';
 
-const VERSION = 2;
+const VERSION = 3;
 const KEY = `priority-query-cache-v${VERSION}`;
 
 /** How long a stored response stays usable offline before it is dropped. */

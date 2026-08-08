@@ -15,7 +15,7 @@ import {
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
-import { driftOf } from '@/components/Constellation';
+import { driftOf, isPlanned } from '@/components/Constellation';
 import { Button, Card, Chip, DomainDot, EmptyState, GapBar, Label } from '@/components/ui';
 import { colors, type, space, domainColor, isLight, alpha } from '@/theme';
 
@@ -70,7 +70,7 @@ function verdictFor(domain: { importance: number; attention: number; neglectRisk
      they had this part of their life handled when they had never mentioned
      it. Today's read-out has always said "not in your plan yet"; this says
      the same thing in a chip. */
-  if (domain.importance <= 0) return { label: 'not rated', color: colors.textDim };
+  if (!isPlanned(domain as Parameters<typeof isPlanned>[0])) return { label: 'not rated', color: colors.textDim };
   const drift = driftOf(domain as Parameters<typeof driftOf>[0]);
   if (drift > 0.55) return { label: 'drifting', color: colors.rose };
   if (drift > 0.25) return { label: 'a gap', color: colors.amber };

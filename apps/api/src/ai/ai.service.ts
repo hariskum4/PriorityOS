@@ -55,16 +55,8 @@ export class AiService {
     fallback: T,
     opts: { cacheKey: string; timeoutMs?: number },
   ): Promise<T> {
-    const dayStart = await this.clock.startOfToday(userId);
-    const cached = await this.prisma.aiRecommendation.findFirst({
-      where: { userId, kind, createdAt: { gte: dayStart } },
-      orderBy: { createdAt: 'desc' },
-    });
-    const content = cached?.content as Record<string, unknown> | undefined;
-    if (content && content._cacheKey === opts.cacheKey) {
-      const { _cacheKey, ...rest } = content;
-      return rest as T;
-    }
+    const hit = await this.cachedFor<T>(userId, kind, opts.cacheKey);
+    if (hit) return hit;
     /* Nothing cached. Hand back the engine's answer and let the model catch
        up for next time. Render keeps the process alive after the response, so
        the work finishes; a failure is logged and changes nothing on screen. */
@@ -94,16 +86,8 @@ export class AiService {
     // Day-level cache: hot paths (the dashboard) must not regenerate — or
     // even re-persist — the same narrative on every single request.
     if (opts?.cacheKey) {
-      const dayStart = await this.clock.startOfToday(userId);
-      const cached = await this.prisma.aiRecommendation.findFirst({
-        where: { userId, kind, createdAt: { gte: dayStart } },
-        orderBy: { createdAt: 'desc' },
-      });
-      const content = cached?.content as Record<string, unknown> | undefined;
-      if (content && content._cacheKey === opts.cacheKey) {
-        const { _cacheKey, ...rest } = content;
-        return rest as T;
-      }
+      const hit = await this.cachedFor<T>(userId, kind, opts.cacheKey);
+      if (hit) return hit;
     }
     if (!this.enabled) return this.persist(userId, kind, fallback, 'fallback', opts?.cacheKey);
 
@@ -193,6 +177,39 @@ export class AiService {
       this.logger.warn(`AI generation failed for ${kind}: ${String(err)}`);
       return this.persist(userId, kind, fallback, 'fallback', opts?.cacheKey);
     }
+  }
+
+  /**
+   * Today's cached generation for this exact key, if there is one.
+   *
+   * It used to read the single newest row for the kind and then compare its
+   * key, which works only while a kind has one key per day. `moment_prompts`
+   * has one per moment: open moment A, then B, then A again and every read
+   * missed, because the newest row was always the other moment's. The result
+   * was a model call on essentially every form open, and a row written for
+   * each. Matching the key inside the query finds the newest row that is
+   * actually for this subject, and an older row with the same key is still
+   * valid for the day it was written in.
+   */
+  private async cachedFor<T>(
+    userId: string,
+    kind: string,
+    cacheKey: string,
+  ): Promise<T | null> {
+    const dayStart = await this.clock.startOfToday(userId);
+    const cached = await this.prisma.aiRecommendation.findFirst({
+      where: {
+        userId,
+        kind,
+        createdAt: { gte: dayStart },
+        content: { path: ['_cacheKey'], equals: cacheKey },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const content = cached?.content as Record<string, unknown> | undefined;
+    if (!content) return null;
+    const { _cacheKey, ...rest } = content;
+    return rest as T;
   }
 
   private async persist<T>(

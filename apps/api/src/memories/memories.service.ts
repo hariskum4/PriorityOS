@@ -520,12 +520,27 @@ export class MemoriesService {
      * Reveal hit: nothing invented, nothing misread, the sentence simply
      * stopped being about anybody.
      */
+    /**
+     * The name is required back only where it was there to begin with.
+     *
+     * `mustKeep` was passed unconditionally, and most of these questions
+     * never carry a name — "What do you want to remember about it?", "Where
+     * were you both?", "What do you know now that you did not then?". Asking
+     * `safeRephrase` to preserve a word the original never contained meant
+     * every rewrite came back `dropped: <name>` and was thrown away, so for
+     * any moment with somebody in it the model was called, paid for, and
+     * discarded every single time. The tests missed it because each accepted
+     * fixture happened to mention the name.
+     */
+    const keepNameIn = (original: string) => (
+      named && original.includes(named) ? [named] : []
+    );
     const question = (original: string, rewritten: string) => {
-      const { sentence } = safeRephrase(original, rewritten, { mustKeep: [named || undefined] });
+      const { sentence } = safeRephrase(original, rewritten, { mustKeep: keepNameIn(original) });
       return isUsableQuestion(sentence) ? sentence : original;
     };
     const { sentence: account } = safeRephrase(engine.reflection, edited.account, {
-      mustKeep: [named || undefined],
+      mustKeep: keepNameIn(engine.reflection),
     });
 
     return {

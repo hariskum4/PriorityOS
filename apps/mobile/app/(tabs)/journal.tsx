@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, RefreshControl, StyleSheet,
 } from 'react-native';
@@ -86,6 +86,22 @@ function momentContextOf(m: any) {
 
 /** The three or four words naming what this moment is still missing. */
 const gapOf = (m: any) => momentPrompts(momentContextOf(m)).probeLabel;
+
+/**
+ * One label per moment, recomputed only when the archive itself changes.
+ *
+ * `gapOf` was called straight from the row's JSX, twice — once for the
+ * screen-reader label and once for the visible text — so a hundred-moment
+ * archive ran the whole prompt pipeline two hundred times on every render of
+ * this screen, including every keystroke in the composer above it.
+ */
+function useGapLabels(memories: any[] | undefined) {
+  return useMemo(() => {
+    const out = new Map<string, string>();
+    for (const m of memories ?? []) out.set(m.id, gapOf(m));
+    return out;
+  }, [memories]);
+}
 
 const MEMORY_TYPES: Record<string, string> = {
   relationship: 'together', experience: 'experience', achievement: 'achievement',
@@ -530,6 +546,7 @@ function Memories() {
     queryKey: ['memories'],
     queryFn: () => api<any[]>('/memories'),
   });
+  const gaps = useGapLabels(memories);
   const { data: onThisDay } = useQuery({
     queryKey: ['memories-otd'],
     queryFn: () => api<any[]>('/memories/on-this-day'),
@@ -726,7 +743,7 @@ function Memories() {
    * engine ignores anything shorter than a clause, so this settles once
    * rather than flickering word by word.
    */
-  const askAbout = momentPrompts({
+  const askAbout = useMemo(() => momentPrompts({
     title: title.trim(),
     memoryType,
     personName: personIds.length === 1 ? nameOf(personIds[0]) : null,
@@ -735,7 +752,9 @@ function Memories() {
       ? Math.max(0, Math.floor((Date.now() - new Date(`${occurredOn}T12:00:00.000Z`).getTime()) / 86_400_000))
       : 0,
     written: { reflection, conversation, keepsake },
-  });
+    /* A box being typed into, not a saved record. */
+    composing: true,
+  }), [title, memoryType, personIds, occurredOn, dateValid, reflection, conversation, keepsake, people]);
 
   const fmtDate = (iso: string) =>
     new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -971,11 +990,11 @@ function Memories() {
               <Pressable
                 onPress={() => setEditing(m.id)}
                 accessibilityRole="button"
-                accessibilityLabel={`Add ${gapOf(m)} to ${m.title}`}
+                accessibilityLabel={`Add ${gaps.get(m.id) ?? "more"} to ${m.title}`}
                 style={({ pressed }) => [s.writeAbout, pressed && { opacity: 0.7 }]}
               >
                 <Ionicons name="create-outline" size={14} color={colors.amber} />
-                <Text style={[type.faint, { color: colors.amber }]}>Add {gapOf(m)}</Text>
+                <Text style={[type.faint, { color: colors.amber }]}>Add {gaps.get(m.id) ?? "more"}</Text>
               </Pressable>
               {/**
                * One moment onto a calendar, asked for rather than assumed.

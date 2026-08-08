@@ -63,12 +63,22 @@ describe('the form does not ask for what it has already been given', () => {
     expect(viaKeepsake.conversation).not.toMatch(/talk about/i);
   });
 
-  /* Hysteresis: in the composer this runs against a box somebody is
-     mid-sentence in, and a question that flips on every keystroke is worse
-     than one that is slightly redundant. */
-  it('ignores a fragment too short to be a clause', () => {
-    const typing = momentPrompts({ ...DIVYA, written: { reflection: 'We talked' } });
+  /* Hysteresis, but only while it is being typed. */
+  it('ignores a fragment too short to be a clause, while composing', () => {
+    const typing = momentPrompts({
+      ...DIVYA, composing: true, written: { reflection: 'We talked' },
+    });
     expect(typing.conversation).toBe('What did you and Divya actually talk about?');
+  });
+
+  /**
+   * A short answer is still an answer once it is saved. "He said no" is ten
+   * characters, and the composer's floor used to discard it — so the form
+   * asked what was talked about over words the person had already given it.
+   */
+  it('counts a short saved answer that the typing floor would drop', () => {
+    const saved = momentPrompts({ ...DIVYA, written: { conversation: 'He said no' } });
+    expect(saved.conversation).not.toMatch(/talk about/i);
   });
 });
 

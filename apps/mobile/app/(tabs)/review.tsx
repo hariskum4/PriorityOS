@@ -7,6 +7,7 @@ import { invalidateLifeRecord } from '@/services/invalidate';
 import { useRefresh } from '@/hooks/useRefresh';
 import { Button, Card, Chip, DomainDot, EmptyState, Input, Label } from '@/components/ui';
 import { colors, type, space, domainColor, alpha, liningNums } from '@/theme';
+import { isPlanned } from '@/domainScore';
 import { keptLine } from '@priority/scoring-engine';
 
 /**
@@ -106,7 +107,7 @@ export default function Review() {
   });
 
   const domains = (dashboard?.domains ?? [])
-    .filter((d: any) => d.importance > 0)
+    .filter((d: any) => isPlanned(d))
     .sort((a: any, b: any) => b.importance - a.importance);
 
   const guessDomain = (title: string): string => {

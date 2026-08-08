@@ -45,7 +45,7 @@ import { obs, obsDomain, alpha } from '../observatory';
 export {
   driftOf, mostAdrift, heldPercent, isPlanned, openingDomain, type DomainDatum,
 } from '../domainScore';
-import { driftOf, type DomainDatum } from '../domainScore';
+import { driftOf, isPlanned, type DomainDatum } from '../domainScore';
 
 /** What a domain holds, and how often it is touched. From `/life-os/rhythm`. */
 export interface DomainRhythm {
@@ -186,7 +186,7 @@ export function Constellation({
 
   const place = React.useCallback((d: DomainDatum, when: number) => {
     const drift = driftOf(d);
-    const dormant = d.importance <= 0;
+    const dormant = !isPlanned(d);
     const period = periodOf(d.domainType, rhythm?.[d.domainType]);
     const angle = angleAt(d.domainType, period, when);
     /**

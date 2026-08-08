@@ -32,7 +32,7 @@ import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observato
 import { colors as base } from '@/theme';
 import { useNow } from '@/hooks/useNow';
 import { usePlanStack } from '@/hooks/usePlanStack';
-import { Constellation, driftOf, heldPercent, openingDomain } from '@/components/Constellation';
+import { Constellation, driftOf, heldPercent, isPlanned, openingDomain } from '@/components/Constellation';
 import { rhythmFor, rhythmByKey, anchorFor, evidenceForGenerated } from '@priority/scoring-engine';
 
 /**
@@ -915,7 +915,7 @@ export default function Today() {
   }
 
   const m = data.todayMission;
-  const liveDomains = allDomains.filter((d: any) => d.importance > 0);
+  const liveDomains = allDomains.filter((d: any) => isPlanned(d));
   const reading = lifeAlignment(liveDomains);
   const score = reading.score;
   /**
@@ -1825,7 +1825,7 @@ export default function Today() {
                 {/* Three measurements and a verdict don't fit in a tick at
                     phone width — "DRIFTING" wrapped onto its own line. */}
                 <Text style={obsType.note} numberOfLines={1}>
-                  {active.importance <= 0
+                  {!isPlanned(active)
                     ? 'not in your plan yet'
                     : `you say ${Math.round(active.importance)} · you do ${Math.round(active.attention)}`
                       + (activeDrift > 0.55 ? ' · drifting' : activeDrift > 0.25 ? ' · a gap' : '')}

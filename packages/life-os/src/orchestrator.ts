@@ -247,9 +247,11 @@ function subjectKey(s: string): string {
 /**
  * Who or what a proposal is about — the person, goal, or item at its centre.
  *
- * Taken from the proposal's own subjects when present, and otherwise inherited
- * from the observations it answers, because most engines tag the subject on the
- * finding rather than on the door.
+ * Read from the observations a proposal answers, which is the only place a
+ * subject is ever recorded — `Proposal` has no `subjects` field. This comment
+ * used to promise a fallback to `p.subjects` "when present", which no engine
+ * could supply and no code read; anyone debugging a missed suppression would
+ * have gone looking for it.
  */
 function subjectsOf(p: Proposal, observations: Map<string, Observation>): string[] {
   const fromObservations = p.addresses.flatMap(

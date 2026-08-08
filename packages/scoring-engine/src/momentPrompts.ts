@@ -121,6 +121,13 @@ export interface MomentContext {
     conversation?: string | null;
     keepsake?: string | null;
   } | null;
+  /**
+   * True while `written` is a box being typed into rather than a saved
+   * record. Only the composer sets it, and it buys the questions below a few
+   * characters of hysteresis so they settle once instead of flickering on
+   * the keystroke that completes a marker word.
+   */
+  composing?: boolean;
 }
 
 export interface MomentPrompts {
@@ -207,11 +214,25 @@ const MARKERS: Record<Exclude<Facet, 'open'>, RegExp> = {
  * flip back on a backspace. Twelve characters is roughly where a fragment
  * becomes a clause.
  */
-export function facetsCovered(texts: Array<string | null | undefined>): Set<Facet> {
+export function facetsCovered(
+  texts: Array<string | null | undefined>,
+  /**
+   * Ignore fragments shorter than this. Zero for anything already saved.
+   *
+   * The floor is typing hysteresis and nothing else, and applying it to
+   * stored text meant a short but complete answer counted for nothing: a
+   * saved conversation of "He said no" is ten characters, so `said` never
+   * registered and the form asked what was talked about all over again — the
+   * exact duplication this module exists to prevent, on words the person had
+   * already given it. Only the composer, which runs this against a box
+   * somebody is mid-sentence in, passes a floor.
+   */
+  minLength = 0,
+): Set<Facet> {
   const covered = new Set<Facet>();
   const body = texts
     .map((t) => (t ?? '').trim())
-    .filter((t) => t.length >= 12)
+    .filter((t) => t.length >= minLength)
     .join(' — ');
   if (!body) return covered;
   for (const [facet, re] of Object.entries(MARKERS)) {
@@ -430,7 +451,8 @@ export function momentPrompts(ctx: MomentContext): MomentPrompts {
   const seed = ctx.title ?? '';
 
   const prose = [ctx.written?.reflection, ctx.written?.conversation, ctx.written?.keepsake];
-  const covered = facetsCovered([ctx.title, ...prose]);
+  const floor = ctx.composing ? 12 : 0;
+  const covered = facetsCovered([ctx.title, ...prose], floor);
   const days = ctx.daysAgo ?? 0;
 
   const named = (s: string) => (person ? s.replace(/%s/g, person) : s);
@@ -492,7 +514,7 @@ export function momentPrompts(ctx: MomentContext): MomentPrompts {
    * accounts it exists for.
    */
   const written = prose.map((t) => (t ?? '').trim()).filter(Boolean).join(' ');
-  const overgeneral = written.length >= 12 && facetsCovered(prose).size === 0;
+  const overgeneral = written.length >= 12 && facetsCovered(prose, floor).size === 0;
 
   const probeLabel = middle.label ?? 'the rest of it';
   return {
@@ -530,7 +552,7 @@ export function momentThinness(ctx: MomentContext): number {
     : ['did', 'where', 'when', 'sensory', 'why'];
   const covered = facetsCovered([
     ctx.title, ctx.written?.reflection, ctx.written?.conversation, ctx.written?.keepsake,
-  ]);
+  ], ctx.composing ? 12 : 0);
   const hit = applicable.filter((f) => covered.has(f)).length;
   return 1 - hit / applicable.length;
 }

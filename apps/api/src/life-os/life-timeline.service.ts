@@ -182,7 +182,8 @@ export class LifeTimelineService {
 
   /** Which calendar years hold anything at all — marks the life-in-years grid. */
   async yearsWithActivity(userId: string): Promise<number[]> {
-    const [acts, tz] = await Promise.all([this.gather(userId), this.zoneOf(userId)]);
+    const tz = await this.zoneOf(userId);
+    const acts = await this.gather(userId, tz);
     // Local years, for the same reason as local days: an act logged late on
     // New Year's Eve belongs to the year the person was living in.
     return [...new Set(acts.map((a) => Number(dayOf(a.at, tz).slice(0, 4))))].sort();
@@ -198,7 +199,8 @@ export class LifeTimelineService {
    * using it for a week or a lifetime.
    */
   async actTotalsByDomain(userId: string, upToYear?: number): Promise<Record<string, number>> {
-    const [acts, tz] = await Promise.all([this.gather(userId), this.zoneOf(userId)]);
+    const tz = await this.zoneOf(userId);
+    const acts = await this.gather(userId, tz);
     const totals: Record<string, number> = {};
     for (const a of acts) {
       if (!a.domain) continue;
@@ -241,7 +243,7 @@ export class LifeTimelineService {
     window: number;
     domains: Record<string, DomainRhythm>;
   }> {
-    const acts = await this.gather(userId);
+    const acts = await this.gather(userId, await this.zoneOf(userId));
     const since = Date.now() - RHYTHM_WINDOW_DAYS * 86_400_000;
 
     const out: Record<string, DomainRhythm> = {};
@@ -374,6 +376,7 @@ export class LifeTimelineService {
     grew: Array<{ domain: string; weight: number }>;
     slipped: Array<{ name: string; days: number; wanted: string | null }>;
   }> {
+    const tz = await this.zoneOf(userId);
     const [missionsCompleted, momentsKept, entriesWritten, people, acts] = await Promise.all([
       this.prisma.mission.count({ where: { userId, status: 'completed', completedAt: { gte: since } } }),
       this.prisma.memory.count({ where: { userId, createdAt: { gte: since } } }),
@@ -384,7 +387,7 @@ export class LifeTimelineService {
       }),
       // Everything dated in the gap, so growth is measured the same way the
       // drawing measures it rather than by counting rows in three tables.
-      this.gather(userId, since, new Date(Date.now() + 60_000)),
+      this.gather(userId, tz, since, new Date(Date.now() + 60_000)),
     ]);
 
     const grewBy: Record<string, number> = {};
@@ -441,7 +444,7 @@ export class LifeTimelineService {
     // decide what actually belongs to this year.
     const from = new Date(Date.UTC(year, 0, 1) - DAY_MS);
     const to = new Date(Date.UTC(year + 1, 0, 1) + DAY_MS);
-    const spill = await this.gather(userId, from, to);
+    const spill = await this.gather(userId, tz, from, to);
 
     const dated = spill
       .map((a) => ({ act: a, key: dayOf(a.at, tz) }))
@@ -534,14 +537,23 @@ export class LifeTimelineService {
    * whole history into memory. Habit logs and contact logs reach their domain
    * through their parent, which is why those two include a relation.
    */
-  private async gather(userId: string, from?: Date, to?: Date): Promise<DatedAct[]> {
+  /**
+   * `tz` is passed in rather than looked up here.
+   *
+   * The merge below needs the reader's local day, and fetching it inside
+   * meant every caller that also needed the zone ran the same
+   * `user.findUnique` twice per request — `year()` did, and so did the two
+   * that already fetch it alongside this call.
+   */
+  private async gather(
+    userId: string,
+    tz: string,
+    from?: Date,
+    to?: Date,
+  ): Promise<DatedAct[]> {
     const window = from && to ? { gte: from, lt: to } : undefined;
 
-    const [tz, missions, contacts, memories, habitLogs, journal] = await Promise.all([
-      /* Needed to decide whether a mission and its kept moment fall on the
-         same *local* day. See the merge below — a backdated moment is a
-         different day, and UTC would get that wrong either side of midnight. */
-      this.zoneOf(userId),
+    const [missions, contacts, memories, habitLogs, journal] = await Promise.all([
       this.prisma.mission.findMany({
         where: {
           userId,

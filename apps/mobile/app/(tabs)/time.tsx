@@ -76,6 +76,7 @@ import { Button, Card, Chip, DomainDot, ErrorNote, HourField, Input, Label } fro
 import { YearGrid } from '@/components/YearGrid';
 import { HobbyPicker } from '@/components/HobbyPicker';
 import { colors, type, space, domainColor, alpha, liningNums } from '@/theme';
+import { isPlanned } from '@/domainScore';
 
 /**
  * Time Reality — the user's own finite windows, computed live from their
@@ -1923,7 +1924,7 @@ export default function TimeReality() {
    * nobody set. A domain with no rank sorts last rather than first.
    */
   const activeDomains = (dashboard?.domains ?? [])
-    .filter((d: any) => d.importance > 0)
+    .filter((d: any) => isPlanned(d))
     .sort((a: any, b: any) => (a.priorityRank ?? 99) - (b.priorityRank ?? 99));
 
   /**

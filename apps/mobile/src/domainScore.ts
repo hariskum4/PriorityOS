@@ -89,6 +89,9 @@ export function openingDomain(
   domains: DomainDatum[],
   picked?: string | null,
 ): string | null {
-  if (picked) return picked;
+  /* Only if it is still there. `picked` is state that outlives a refetch, so
+     a domain that has since gone would resolve to no active domain at all and
+     silently take the whole read-out off the screen. */
+  if (picked && domains.some((d) => d.domainType === picked)) return picked;
   return mostAdrift(domains)?.domainType ?? domains[0]?.domainType ?? null;
 }

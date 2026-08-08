@@ -86,6 +86,13 @@ describe('which domain the read-out opens on', () => {
     expect(heldPercent(unplanned)).toBeNull();
   });
 
+  /* `picked` outlives a refetch; a domain that has gone must not take the
+     read-out off screen with it. */
+  it('ignores a picked domain that no longer exists', () => {
+    expect(openingDomain([planned], 'finance')).toBe('family');
+    expect(openingDomain([], 'finance')).toBeNull();
+  });
+
   it('is null when there are no domains at all', () => {
     expect(openingDomain([])).toBeNull();
     expect(mostAdrift([])).toBeNull();

@@ -75,6 +75,28 @@ describe('a rewrite that is still a question is used', () => {
   });
 });
 
+describe('the name is required back only where it was there to begin with', () => {
+  /**
+   * `mustKeep` was passed unconditionally, so a question that never carried
+   * the name — the keepsake, the sensory probe, the hard-and-old one — could
+   * never be improved: safeRephrase reported `dropped: Amma` and returned the
+   * engine's wording every time. Every accepted-rewrite fixture above happens
+   * to mention Amma, which is exactly why this went unnoticed.
+   */
+  it('accepts a rewrite of a question that never mentioned the person', async () => {
+    const out = await svc({ keepsake: 'What is worth keeping from it?' }).prompts('u1', 'm1');
+    expect(out.keepsake).toBe('What is worth keeping from it?');
+  });
+
+  it('still refuses a rewrite that drops a name the question did carry', async () => {
+    const engine = engineFor();
+    const out = await svc({ conversation: 'What did you actually talk about?' })
+      .prompts('u1', 'm1');
+    expect(out.conversation).toBe(engine.conversation);
+    expect(out.conversation).toContain('Amma');
+  });
+});
+
 describe('a rewrite that stops being a question is thrown away', () => {
   const engine = engineFor();
 
