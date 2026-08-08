@@ -32,7 +32,7 @@ import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observato
 import { colors as base } from '@/theme';
 import { useNow } from '@/hooks/useNow';
 import { usePlanStack } from '@/hooks/usePlanStack';
-import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
+import { Constellation, driftOf, heldPercent, openingDomain } from '@/components/Constellation';
 import { rhythmFor, rhythmByKey, anchorFor, evidenceForGenerated } from '@priority/scoring-engine';
 
 /**
@@ -779,9 +779,10 @@ export default function Today() {
   );
 
   /* The opening read-out is whatever is most adrift — the thing the sky is
-     already trying to tell you. The user's own tap always wins after that. */
-  const adrift = useMemo(() => mostAdrift(allDomains), [allDomains]);
-  const activeKey = picked ?? adrift?.domainType ?? allDomains[0]?.domainType ?? null;
+     already trying to tell you. The user's own tap always wins after that,
+     and an account with no plan yet falls back to the first domain, which
+     `heldPercent` then declines to grade. */
+  const activeKey = useMemo(() => openingDomain(allDomains, picked), [allDomains, picked]);
   const active = allDomains.find((d: any) => d.domainType === activeKey) ?? null;
 
   /**
@@ -963,6 +964,7 @@ export default function Today() {
 
   const activeColor = active ? obsDomain(active.domainType) : obs.brass;
   const activeDrift = active ? driftOf(active) : 0;
+  const activeHeld = active ? heldPercent(active) : null;
   const nowColor = m ? obsDomain(m.domainType) : obs.brass;
 
   const held = heldContents(picked, rhythm);
@@ -1834,10 +1836,15 @@ export default function Today() {
                 <Trail points={activeSeries} color={activeColor} />
               </View>
               <View style={{ alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
-                <Text style={[obsType.stat, { fontSize: 21, color: activeColor }]}>
-                  {Math.round((1 - activeDrift) * 100)}
+                {/* A dash, not a hundred, for a domain nobody planned. The
+                    line above already says "not in your plan yet"; the score
+                    used to sit under it reading 100, in the domain's own
+                    colour, and an account that had done nothing at all came
+                    out perfect in every part of life it had never claimed. */}
+                <Text style={[obsType.stat, { fontSize: 21, color: activeHeld === null ? obs.inkFaint : activeColor }]}>
+                  {activeHeld === null ? '—' : activeHeld}
                 </Text>
-                <Tick color={alpha(obs.inkFaint, 0.9)}>held</Tick>
+                <Tick color={alpha(obs.inkFaint, 0.9)}>{activeHeld === null ? 'unrated' : 'held'}</Tick>
               </View>
               <Ionicons name="chevron-forward" size={15} color={obs.inkFaint} />
             </Pressable>

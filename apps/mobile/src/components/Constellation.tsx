@@ -36,12 +36,16 @@ import Svg, {
 } from 'react-native-svg';
 import { obs, obsDomain, alpha } from '../observatory';
 
-export interface DomainDatum {
-  domainType: string;
-  importance: number;   // 0-100, declared
-  attention: number;    // 0-100, observed
-  neglectRisk?: number; // 0-100, engine-computed
-}
+/**
+ * The domain arithmetic moved to `src/domainScore.ts` so it could be tested —
+ * this file needs a native runtime and the test config is limited to plain
+ * modules, which is how a scoring bug survived in here unseen. Re-exported so
+ * existing importers keep working.
+ */
+export {
+  driftOf, mostAdrift, heldPercent, isPlanned, openingDomain, type DomainDatum,
+} from '../domainScore';
+import { driftOf, type DomainDatum } from '../domainScore';
 
 /** What a domain holds, and how often it is touched. From `/life-os/rhythm`. */
 export interface DomainRhythm {
@@ -93,24 +97,6 @@ function fallbackAngle(key: string): number {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 360;
   return h;
-}
-
-/**
- * How far a domain has drifted, 0 (fed) → 1 (starved). Prefers the engine's
- * own neglect score and falls back to the raw say/do gap when it's absent.
- */
-export function driftOf(d: DomainDatum): number {
-  const gap = Math.max(0, d.importance - d.attention) / 60;
-  const risk = (d.neglectRisk ?? 0) / 100;
-  return Math.max(0, Math.min(1, Math.max(gap, risk)));
-}
-
-/** The star that most deserves the opening glance. */
-export function mostAdrift(domains: DomainDatum[]): DomainDatum | null {
-  const live = domains.filter((d) => d.importance > 0);
-  if (!live.length) return null;
-  return live.reduce((worst, d) =>
-    driftOf(d) * d.importance > driftOf(worst) * worst.importance ? d : worst);
 }
 
 /** Days per revolution. Observed rhythm, or intent while there isn't one. */
