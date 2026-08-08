@@ -3,6 +3,7 @@ import { View, Text, FlatList, Pressable, RefreshControl, StyleSheet } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { cadenceDays } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { invalidateLifeRecord } from '@/services/invalidate';
 import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, Input, Label } from '@/components/ui';
@@ -14,11 +15,6 @@ const relationDomain: Record<string, string> = {
   friend: 'friends', child: 'children', son: 'children', daughter: 'children', mentor: 'career',
 };
 const relationColor = (t: string) => domainColor(relationDomain[t] ?? 'career');
-
-/** Days a desired call cadence represents — for honest overdue framing. */
-const cadenceDays: Record<string, number> = {
-  daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
-};
 
 const RELATION_TYPES = [
   'mother', 'father', 'sibling', 'spouse', 'partner',
@@ -197,7 +193,7 @@ export default function People() {
    */
   function overdueRatio(r: any): number {
     const since = daysSince(r.lastContactAt ?? r.createdAt);
-    const target = cadenceDays[r.desiredCallFrequency] ?? 30;
+    const target = cadenceDays(r.desiredCallFrequency);
     if (since === null) return 0;
     return since / target;
   }

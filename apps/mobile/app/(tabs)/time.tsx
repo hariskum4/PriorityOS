@@ -60,6 +60,7 @@ import {
   PLANNING_HORIZON_AGE,
   lifeExpectancyForRegion,
   countryInSentence,
+  cadenceDays,
   type StackSuggestion,
   type LeverSignal,
 } from '@priority/scoring-engine';
@@ -91,11 +92,6 @@ import { colors, type, space, domainColor, alpha, liningNums } from '@/theme';
  * answer is a pause rather than retirement.
  */
 const RESUGGEST_AFTER_DAYS = 14;
-
-/** Days a desired contact cadence stands for. Mirrors the People tab's map. */
-const CADENCE_DAYS: Record<string, number> = {
-  daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
-};
 
 /**
  * What kind of day today is.
@@ -1545,7 +1541,7 @@ export default function TimeReality() {
       const withinCadence = tracked.filter((r: any) => {
         if (!r.lastContactAt) return false;
         const days = (Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000;
-        return days <= (CADENCE_DAYS[r.desiredCallFrequency] ?? 30);
+        return days <= cadenceDays(r.desiredCallFrequency);
       }).length;
       out.push({
         key: 'social',
@@ -1955,7 +1951,7 @@ export default function TimeReality() {
       relationType: r.relationType,
       daysSince: days,
       // Never logged counts as well over — the same reading the People tab uses.
-      overdue: days === null ? 2 : days / (CADENCE_DAYS[r.desiredCallFrequency] ?? 30),
+      overdue: days === null ? 2 : days / cadenceDays(r.desiredCallFrequency),
     };
   });
 

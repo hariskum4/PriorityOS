@@ -17,7 +17,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle as SvgCircle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
-import { tinyStep, lifeAlignment } from '@priority/scoring-engine';
+import { tinyStep, lifeAlignment, cadenceDays } from '@priority/scoring-engine';
 import { useRouter } from 'expo-router';
 import { useMemoryDraft } from '@/store/memoryDraft';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -42,11 +42,6 @@ import { rhythmFor, rhythmByKey, anchorFor, evidenceForGenerated } from '@priori
  */
 const NO_ANCHOR = {} as const;
 import { WhyThisWorks } from '@/components/WhyThisWorks';
-
-/** Days each desired cadence represents — for the "people waiting" glance. */
-const CADENCE_DAYS: Record<string, number> = {
-  daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
-};
 
 /**
  * What to call the moment the hero card claims.
@@ -952,7 +947,7 @@ export default function Today() {
      * applied across a kitchen table it only ever produces a false debt.
      */
     if (r.locationType === 'same_home') return false;
-    const target = CADENCE_DAYS[r.desiredCallFrequency] ?? 30;
+    const target = cadenceDays(r.desiredCallFrequency);
     const d = r.lastContactAt
       ? (Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000
       : Infinity;

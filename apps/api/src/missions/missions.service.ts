@@ -13,7 +13,7 @@ import {
   suggestNextMission,
   MissionSuggestion,
   CADENCE_DAYS,
-  Cadence,
+  cadenceDays,
   isRemoteLocation,
 } from '@priority/scoring-engine';
 
@@ -401,8 +401,7 @@ export class MissionsService {
         daysSinceContact: r.lastContactAt
           ? Math.floor((Date.now() - r.lastContactAt.getTime()) / 86_400_000)
           : null,
-        desiredCadenceDays:
-          CADENCE_DAYS[(r.desiredCallFrequency ?? 'weekly') as Cadence] ?? 7,
+        desiredCadenceDays: cadenceDays(r.desiredCallFrequency, CADENCE_DAYS.weekly),
         // The children templates switch on it — bedtime chapters are not a
         // mission for the parent of a 25-year-old in another city.
         locationType: r.locationType,
