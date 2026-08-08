@@ -10,7 +10,7 @@ import {
   suggestNextMission,
   MissionSuggestion,
   CADENCE_DAYS,
-  Cadence,
+  cadenceDays,
 } from '@priority/scoring-engine';
 
 @Injectable()
@@ -217,8 +217,7 @@ export class MissionsService {
         daysSinceContact: r.lastContactAt
           ? Math.floor((Date.now() - r.lastContactAt.getTime()) / 86_400_000)
           : null,
-        desiredCadenceDays:
-          CADENCE_DAYS[(r.desiredCallFrequency ?? 'weekly') as Cadence] ?? 7,
+        desiredCadenceDays: cadenceDays(r.desiredCallFrequency, CADENCE_DAYS.weekly),
       })),
       goalsWithoutSteps: goals
         .filter((g) => g.missions.length === 0)

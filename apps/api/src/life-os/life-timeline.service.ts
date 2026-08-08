@@ -26,6 +26,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import { DomainType, domainForRelationType } from '@priority/types';
+import { cadenceDays } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** One thing that happened, once we have flattened every source. */
@@ -178,9 +179,6 @@ export class LifeTimelineService {
      * overdue": that list never changes and stops being read. This is the
      * change, which is the only part that is news.
      */
-    const CADENCE: Record<string, number> = {
-      daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
-    };
     const now = Date.now();
     const slipped = people
       .filter((p) => p.lastContactAt)
@@ -193,7 +191,7 @@ export class LifeTimelineService {
          * and turned the one line meant to carry news into nagging. A day late
          * on a daily call is not an event; three days of silence is.
          */
-        const target = Math.max(3, CADENCE[p.desiredCallFrequency ?? 'monthly'] ?? 30);
+        const target = Math.max(3, cadenceDays(p.desiredCallFrequency));
         const daysNow = Math.floor((now - p.lastContactAt!.getTime()) / 86_400_000);
         const daysThen = Math.floor((since.getTime() - p.lastContactAt!.getTime()) / 86_400_000);
         return { name: p.name, days: daysNow, wanted: p.desiredCallFrequency, target, daysThen };

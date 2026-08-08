@@ -21,6 +21,7 @@ import {
   energyBudget,
   suggestSeason,
   PLANNING_HORIZON_AGE,
+  cadenceDays,
 } from '@priority/scoring-engine';
 import { api } from '@/services/api';
 import { useRefresh } from '@/hooks/useRefresh';
@@ -33,11 +34,6 @@ import { colors, type, space, domainColor, alpha } from '@/theme';
  * onboarding facts. Everything is a planning lens: numbers move the
  * moment patterns move, and the whole tab respects insightIntensity=off.
  */
-
-/** Days a desired contact cadence stands for. Mirrors the People tab's map. */
-const CADENCE_DAYS: Record<string, number> = {
-  daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
-};
 
 function ageFromDob(dob?: string | null): number | null {
   if (!dob) return null;
@@ -303,7 +299,7 @@ export default function TimeReality() {
       relationType: r.relationType,
       daysSince: days,
       // Never logged counts as well over — the same reading the People tab uses.
-      overdue: days === null ? 2 : days / (CADENCE_DAYS[r.desiredCallFrequency] ?? 30),
+      overdue: days === null ? 2 : days / cadenceDays(r.desiredCallFrequency),
     };
   });
 

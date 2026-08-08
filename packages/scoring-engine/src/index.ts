@@ -244,6 +244,27 @@ export const CADENCE_DAYS: Record<Cadence, number> = {
   rarely: 365,
 };
 
+/**
+ * Days for a cadence that arrived as an unvalidated string.
+ *
+ * `CADENCE_DAYS` is keyed by `Cadence`, but almost nothing reads a `Cadence`.
+ * Callers read `desiredCallFrequency` straight off a relationship row, where
+ * the column is a plain string that can be null, or hold a value the picker no
+ * longer offers. Each of those callers used to keep a private copy of the map
+ * next to its own `?? 30`; this is that pattern, once.
+ *
+ * Unknown and missing cadences fall back to monthly, which is what every copy
+ * did — `fallback` is for the one caller that wants a different assumption.
+ *
+ * Note this does *not* apply a floor. A daily cadence really is one day, and a
+ * caller that would rather not report someone as slipped every single morning
+ * should say so where that decision belongs — see `life-timeline.service`.
+ */
+export const cadenceDays = (
+  cadence: string | null | undefined,
+  fallback: number = CADENCE_DAYS.monthly,
+): number => CADENCE_DAYS[cadence as Cadence] ?? fallback;
+
 export interface RelationshipPriorityInput {
   closenessScore: number; // 1..10 from onboarding
   wantsMoreTime: boolean;

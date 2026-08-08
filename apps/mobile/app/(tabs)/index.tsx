@@ -17,7 +17,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle as SvgCircle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
-import { tinyStep, lifeAlignment } from '@priority/scoring-engine';
+import { tinyStep, lifeAlignment, cadenceDays } from '@priority/scoring-engine';
 import { useRouter } from 'expo-router';
 import { useMemoryDraft } from '@/store/memoryDraft';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -28,11 +28,6 @@ import { levelProgress } from '@/theme';
 import { DomainType, DOMAIN_TO_LIFE } from '@priority/types';
 import { obs, obsDomain, obsType, obsSky, obsGreeting, alpha } from '@/observatory';
 import { Constellation, driftOf, mostAdrift } from '@/components/Constellation';
-
-/** Days each desired cadence represents — for the "people waiting" glance. */
-const CADENCE_DAYS: Record<string, number> = {
-  daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
-};
 
 function relativeDays(iso: string | Date): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -460,7 +455,7 @@ export default function Today() {
 
   const peopleWaiting = (relationships ?? []).filter((r: any) => {
     if (!r.wantsMoreTime) return false;
-    const target = CADENCE_DAYS[r.desiredCallFrequency] ?? 30;
+    const target = cadenceDays(r.desiredCallFrequency);
     const d = r.lastContactAt
       ? (Date.now() - new Date(r.lastContactAt).getTime()) / 86_400_000
       : Infinity;

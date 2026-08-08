@@ -23,12 +23,8 @@ import {
 import {
   DomainType, LifeDomain, DOMAIN_TO_LIFE, LIFE_TO_DOMAIN, domainForRelationType,
 } from '@priority/types';
+import { cadenceDays } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
-
-/** Cadence strings the app stores, as day gaps. */
-const CADENCE_DAYS: Record<string, number> = {
-  daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, yearly: 365,
-};
 
 /**
  * Twelve app domains → the kernel's eight. Imported rather than declared: the
@@ -254,7 +250,7 @@ export class LifeOsService {
         name: r.name,
         relationType: r.relationType,
         daysSinceContact: last ? Math.floor((now.getTime() - last.getTime()) / DAY_MS) : null,
-        desiredGapDays: CADENCE_DAYS[r.desiredCallFrequency ?? 'monthly'] ?? 30,
+        desiredGapDays: cadenceDays(r.desiredCallFrequency),
       };
     });
 
@@ -270,7 +266,7 @@ export class LifeOsService {
           id: r.id,
           name: r.name,
           gapsDays,
-          desiredGapDays: CADENCE_DAYS[r.desiredCallFrequency ?? 'monthly'] ?? 30,
+          desiredGapDays: cadenceDays(r.desiredCallFrequency),
         };
       })
       .filter((g) => g.gapsDays.length > 0);
