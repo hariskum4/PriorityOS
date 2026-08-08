@@ -541,6 +541,21 @@ export default function TimeReality() {
   const { width: screenWidth } = useWindowDimensions();
   const tightEditor = screenWidth < 360;
   /**
+   * Whether a rhythm and its week fit on one line.
+   *
+   * The squares were 30pt, which is the whole reason the board hung under
+   * its own title: seven of them plus a name could not share a row, so
+   * every rhythm cost two, and the weekday letters ended up stranded a
+   * full line above the boxes they name. At 18pt they fit — but only
+   * where there is width for them. Measured against the worst row, the
+   * one carrying a moved hour beside its name, the name keeps a readable
+   * column down to about 490pt; below that the seven squares would take
+   * the line and leave the title as "Bed ti…". So a phone still stacks —
+   * name, then its board — and gets the same small squares and the same
+   * three columns, just on two lines instead of one.
+   */
+  const weekInline = screenWidth >= 500;
+  /**
    * Now, kept current. Every hour, weekday and "today" on this screen reads
    * from here rather than calling `new Date()` where it stands.
    *
@@ -3723,79 +3738,130 @@ export default function TimeReality() {
                     </Pressable>
                   </View>
 
-                  <View style={s.weekHead}>
-                    <View style={{ flex: 1 }} />
-                    {WEEK_COLUMNS.map((d, i) => (
-                      <Text
-                        key={`${d}-${i}`}
-                        style={[
-                          type.faint,
-                          s.weekCellText,
-                          d === todayWeekday && { color: colors.amber, fontWeight: '800' },
-                        ]}
-                      >
-                        {WEEKDAY_INITIALS[d]}
-                      </Text>
-                    ))}
-                  </View>
-
-                  {weekRows.map((row) => (
-                    <View key={row.key} style={{ gap: 6 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <DomainDot domain={row.domain} size={8} />
-                        <Text style={[type.body, { flex: 1 }]} numberOfLines={1}>{row.title}</Text>
-                        {/* The hour, and only when it was earned rather than
-                            assumed. A catalog default said out loud reads as
-                            a claim about this person that nothing supports. */}
-                        {row.time.minutes != null && row.time.source !== 'catalog' && (
-                          <Pressable
-                            onPress={() => row.time.source === 'chosen' && clearRhythmHour(row.key)}
-                            accessibilityRole={row.time.source === 'chosen' ? 'button' : undefined}
-                            accessibilityLabel={
-                              row.time.source === 'chosen'
-                                ? `${row.title} at ${formatClock(row.time.minutes)}, tap to reset`
-                                : undefined
-                            }
-                            style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                  {/* Header and rhythms are built from the same three columns —
+                      a flexible name, seven fixed squares, a closing count —
+                      so a letter sits on its own boxes down the whole table
+                      rather than floating a line above them. Kept in one
+                      group with a tighter gap than the card's, because the
+                      letters belong to the boxes and not to the heading. */}
+                  <View style={{ gap: space(2) }}>
+                    <View style={s.weekRow}>
+                      <View style={{ flex: 1 }} />
+                      <View style={s.weekGrid}>
+                        {WEEK_COLUMNS.map((d, i) => (
+                          <Text
+                            key={`${d}-${i}`}
+                            style={[
+                              type.faint,
+                              s.weekCellText,
+                              d === todayWeekday && { color: colors.amber, fontWeight: '800' },
+                            ]}
                           >
-                            <Text style={[type.faint, { color: colors.amber }]}>
-                              {formatClock(row.time.minutes)}
-                              {row.time.source === 'chosen' ? ' ×' : ''}
-                            </Text>
-                          </Pressable>
-                        )}
-                        <Text style={type.faint}>
-                          {row.doneThisWeek}/{row.perWeek}
-                        </Text>
+                            {WEEKDAY_INITIALS[d]}
+                          </Text>
+                        ))}
                       </View>
-                      <View style={s.weekRow}>
-                        <View style={{ flex: 1 }} />
-                        {WEEK_COLUMNS.map((d, i) => {
-                          const planned = row.days.includes(d);
-                          const done = row.doneDays.includes(d);
-                          const c = domainColor(row.domain);
-                          return (
-                            <Pressable
-                              key={`${row.key}-${d}-${i}`}
-                              onPress={() => toggleRhythmDay(row.key, d, row.days)}
-                              accessibilityRole="button"
-                              accessibilityLabel={`${row.title}, ${WEEKDAY_NAMES[d]}`}
-                              aria-selected={planned}
-                              style={({ pressed }) => [
-                                s.weekCell,
-                                planned && { borderColor: c, backgroundColor: alpha(c, 0.14) },
-                                done && { backgroundColor: c, borderColor: c },
-                                d === todayWeekday && !done && { borderColor: colors.amber },
-                                pressed && { transform: [{ scale: 0.9 }] },
-                              ]}
-                            >
-                              {done && <Ionicons name="checkmark" size={12} color={colors.bg} />}
-                            </Pressable>
-                          );
-                        })}
-                      </View>
+                      <View style={s.weekCountCol} />
                     </View>
-                  ))}
+
+                    {weekRows.map((row) => {
+                      const label = (
+                        // Inline, the name takes what the board leaves; stacked,
+                        // it has the row to itself and flex would only stretch
+                        // it down the column it is now the whole of.
+                        <View style={[s.weekLabel, weekInline && { flex: 1 }]}>
+                          <DomainDot domain={row.domain} size={8} />
+                          <Text style={[type.body, { flex: 1 }]} numberOfLines={2}>{row.title}</Text>
+                          {/* The hour, and only when it was earned rather than
+                              assumed. A catalog default said out loud reads as
+                              a claim about this person that nothing supports. */}
+                          {row.time.minutes != null && row.time.source !== 'catalog' && (
+                            <Pressable
+                              onPress={() => row.time.source === 'chosen' && clearRhythmHour(row.key)}
+                              accessibilityRole={row.time.source === 'chosen' ? 'button' : undefined}
+                              accessibilityLabel={
+                                row.time.source === 'chosen'
+                                  ? `${row.title} at ${formatClock(row.time.minutes)}, tap to reset`
+                                  : undefined
+                              }
+                              style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+                            >
+                              <Text style={[type.faint, { color: colors.amber }]}>
+                                {formatClock(row.time.minutes)}
+                                {row.time.source === 'chosen' ? ' ×' : ''}
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+
+                      const board = (
+                        <>
+                          <View style={s.weekGrid}>
+                            {WEEK_COLUMNS.map((d, i) => {
+                              const planned = row.days.includes(d);
+                              const done = row.doneDays.includes(d);
+                              const c = domainColor(row.domain);
+                              return (
+                                <Pressable
+                                  key={`${row.key}-${d}-${i}`}
+                                  onPress={() => toggleRhythmDay(row.key, d, row.days)}
+                                  // The square shrank, so the target reaches
+                                  // out to fill the gaps around it — exactly
+                                  // to them and no further. Any more and
+                                  // neighbouring days would overlap, and a
+                                  // tap aimed between two of them would
+                                  // silently move whichever one won.
+                                  hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`${row.title}, ${WEEKDAY_NAMES[d]}`}
+                                  aria-selected={planned}
+                                  style={({ pressed }) => [
+                                    s.weekCell,
+                                    planned && { borderColor: c, backgroundColor: alpha(c, 0.14) },
+                                    done && { backgroundColor: c, borderColor: c },
+                                    d === todayWeekday && !done && { borderColor: colors.amber },
+                                    pressed && { transform: [{ scale: 0.9 }] },
+                                  ]}
+                                >
+                                  {done && <Ionicons name="checkmark" size={11} color={colors.bg} />}
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                          {/* The count closes the board rather than the name.
+                              Sat above the title it lined up with nothing —
+                              here it has a column of its own that the header
+                              leaves empty, either way round. */}
+                          <Text
+                            style={[type.faint, s.weekCountCol, s.weekCountText]}
+                            // The target is capped at seven; the tally of what
+                            // was actually done is not. A column that wrapped
+                            // would take its row's squares out of line with
+                            // every other row, so it clips instead.
+                            numberOfLines={1}
+                          >
+                            {row.doneThisWeek}/{row.perWeek}
+                          </Text>
+                        </>
+                      );
+
+                      return weekInline ? (
+                        <View key={row.key} style={s.weekRow}>
+                          {label}
+                          {board}
+                        </View>
+                      ) : (
+                        <View key={row.key} style={{ gap: 6 }}>
+                          {label}
+                          <View style={s.weekRow}>
+                            <View style={{ flex: 1 }} />
+                            {board}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
 
                   {/* The last day is not removable in any meaningful sense —
                       a rhythm with no days is not a rhythm, and the due
@@ -4837,13 +4903,21 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 10,
     borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: space(3),
   },
-  /** Seven equal columns, so a rhythm's days line up with the header
-      letters no matter how long its title is. */
-  weekHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  weekRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  weekCellText: { width: 30, textAlign: 'center' },
+  /** One rhythm, one line: a name that takes what is left, seven equal
+      squares, and the count closing the row. Header and rhythms use the
+      same three columns, so a day's letter stands over its own boxes no
+      matter how long the titles above and below it run. */
+  weekRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  weekLabel: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  weekGrid: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  /** Wide enough for the largest count a week can hold, so the column
+      does not shift under a row that reads 1/1 against one that reads
+      3/7 — the squares to its left would shift with it. */
+  weekCountCol: { width: 26 },
+  weekCountText: { textAlign: 'right' },
+  weekCellText: { width: 18, textAlign: 'center' },
   weekCell: {
-    width: 30, height: 30, borderRadius: 8,
+    width: 18, height: 18, borderRadius: 5,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
     alignItems: 'center', justifyContent: 'center',
   },
