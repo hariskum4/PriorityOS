@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   momentPrompts, momentThinness, momentContextOf, facetsCovered, asksTheSameAs,
-  isUsableQuestion, isUsableAccountLine, type MomentContext, type Facet,
+  isUsableQuestion, isUsableAccountLine, sameInterrogative, type MomentContext, type Facet,
 } from './momentPrompts';
 
 const base: MomentContext = { title: 'Called Amma', memoryType: 'relationship' };
@@ -620,6 +620,44 @@ describe('every question the form can reach, against every one it can sit beside
       .toBe(true);
     expect(asksTheSameAs('What did that take that nobody saw?', 'What did it take to get there?'))
       .toBe(true);
+  });
+});
+
+describe('a rewrite has to still be the same question', () => {
+  /* The real model, handed a `where` probe, returned a `who` one. Nothing
+     invented, still open, still one sentence — and a different question, over
+     a disclosure label describing the box it no longer matches. */
+  it('rejects a Where turned into a Who', () => {
+    expect(sameInterrogative('Where were you?', 'Who else was there?')).toBe(false);
+  });
+
+  it.each([
+    ['What made that the day for it?', 'What made that the moment?'],
+    ['What did you and Amma actually talk about?', 'What did you and Amma actually say to each other?'],
+    ['What do you want to remember about it?', 'What is worth keeping from it?'],
+  ])('accepts a tightening that keeps the question word: %s', (a, b) => {
+    expect(sameInterrogative(a, b)).toBe(true);
+  });
+
+  it.each([
+    ['Why was this one worth doing?', 'What made it worth doing?'],
+    ['Who did you end up spending most of it with?', 'Where did everyone end up?'],
+  ])('rejects %s becoming a different interrogative', (a, b) => {
+    expect(sameInterrogative(a, b)).toBe(false);
+  });
+
+  /* Nothing to preserve when the original does not open with one. */
+  it('constrains nothing when the original has no question word', () => {
+    expect(sameInterrogative('Tell me about it.', 'What happened?')).toBe(true);
+  });
+
+  /* Every question the engine can emit opens with an interrogative, so the
+     guard is live on all of them rather than quietly inert. */
+  it.each(ALL)('the engine question for %s opens with a question word', (_label, ctx) => {
+    const p = momentPrompts(ctx);
+    for (const q of [p.insight, p.conversation, p.keepsake]) {
+      expect(sameInterrogative(q, 'Nothing like it at all')).toBe(false);
+    }
   });
 });
 

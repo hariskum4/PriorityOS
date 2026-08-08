@@ -97,6 +97,33 @@ describe('the name is required back only where it was there to begin with', () =
   });
 });
 
+describe('a rewrite that becomes a different question is thrown away', () => {
+  /**
+   * Observed from the live model, not invented: handed the `where` probe
+   * "Where were you?" it returned "Who else was there?" — nothing invented,
+   * still open, still one sentence, and a different question. The label
+   * beside it comes from the engine's own choice and still said "where you
+   * were", and the facet the engine picked is what stops it re-asking
+   * something already answered.
+   */
+  it('refuses a Where rewritten as a Who', async () => {
+    const alone = {
+      ...MOMENT, title: 'A long walk', memoryType: 'experience',
+      personName: null, peoplePresent: [],
+      reflection: 'I walked for an hour and cooked when I got back home.',
+    };
+    const engine = engineFor(alone);
+    const out = await svc({ conversation: 'Who else was there?' }, alone).prompts('u1', 'm1');
+    expect(out.conversation).toBe(engine.conversation);
+    expect(out.conversation).toMatch(/^What|^Where/);
+  });
+
+  it('still accepts a tightening that keeps the question word', async () => {
+    const out = await svc({ keepsake: 'What is worth keeping from it?' }).prompts('u1', 'm1');
+    expect(out.keepsake).toBe('What is worth keeping from it?');
+  });
+});
+
 describe('a rewrite that stops being a question is thrown away', () => {
   const engine = engineFor();
 

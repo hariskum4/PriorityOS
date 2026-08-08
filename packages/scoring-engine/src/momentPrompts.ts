@@ -670,6 +670,35 @@ export function isUsableQuestion(text: string | null | undefined): boolean {
 }
 
 /**
+ * Whether a rewrite is still asking the same *kind* of thing.
+ *
+ * Caught by running the real model rather than a fixture. The engine asked
+ * "Where were you?" — a `where` probe, chosen because place was the one facet
+ * still empty — and the model returned "Who else was there?". Both guards
+ * passed: nothing was invented, and it is still an open question. But it is a
+ * different question, and two things break behind it.
+ *
+ * The disclosure label comes from the engine's own choice and is never
+ * model-edited, so the link promised "where you were" over a box asking who
+ * else was there. And the facet the engine picked is the whole mechanism for
+ * not repeating a question the person has already answered — a `where` probe
+ * silently becoming a `who` probe can reintroduce exactly the duplication
+ * this module exists to prevent.
+ *
+ * The interrogative is the cheapest honest test of "same question". A rewrite
+ * may sharpen What into What; turning Where into Who is not an edit, it is a
+ * substitution.
+ */
+export function sameInterrogative(original: string, rewritten: string): boolean {
+  const wordOf = (q: string) => q.trim().toLowerCase().match(/^(what|where|who|why|when|how|which)\b/)?.[1] ?? null;
+  const a = wordOf(original);
+  /* An original that does not open with a question word constrains nothing —
+     there is no interrogative to preserve. */
+  if (!a) return true;
+  return wordOf(rewritten) === a;
+}
+
+/**
  * The account line is the one of the four that is not a question.
  *
  * It sits inside a text box as guidance, so it must not grow into a sentence

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   ritualTokens, momentPrompts, momentThinness, momentContextOf,
-  isUsableQuestion, isUsableAccountLine, safeRephrase,
+  isUsableQuestion, isUsableAccountLine, sameInterrogative, safeRephrase,
 } from '@priority/scoring-engine';
 import { MOMENT_PROMPTS } from '@priority/ai-prompts';
 import { PrismaService } from '../prisma/prisma.service';
@@ -488,7 +488,14 @@ export class MemoriesService {
     );
     const question = (original: string, rewritten: string) => {
       const { sentence } = safeRephrase(original, rewritten, { mustKeep: keepNameIn(original) });
-      return isUsableQuestion(sentence) ? sentence : original;
+      /* Still a question, and still the same one. `sameInterrogative` is the
+         third guard: a model handed "Where were you?" returned "Who else was
+         there?", which invents nothing and reads perfectly well, but swaps the
+         facet the engine deliberately chose and leaves the disclosure label
+         describing a different box. */
+      return isUsableQuestion(sentence) && sameInterrogative(original, sentence)
+        ? sentence
+        : original;
     };
     const { sentence: account } = safeRephrase(engine.reflection, edited.account, {
       mustKeep: keepNameIn(engine.reflection),
