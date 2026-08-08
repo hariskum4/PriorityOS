@@ -34,7 +34,16 @@ export interface TimelineDay {
 export interface TimelineAct {
   label: string;
   domain: string | null;
-  kind: string;
+  /**
+   * Every facet of one event, lead first.
+   *
+   * One hour with your daughter can be a mission finished, a moment kept and
+   * an entry written — one thing that happened, recorded three ways. It used
+   * to arrive as three separate acts and stack up as "done", "kept",
+   * "wrote", all at the same hour. It is one line now, and it says all three,
+   * because you did do all three.
+   */
+  kinds: string[];
 }
 
 export interface TimelineYearData {
@@ -764,7 +773,9 @@ export function YearGrid({
                         point of colouring them at all. */}
                     <View style={[s.dot, { backgroundColor: domainColor(act.domain ?? 'growth') }]} />
                     <Text style={s.actLabel}>{act.label}</Text>
-                    <Text style={s.actKind}>{KIND_LABEL[act.kind] ?? act.kind}</Text>
+                    <Text style={s.actKind}>
+                      {act.kinds.map((k) => KIND_LABEL[k] ?? k).join(' · ')}
+                    </Text>
                   </View>
                 ))}
 

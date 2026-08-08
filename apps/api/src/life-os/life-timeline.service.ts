@@ -30,11 +30,29 @@ import { cadenceDays } from '@priority/scoring-engine';
 import { PrismaService } from '../prisma/prisma.service';
 import { dayKeyIn } from '../common/time';
 
-/** One thing that happened, once we have flattened every source. */
+type ActKind = 'mission' | 'contact' | 'memory' | 'habit' | 'reflection';
+
+/**
+ * One thing that happened, once we have flattened every source.
+ *
+ * **One event, not one row.** The app records a single act in up to three
+ * places on purpose — finish a mission, keep the moment, write the entry —
+ * and flattening the tables gave one hour with a seven-year-old three
+ * entries on the calendar: "done", "kept", "wrote", stacked, all the same
+ * hour. Duplicated on the grid it is untidy; duplicated in `rhythm()` it is
+ * a lie, because a domain you follow through on reads as roughly twice as
+ * lived as it was, and it is the domains people follow through on that this
+ * record is supposed to be honest about.
+ *
+ * So `kinds` is a list. The event is counted once and carries its facets,
+ * which is also the more truthful thing to show: you did it *and* kept it,
+ * and hiding either would be its own small dishonesty.
+ */
 interface DatedAct {
   at: Date;
   domain: DomainType | null;
-  kind: 'mission' | 'contact' | 'memory' | 'habit' | 'reflection';
+  /** Facets of one event, lead first. The lead is what the act is counted as. */
+  kinds: ActKind[];
   label: string;
 }
 
@@ -71,7 +89,7 @@ export interface TimelineYear {
    * dominate that day. The day is the only place the whole shape of a life is
    * visible at once; it should say what each thing was.
    */
-  sample: Record<string, Array<{ label: string; domain: string | null; kind: string }>>;
+  sample: Record<string, Array<{ label: string; domain: string | null; kinds: string[] }>>;
 }
 
 /**
@@ -115,7 +133,7 @@ const DAY_MS = 86_400_000;
  * product thinks a life is made of, so they should be argued with in the open
  * rather than buried in a scoring config.
  */
-const ACT_WEIGHT: Record<DatedAct['kind'], number> = {
+const ACT_WEIGHT: Record<ActKind, number> = {
   memory: 5,      // a moment kept on purpose, unrepeatable
   contact: 3,     // real time with a real person
   reflection: 3,  // sitting with your own life
@@ -143,7 +161,7 @@ export interface DomainRhythm {
   recent: number;
   lastAt: string | null;
   kinds: Array<{
-    kind: DatedAct['kind'];
+    kind: ActKind;
     count: number;
     items: Array<{ label: string; at: string }>;
   }>;
@@ -185,7 +203,7 @@ export class LifeTimelineService {
     for (const a of acts) {
       if (!a.domain) continue;
       if (upToYear != null && Number(dayOf(a.at, tz).slice(0, 4)) > upToYear) continue;
-      totals[a.domain] = (totals[a.domain] ?? 0) + ACT_WEIGHT[a.kind];
+      totals[a.domain] = (totals[a.domain] ?? 0) + ACT_WEIGHT[a.kinds[0]];
     }
     return totals;
   }
@@ -234,8 +252,11 @@ export class LifeTimelineService {
       if (a.at.getTime() >= since) d.recent += 1;
       if (!d.lastAt || a.at > new Date(d.lastAt)) d.lastAt = a.at.toISOString();
 
-      let k = d.kinds.find((x) => x.kind === a.kind);
-      if (!k) { k = { kind: a.kind, count: 0, items: [] }; d.kinds.push(k); }
+      /* Counted under its lead facet only, so each event appears once and
+         the per-kind counts still sum to `total`. */
+      const lead = a.kinds[0];
+      let k = d.kinds.find((x) => x.kind === lead);
+      if (!k) { k = { kind: lead, count: 0, items: [] }; d.kinds.push(k); }
       k.count += 1;
       k.items.push({ label: a.label.slice(0, 80), at: a.at.toISOString() });
     }
@@ -368,7 +389,7 @@ export class LifeTimelineService {
 
     const grewBy: Record<string, number> = {};
     for (const a of acts) {
-      if (a.domain) grewBy[a.domain] = (grewBy[a.domain] ?? 0) + ACT_WEIGHT[a.kind];
+      if (a.domain) grewBy[a.domain] = (grewBy[a.domain] ?? 0) + ACT_WEIGHT[a.kinds[0]];
     }
     const grew = Object.entries(grewBy)
       .map(([domain, weight]) => ({ domain, weight: Math.round(weight * 10) / 10 }))
@@ -457,7 +478,7 @@ export class LifeTimelineService {
       const kinds: Record<string, number> = {};
       for (const a of dayActs) {
         if (a.domain) dayDomains[a.domain] = (dayDomains[a.domain] ?? 0) + 1;
-        kinds[a.kind] = (kinds[a.kind] ?? 0) + 1;
+        kinds[a.kinds[0]] = (kinds[a.kinds[0]] ?? 0) + 1;
       }
 
       let dominant: DomainType | null = null;
@@ -489,7 +510,7 @@ export class LifeTimelineService {
         sample[key] = dayActs.slice(-24).reverse().map((a) => ({
           label: a.label,
           domain: a.domain,
-          kind: a.kind,
+          kinds: a.kinds,
         }));
       }
     }
@@ -516,14 +537,18 @@ export class LifeTimelineService {
   private async gather(userId: string, from?: Date, to?: Date): Promise<DatedAct[]> {
     const window = from && to ? { gte: from, lt: to } : undefined;
 
-    const [missions, contacts, memories, habitLogs, journal] = await Promise.all([
+    const [tz, missions, contacts, memories, habitLogs, journal] = await Promise.all([
+      /* Needed to decide whether a mission and its kept moment fall on the
+         same *local* day. See the merge below — a backdated moment is a
+         different day, and UTC would get that wrong either side of midnight. */
+      this.zoneOf(userId),
       this.prisma.mission.findMany({
         where: {
           userId,
           status: 'completed',
           ...(window ? { completedAt: window } : { completedAt: { not: null } }),
         },
-        select: { completedAt: true, domainType: true, title: true },
+        select: { id: true, completedAt: true, domainType: true, title: true },
       }),
       this.prisma.contactLog.findMany({
         where: {
@@ -537,7 +562,7 @@ export class LifeTimelineService {
       }),
       this.prisma.memory.findMany({
         where: { userId, ...(window ? { occurredAt: window } : {}) },
-        select: { occurredAt: true, domainType: true, title: true },
+        select: { occurredAt: true, domainType: true, title: true, missionId: true },
       }),
       this.prisma.habitLog.findMany({
         where: {
@@ -554,29 +579,92 @@ export class LifeTimelineService {
 
     const acts: DatedAct[] = [];
 
+    /* Missions first, and held by id, so the moment kept from one can find it
+       below rather than landing beside it. */
+    const byMission = new Map<string, DatedAct>();
     for (const m of missions) {
       if (!m.completedAt) continue;
-      acts.push({
+      const act: DatedAct = {
         at: m.completedAt,
         domain: m.domainType as DomainType,
-        kind: 'mission',
+        kinds: ['mission'],
         label: m.title,
-      });
+      };
+      acts.push(act);
+      byMission.set(m.id, act);
+    }
+    /**
+     * A relationship mission logs contact as it completes, so the same event
+     * is a third row before anyone keeps anything.
+     *
+     * `ContactLog` has no `missionId`, but `missions.service` writes the note
+     * itself as `Mission: <title>` — app-authored provenance, not something a
+     * person typed. That distinction is the whole licence for matching on
+     * text here: this string is generated and stable, whereas a journal line
+     * is the reader's own and is meant to be rewritten. Matching prose people
+     * own would break exactly when they make it theirs.
+     */
+    const byMissionNote = new Map<string, DatedAct>();
+    for (const m of missions) {
+      const act = byMission.get(m.id);
+      const note = `Mission: ${m.title}`;
+      if (act && !byMissionNote.has(note)) byMissionNote.set(note, act);
     }
     for (const c of contacts) {
+      const from = c.note ? byMissionNote.get(c.note) : undefined;
+      /* One contact per mission act. A second log with the same note is a
+         separate event and must not be swallowed by the first. */
+      if (from && !from.kinds.includes('contact')
+        && dayOf(from.at, tz) === dayOf(c.occurredAt, tz)) {
+        from.kinds = ([...from.kinds, 'contact'] as ActKind[])
+          .sort((a, b) => ACT_WEIGHT[b] - ACT_WEIGHT[a]);
+        // A person's own relationType is finer than the mission's domain.
+        from.domain = domainForRelationType(c.relationship.relationType);
+        continue;
+      }
       acts.push({
         at: c.occurredAt,
         // A person's own relationType is finer than any domain guess.
         domain: domainForRelationType(c.relationship.relationType),
-        kind: 'contact',
+        kinds: ['contact'],
         label: `${c.kind} with ${c.relationship.name}${c.note ? ` — ${c.note}` : ''}`,
       });
     }
     for (const mem of memories) {
+      /**
+       * A moment kept from a mission is the same event, not a second one.
+       *
+       * Only when both land on the same local day. `occurredAt` is editable
+       * and the archive exists so a life older than the app can be written
+       * down: finish a mission today and date the moment to a graduation in
+       * 2009 and those genuinely *are* two days — the doing and the thing
+       * remembered — so both belong on the calendar. Merging on the id alone
+       * would quietly move the 2009 square onto today.
+       */
+      const from = mem.missionId ? byMission.get(mem.missionId) : undefined;
+      if (from && dayOf(from.at, tz) === dayOf(mem.occurredAt, tz)) {
+        /**
+         * Ordered by weight, so the lead is the best thing the event was.
+         *
+         * `ACT_WEIGHT` scores a kept moment at 5 and a ticked mission at 1,
+         * and the lead is what the event is counted and weighted as. Leading
+         * with the mission because it happened first would quietly value the
+         * evening you chose to keep at one errand — shrinking the organism
+         * for precisely the acts it is meant to grow on.
+         */
+        from.kinds = ([...from.kinds, 'memory'] as ActKind[])
+          .sort((a, b) => ACT_WEIGHT[b] - ACT_WEIGHT[a]);
+        /* The person may have retitled the moment after keeping it, and their
+           words beat the catalog's. Domain likewise: the moment carries the
+           finer one when it has been set. */
+        if (mem.title?.trim()) from.label = mem.title;
+        if (mem.domainType) from.domain = mem.domainType as DomainType;
+        continue;
+      }
       acts.push({
         at: mem.occurredAt,
         domain: (mem.domainType as DomainType) ?? null,
-        kind: 'memory',
+        kinds: ['memory'],
         label: mem.title,
       });
     }
@@ -584,7 +672,7 @@ export class LifeTimelineService {
       acts.push({
         at: h.completedAt,
         domain: h.habit.domainType as DomainType,
-        kind: 'habit',
+        kinds: ['habit'],
         label: h.habit.title,
       });
     }
@@ -593,7 +681,7 @@ export class LifeTimelineService {
       acts.push({
         at: j.createdAt,
         domain: (tags[0] as DomainType) ?? null,
-        kind: 'reflection',
+        kinds: ['reflection'],
         label: j.whatMattered?.slice(0, 80) || 'Reflected',
       });
     }
