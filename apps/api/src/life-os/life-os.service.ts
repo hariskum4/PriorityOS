@@ -528,7 +528,7 @@ export class LifeOsService {
        */
       this.prisma.mission.findMany({
         where: { userId, status: 'pending' },
-        select: { relationshipId: true, goalId: true },
+        select: { relationshipId: true, goalId: true, title: true },
       }),
     ]);
 
@@ -537,12 +537,17 @@ export class LifeOsService {
       lastProfoundAt: state?.lastProfoundAt ?? null,
       seenObservationIds: (state?.seenObservationIds as string[]) ?? [],
       // `person:<id>` is how the relationship engine tags a subject; goals tag
-      // themselves by bare id. Both shapes are matched as the engines write
-      // them, so this stays a lookup rather than a second convention.
+      // themselves by bare id. The orchestrator normalises both to the bare id
+      // now, so either spelling collides there and this stays a lookup rather
+      // than a second convention.
       addressedSubjects: claimed.flatMap((m) => [
         ...(m.relationshipId ? [`person:${m.relationshipId}`] : []),
         ...(m.goalId ? [m.goalId] : []),
       ]),
+      /* And the standing wording, for the errands that have no person or goal
+         on them at all — a pending "Book the checkup you have moved three
+         times" is invisible to the subject rule above. */
+      addressedActions: claimed.map((m) => m.title),
     });
 
     /**
@@ -963,7 +968,23 @@ export class LifeOsService {
     let relationshipId: string | null = null;
     let domainType: DomainType = lifeDomain ? LIFE_TO_DOMAIN[lifeDomain] : 'growth';
 
-    const subjects: string[] = Array.isArray(body.subjects) ? body.subjects : [];
+    /**
+     * Subjects arrive in either spelling, and only one of them is an id.
+     *
+     * The relationship and time engines tag people as `person:<id>`; the
+     * client posts those subjects back verbatim on accept. This lookup asked
+     * for them as bare ids, so it matched nothing, and every mission accepted
+     * from a relationship proposal was written with `relationshipId` null —
+     * losing its person on the way in.
+     *
+     * That is what made the suppression above unreachable for the exact case
+     * it was built for. `claimed` reads `relationshipId`, so a mission that
+     * never recorded one is a mission the next cycle cannot see is standing:
+     * the reader accepts "Reach out to Vikram", and tomorrow the kernel
+     * proposes Vikram again, having been told nothing.
+     */
+    const subjects: string[] = (Array.isArray(body.subjects) ? body.subjects : [])
+      .map((s: unknown) => String(s).replace(/^person:/, ''));
     if (subjects.length) {
       const person = await this.prisma.relationship.findFirst({
         where: { userId, id: { in: subjects } },

@@ -303,6 +303,72 @@ describe('the reduction rules', () => {
     expect(r.suppressed.map((s) => s.reason)).toContain('subject-already-addressed');
   });
 
+  /**
+   * The half of that rule that was never reachable.
+   *
+   * The engines tag a person `person:<id>`; the host records a mission's
+   * person as a bare id. Seeded from one spelling and compared against the
+   * other, the set never collided — so the suppression above read as enforced
+   * and, for a mission the host had written from its own records, was not.
+   */
+  it.each([
+    ['engine spelling on both sides', ['person:vikram']],
+    ['host spelling, engine tag', ['vikram']],
+  ])('matches the same person across %s', (_label, addressedSubjects) => {
+    const a: Observation = { ...obs('r1', 'regret'), subjects: ['person:vikram'] };
+    const reg = new EngineRegistry().register(fake('regret', {
+      observations: [a],
+      proposals: [prop({ id: 'x', engine: 'regret', action: 'Call Vikram — not a text', addresses: ['r1'] })],
+    }));
+    const r = runCycleWith(reg, { context: ctx(), addressedSubjects });
+    expect(r.proposals).toHaveLength(0);
+    expect(r.suppressed.map((s) => s.reason)).toContain('subject-already-addressed');
+  });
+
+  /**
+   * An errand with nobody on it.
+   *
+   * "Book the checkup you have moved three times" carries no person and no
+   * goal, so the subject rule cannot see it however the ids are spelled. The
+   * only thing the standing copy and the proposed copy share is their wording.
+   */
+  it('says nothing it has already been said yes to, word for word', () => {
+    const reg = new EngineRegistry().register(fake('regret', {
+      observations: [obs('r1', 'regret')],
+      proposals: [prop({ id: 'x', engine: 'regret', action: 'Book the checkup', addresses: ['r1'] })],
+    }));
+    const r = runCycleWith(reg, {
+      context: ctx(),
+      /* Punctuation and case differ, as they will between a catalog title and
+         a person's own edit of it. */
+      addressedActions: ['  BOOK  the   checkup!  '],
+    });
+    expect(r.proposals).toHaveLength(0);
+    expect(r.suppressed.map((s) => s.reason)).toContain('already-accepted');
+  });
+
+  it('still proposes an errand that is merely similar', () => {
+    const reg = new EngineRegistry().register(fake('regret', {
+      observations: [obs('r1', 'regret')],
+      proposals: [prop({ id: 'x', engine: 'regret', action: 'Book the dentist', addresses: ['r1'] })],
+    }));
+    const r = runCycleWith(reg, {
+      context: ctx(),
+      addressedActions: ['Book the checkup'],
+    });
+    expect(r.proposals.map((p) => p.id)).toEqual(['x']);
+  });
+
+  it('is unchanged when nothing is standing', () => {
+    const reg = new EngineRegistry().register(fake('regret', {
+      observations: [obs('r1', 'regret')],
+      proposals: [prop({ id: 'x', engine: 'regret', action: 'Book the checkup', addresses: ['r1'] })],
+    }));
+    expect(runCycleWith(reg, { context: ctx() }).proposals.map((p) => p.id)).toEqual(['x']);
+    expect(runCycleWith(reg, { context: ctx(), addressedActions: [] }).proposals.map((p) => p.id))
+      .toEqual(['x']);
+  });
+
   it('still speaks about everybody else on the plate', () => {
     const a: Observation = { ...obs('r1', 'regret'), subjects: ['person:vikram'] };
     const b: Observation = { ...obs('r2', 'regret'), subjects: ['person:amma'] };

@@ -144,6 +144,18 @@ export interface CycleInput {
    * about Vikram, the day does not raise him again.
    */
   addressedSubjects?: readonly string[];
+  /**
+   * The wording of work already accepted and not yet finished — pending
+   * mission titles, in the host.
+   *
+   * `addressedSubjects` catches the same *person* twice; this catches the
+   * same *ask* twice when there is no subject to catch it by. A standing
+   * "Book the checkup you have moved three times" has no person and no goal
+   * on it, so nothing above stops the engine proposing its own wording of the
+   * identical errand directly underneath. The accepted copy is the one the
+   * reader already said yes to, and the engine's copy must yield to it.
+   */
+  addressedActions?: readonly string[];
 }
 
 export interface CycleResult {
@@ -170,6 +182,7 @@ export type SuppressionReason =
   | 'already-seen'
   | 'duplicate-action'
   | 'subject-already-addressed'
+  | 'already-accepted'
   | 'budget-full';
 
 // ---------------------------------------------------------------------------
@@ -210,9 +223,25 @@ function score(p: Proposal, observations: Map<string, Observation>): number {
   return pressure + significance + grounded + cheap;
 }
 
-/** Normalise an action for duplicate detection across engines. */
+/** Normalise action wording for duplicate detection across engines. */
+function textKey(action: string): string {
+  return action.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 function actionKey(p: Proposal): string {
-  return p.action.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return textKey(p.action);
+}
+
+/**
+ * Normalise a subject tag so the same person matches whoever tagged them.
+ *
+ * The relationship and time engines tag people as graph node ids
+ * (`person:<id>`); goals and the host's own records use the bare id. One key
+ * for both, so a set seeded from either spelling still collides — the
+ * alternative is a rule that reads as enforced and quietly is not.
+ */
+function subjectKey(s: string): string {
+  return s.replace(/^person:/, '');
 }
 
 /**
@@ -226,7 +255,7 @@ function subjectsOf(p: Proposal, observations: Map<string, Observation>): string
   const fromObservations = p.addresses.flatMap(
     (id) => observations.get(id)?.subjects ?? [],
   );
-  return [...new Set(fromObservations)];
+  return [...new Set(fromObservations.map(subjectKey))];
 }
 
 /**
@@ -293,7 +322,11 @@ export function runCycleWith(
   // already on the plate. Two engines noticing the same friend is two engines
   // agreeing, and a person nudged twice about Sam in one morning reads the app
   // as broken, not thorough. Seeded with what other surfaces already claimed.
-  const addressedSubjects = new Set<string>(input.addressedSubjects ?? []);
+  const addressedSubjects = new Set<string>((input.addressedSubjects ?? []).map(subjectKey));
+  /* The wording of work already accepted. Same rule as `usedActions` below,
+     carried across the accept boundary: the standing copy is the one already
+     on screen, so the engines' copy of the same ask must not appear beside it. */
+  const standingActions = new Set<string>((input.addressedActions ?? []).map(textKey));
   let insistCount = 0;
 
   for (const p of ranked) {
@@ -321,6 +354,10 @@ export function runCycleWith(
     if (usedActions.has(key)) {
       // Two engines reaching the same conclusion is agreement, not two tasks.
       drop(p, 'duplicate-action'); continue;
+    }
+    // And the same conclusion reached yesterday and already said yes to.
+    if (standingActions.has(key)) {
+      drop(p, 'already-accepted'); continue;
     }
     // Same person or same goal, differently worded, still one nudge.
     const subjects = subjectsOf(p, observationById);
